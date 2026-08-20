@@ -286,17 +286,20 @@ export interface ElevenLabsAgentAdapterOptions {
   /** ElevenLabs API key (`xi-api-key`). */
   apiKey: string;
   /**
-   * Base URL for the ElevenLabs REST API, passed straight to the SDK client.
+   * Base URL for the ElevenLabs REST API, passed straight to the SDK client's
+   * own `baseUrl` option.
    *
-   * Points the signed-URL handshake at a LangWatch voice gateway, which
-   * mirrors the vendor's own mint path: the gateway checks the virtual key's
-   * budget and session cap, mints the signed URL, and bills the call as one
-   * spend record. The websocket the URL names still belongs to ElevenLabs,
-   * so the media stream runs client to vendor and nothing about latency or
-   * the wire protocol changes. `apiKey` then carries the virtual key.
+   * Points the signed-URL handshake at a LangWatch AI Gateway, which mirrors
+   * the vendor's own mint path: the gateway checks the virtual key's budget
+   * and session cap, mints the signed URL, and bills the call as one spend
+   * record. The websocket the URL names still belongs to ElevenLabs, so the
+   * media stream runs client to vendor and nothing about latency or the wire
+   * protocol changes. `apiKey` then carries the virtual key.
    *
-   * Omitted, this follows `LANGWATCH_VOICE_BROKER_URL`, and with that unset
-   * the SDK talks to ElevenLabs directly as it always has.
+   * There is no environment variable for this, because the ElevenLabs SDK has
+   * none: `ELEVENLABS_API_KEY` is the only variable it reads (checked against
+   * `@elevenlabs/elevenlabs-js` 2.64.0), and the base URL is a constructor
+   * option. Omitted, the SDK talks to ElevenLabs directly as it always has.
    */
   baseUrl?: string;
   /**
@@ -477,7 +480,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     super();
     this.agentId = options.agentId;
     this.apiKey = options.apiKey;
-    this.baseUrl = options.baseUrl ?? process.env.LANGWATCH_VOICE_BROKER_URL;
+    this.baseUrl = options.baseUrl;
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
     this.dynamicVariables = options.dynamicVariables;

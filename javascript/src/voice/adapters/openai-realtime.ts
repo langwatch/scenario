@@ -35,9 +35,10 @@ import { AudioChunk } from "../audio-chunk";
 import {
   mintOpenAIRealtimeSession,
   reportOpenAIRealtimeUsage,
-  resolveVoiceBroker,
+  resolveRealtimeMintEndpoint,
+  warnDirectDialFallback,
+  type RealtimeMintEndpoint,
   type RealtimeUsage,
-  type VoiceBrokerConfig,
 } from "../broker";
 import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage, extractAudio } from "../messages";
@@ -113,10 +114,11 @@ export interface OpenAIRealtimeAgentAdapterInit {
   /** Tool definitions passed straight through to the Realtime session. */
   tools?: RealtimeToolDef[];
   /**
-   * Explicit API key; falls back to `process.env.OPENAI_REALTIME_API_KEY`,
-   * then `process.env.OPENAI_API_KEY`. Realtime always connects directly to
-   * OpenAI, so keep a real provider key here when `OPENAI_API_KEY` holds a
-   * gateway virtual key.
+   * Explicit API key for dialing the vendor directly; falls back to
+   * `process.env.OPENAI_REALTIME_API_KEY`, then `process.env.OPENAI_API_KEY`.
+   *
+   * This key is only used when the session is not minted, so it matters when
+   * `OPENAI_BASE_URL` points at an endpoint with no mint route. See `mint`.
    */
   apiKey?: string;
   /**
@@ -139,19 +141,20 @@ export interface OpenAIRealtimeAgentAdapterInit {
    */
   wsFactory?: (url: string, authHeader: string) => WebSocket;
   /**
-   * Mint this session through a LangWatch voice gateway instead of
-   * authenticating with a provider key.
+   * Where to mint the session credential, overriding `OPENAI_BASE_URL` and
+   * `OPENAI_API_KEY`. `false` skips the mint and dials the vendor directly.
    *
-   * The gateway checks the key's budget and session cap, mints OpenAI's own
-   * ephemeral client secret, and bills the call as one spend record; the
-   * media socket still runs straight to OpenAI, so nothing about latency or
-   * the wire protocol changes. `false` disables brokering even when the
-   * environment configures it.
+   * `POST /v1/realtime/client_secrets` is OpenAI's own path, and a LangWatch
+   * AI Gateway mirrors it, so the same request works against either. Against
+   * OpenAI it returns an ephemeral client secret. Against a gateway it also
+   * checks the virtual key's budget and open-session cap and opens one spend
+   * record, naming the session on the `X-LangWatch-Session-Id` response
+   * header. Usage is reported back only when that header is present.
    *
-   * Omitted, brokering follows `LANGWATCH_VOICE_BROKER_URL`, and with that
-   * unset the adapter connects directly to OpenAI as it always has.
+   * The media socket runs to the vendor either way, so latency and the wire
+   * protocol do not change.
    */
-  broker?: Partial<VoiceBrokerConfig> | false;
+  mint?: Partial<RealtimeMintEndpoint> | false;
 }
 
 /**
@@ -193,9 +196,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
   private readonly _apiKey: string;
   private readonly _urlOverride: string | null;
-  /** Broker configuration, or null when connecting straight to OpenAI. */
-  private readonly _broker: VoiceBrokerConfig | null;
-  /** The gateway's id for the current session, set at mint. */
+  /** Where to mint, or null when there is no key to mint with. */
+  private readonly _mint: RealtimeMintEndpoint | null;
+  /** The gateway's id for the current session, empty unless a gateway minted it. */
   private _brokerSessionId = "";
   /** The last usage object the socket reported, sent when the session ends. */
   private _lastUsage: RealtimeUsage | null = null;
@@ -246,14 +249,14 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this.instructions = init.instructions ?? "";
     this.tools = init.tools ?? [];
     this.role = init.role ?? AgentRole.AGENT;
-    // The provider key for a direct connection: explicit param, then
+    // The fallback key for dialing the vendor directly: explicit param, then
     // OPENAI_REALTIME_API_KEY, then OPENAI_API_KEY. OPENAI_REALTIME_API_KEY
-    // exists so a deployment whose OPENAI_API_KEY is a gateway virtual key
-    // can still hold a real provider key for this socket.
+    // exists so a deployment whose OPENAI_API_KEY is a virtual key can still
+    // hold a real provider key for this socket.
     //
-    // A brokered adapter uses none of these on the socket. It mints OpenAI's
-    // own ephemeral secret through the gateway and dials with that, so the
-    // provider key stays server side. See `broker`.
+    // A minted session uses none of these on the socket. It dials with the
+    // ephemeral secret the mint returned, so a long-lived key never reaches
+    // the socket. See `mint`.
     this._apiKey =
       init.apiKey ??
       process.env.OPENAI_REALTIME_API_KEY ??
@@ -261,19 +264,25 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       "";
     this._urlOverride = init.url ?? null;
     this._wsFactory = init.wsFactory ?? null;
-    this._broker =
-      init.broker === false
+    this._mint =
+      init.mint === false
         ? null
-        : resolveVoiceBroker(init.broker ?? undefined);
+        : resolveRealtimeMintEndpoint(init.mint ?? undefined);
   }
 
   get url(): string {
     return resolveRealtimeUrl(this._urlOverride, this.model);
   }
 
-  /** Whether this adapter mints through a gateway rather than using a provider key. */
+  /**
+   * Whether the live session was minted by a gateway rather than the vendor.
+   *
+   * Only true after `connect()`, and only when the mint answered with
+   * `X-LangWatch-Session-Id`. Configuration cannot set it, because the
+   * response is the one thing that cannot be told a lie about what answered.
+   */
   get brokered(): boolean {
-    return this._broker !== null;
+    return this._brokerSessionId !== "";
   }
 
   /** Hide the API key when this object lands in error messages or logs. */
@@ -304,22 +313,30 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this._brokerSessionId = "";
     this._lastUsage = null;
 
-    // Brokered, the socket's bearer is the vendor's own ephemeral secret,
-    // minted for this session against the virtual key's budget and cap. It
-    // is a short-lived credential for exactly this call, so the long-lived
-    // provider key never reaches the client or the socket.
+    // The socket's bearer is the ephemeral secret the mint returned: a
+    // credential for exactly this call, so no long-lived key reaches the
+    // socket. Whether OpenAI or a gateway answers the mint is a property of
+    // OPENAI_BASE_URL, not of this adapter.
     let socketKey = this._apiKey;
-    if (this._broker) {
-      const minted = await mintOpenAIRealtimeSession(this._broker, {
+    if (this._mint) {
+      const result = await mintOpenAIRealtimeSession(this._mint, {
         model: this.model,
       });
-      socketKey = minted.clientSecret;
-      this._brokerSessionId = minted.sessionId;
-      setSpanAttributes(currentSpan(), {
-        "voice.realtime.brokered": true,
-        "voice.realtime.session_id": minted.sessionId,
-      });
-    } else if (!this._apiKey) {
+      if (result.minted) {
+        socketKey = result.clientSecret;
+        this._brokerSessionId = result.sessionId;
+        setSpanAttributes(currentSpan(), {
+          "voice.realtime.brokered": this.brokered,
+          "voice.realtime.session_id": result.sessionId,
+        });
+      } else {
+        // No mint route: a gateway older than this feature, or a plain proxy.
+        // Dial the vendor directly, and say so, because an unbilled session
+        // otherwise looks identical to a billed one.
+        warnDirectDialFallback(this._mint.baseUrl);
+      }
+    }
+    if (socketKey === this._apiKey && !this._apiKey) {
       throw new Error(
         "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
           "pass `{ apiKey }` to the constructor.",
@@ -1254,22 +1271,17 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   }
 
   /**
-   * Keeps the usage OpenAI reports on `response.done`.
+   * Closes the session's spend record with what the socket measured.
    *
-   * Read from the raw message rather than the receive loop because a drain
-   * that ends on tail silence never reads the terminal event, and a session
-   * whose usage was never captured bills as cost-unknown. The last response
-   * of a session carries that session's cumulative totals, so keeping the
-   * most recent one is what the gateway wants.
+   * Clearing the captured usage first is what makes a second disconnect a
+   * no-op, so a session cannot be reported twice.
    */
-  /** Closes the session's spend record with what the socket measured. */
   private async _reportUsage(): Promise<void> {
-    if (!this._broker || !this._brokerSessionId || !this._lastUsage) return;
+    if (!this._mint || !this._brokerSessionId || !this._lastUsage) return;
     const usage = this._lastUsage;
     const sessionId = this._brokerSessionId;
     this._lastUsage = null;
-    this._brokerSessionId = "";
-    await reportOpenAIRealtimeUsage(this._broker, {
+    await reportOpenAIRealtimeUsage(this._mint, {
       sessionId,
       usage,
       onError: (error) =>
@@ -1277,8 +1289,17 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     });
   }
 
+  /**
+   * Keeps the usage OpenAI reports on `response.done`.
+   *
+   * Read from the raw message rather than the receive loop because a drain
+   * that ends on tail silence never reads the terminal event, and a session
+   * whose usage was never captured bills as cost-unknown. The last response of
+   * a session carries that session's cumulative totals, so keeping the most
+   * recent one is the number to report.
+   */
   private _captureUsage(event: unknown): void {
-    if (!this._broker || !event || typeof event !== "object") return;
+    if (!this._brokerSessionId || !event || typeof event !== "object") return;
     const record = event as Record<string, unknown>;
     if (record.type !== "response.done") return;
     const response = record.response;

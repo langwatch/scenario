@@ -1,26 +1,26 @@
 /**
- * Brokered realtime voice sessions.
+ * Minting a realtime voice session.
  *
- * The subject is the contract between an adapter and a voice gateway: what
- * turns brokering on, which key mints, what the socket then dials with, and
- * what closes the session's spend record. Money depends on all four, so each
- * is asserted rather than inferred from a connection succeeding.
+ * The subject is the contract between an adapter and whatever answers
+ * `OPENAI_BASE_URL`: which key mints, what the socket then dials with, how the
+ * adapter learns a gateway brokered the call, and what closes the spend
+ * record. Money depends on all four, so each is asserted rather than inferred
+ * from a connection succeeding.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mintOpenAIRealtimeSession,
   reportOpenAIRealtimeUsage,
-  resolveVoiceBroker,
+  resolveRealtimeMintEndpoint,
 } from "../broker";
 
 const ENV_KEYS = [
-  "LANGWATCH_VOICE_BROKER_URL",
-  "LANGWATCH_VOICE_BROKER_KEY",
+  "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
   "OPENAI_REALTIME_API_KEY",
 ] as const;
 
-describe("given a voice broker configuration", () => {
+describe("given the environment scenario already uses for chat", () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -37,57 +37,64 @@ describe("given a voice broker configuration", () => {
     }
   });
 
-  describe("when nothing is configured", () => {
-    it("reports no broker, so the adapter connects directly", () => {
-      expect(resolveVoiceBroker()).toBeNull();
-    });
+  describe("when OPENAI_BASE_URL is unset", () => {
+    it("mints at OpenAI, because the path is OpenAI's own", () => {
+      process.env.OPENAI_API_KEY = "sk-provider";
 
-    it("still reports no broker when only a key is present", () => {
-      // A key with no address is not a broker anyone configured. Treating it
-      // as one would silently redirect every session.
-      process.env.LANGWATCH_VOICE_BROKER_KEY = "vk-lw-test";
-      expect(resolveVoiceBroker()).toBeNull();
+      expect(resolveRealtimeMintEndpoint()).toEqual({
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "sk-provider",
+      });
     });
   });
 
-  describe("when a broker URL is set", () => {
-    it("falls back to OPENAI_API_KEY, where a gateway user keeps the virtual key", () => {
-      process.env.LANGWATCH_VOICE_BROKER_URL = "https://gateway.example/";
-      process.env.OPENAI_API_KEY = "vk-lw-from-openai-var";
+  describe("when OPENAI_BASE_URL points at a gateway", () => {
+    it("mints there with the same key chat uses, and needs nothing else", () => {
+      process.env.OPENAI_BASE_URL = "https://gateway.example/v1/";
+      process.env.OPENAI_API_KEY = "vk-lw-test";
 
-      const broker = resolveVoiceBroker();
-
-      expect(broker).toEqual({
-        baseUrl: "https://gateway.example",
-        apiKey: "vk-lw-from-openai-var",
+      expect(resolveRealtimeMintEndpoint()).toEqual({
+        baseUrl: "https://gateway.example/v1",
+        apiKey: "vk-lw-test",
       });
     });
 
-    it("never mints with OPENAI_REALTIME_API_KEY", () => {
-      // That variable holds a direct provider key. Minting with it would
-      // present a credential the gateway does not issue and cannot bill, and
-      // the failure would look like a broker outage.
-      process.env.LANGWATCH_VOICE_BROKER_URL = "https://gateway.example";
-      process.env.OPENAI_REALTIME_API_KEY = "sk-real-provider-key";
-
-      expect(() => resolveVoiceBroker()).toThrow(/no key/i);
-    });
-
-    it("prefers an explicit configuration over the environment", () => {
-      process.env.LANGWATCH_VOICE_BROKER_URL = "https://from-env.example";
+    it("prefers an explicit endpoint over the environment", () => {
+      process.env.OPENAI_BASE_URL = "https://from-env.example/v1";
       process.env.OPENAI_API_KEY = "vk-from-env";
 
       expect(
-        resolveVoiceBroker({ baseUrl: "https://explicit.example", apiKey: "vk-explicit" }),
-      ).toEqual({ baseUrl: "https://explicit.example", apiKey: "vk-explicit" });
+        resolveRealtimeMintEndpoint({
+          baseUrl: "https://explicit.example/v1",
+          apiKey: "vk-explicit",
+        }),
+      ).toEqual({
+        baseUrl: "https://explicit.example/v1",
+        apiKey: "vk-explicit",
+      });
+    });
+  });
+
+  describe("when only OPENAI_REALTIME_API_KEY is set", () => {
+    it("does not mint with it, so the adapter dials the vendor directly", () => {
+      // That variable holds a direct provider key. Minting with it would
+      // present a gateway a credential it did not issue and cannot bill, and
+      // the refusal would read as a gateway outage.
+      process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
+      process.env.OPENAI_REALTIME_API_KEY = "sk-real-provider-key";
+
+      expect(resolveRealtimeMintEndpoint()).toBeNull();
     });
   });
 });
 
-describe("given a mint through the gateway", () => {
-  const broker = { baseUrl: "https://gateway.example", apiKey: "vk-lw-test" };
+describe("given a mint request", () => {
+  const endpoint = {
+    baseUrl: "https://gateway.example/v1",
+    apiKey: "vk-lw-test",
+  };
 
-  it("sends the virtual key and reads back the vendor secret and session id", async () => {
+  it("sends the key and reads back the vendor secret and the session id", async () => {
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       expect(url).toBe("https://gateway.example/v1/realtime/client_secrets");
       expect((init.headers as Record<string, string>).Authorization).toBe(
@@ -102,37 +109,58 @@ describe("given a mint through the gateway", () => {
       });
     });
 
-    const minted = await mintOpenAIRealtimeSession(broker, {
+    const result = await mintOpenAIRealtimeSession(endpoint, {
       model: "gpt-realtime",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    expect(minted).toEqual({ clientSecret: "ek_abc", sessionId: "req_123" });
+    expect(result).toEqual({
+      minted: true,
+      clientSecret: "ek_abc",
+      sessionId: "req_123",
+    });
   });
 
-  it("reads the session id from the body when the header is absent", async () => {
+  it("reports no session id when the vendor answered, because only a gateway names one", async () => {
+    // This is how the adapter learns what it is talking to. OpenAI's own mint
+    // carries no such header, so there is nothing to report usage to and
+    // nothing that would accept a report.
     const fetchImpl = vi.fn(
       async () =>
-        new Response(
-          JSON.stringify({
-            value: "ek_abc",
-            langwatch: { session_id: "req_from_body" },
-          }),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify({ value: "ek_from_openai" }), {
+          status: 200,
+        }),
     );
 
-    const minted = await mintOpenAIRealtimeSession(broker, {
+    const result = await mintOpenAIRealtimeSession(endpoint, {
       model: "gpt-realtime",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    expect(minted.sessionId).toBe("req_from_body");
+    expect(result).toEqual({
+      minted: true,
+      clientSecret: "ek_from_openai",
+      sessionId: "",
+    });
   });
 
-  it("surfaces the gateway's own refusal message", async () => {
-    // The gateway names the cause: a budget, a session cap, a missing
-    // provider. A bare status would send the reader to the wrong place.
+  it("reports an absent mint route rather than raising, so the caller can dial directly", async () => {
+    // A LangWatch gateway older than this feature answers 404 here. That is an
+    // absence, not a refusal, and the adapter falls back to a direct dial.
+    const fetchImpl = vi.fn(async () => new Response("not found", { status: 404 }));
+
+    const result = await mintOpenAIRealtimeSession(endpoint, {
+      model: "gpt-realtime",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result).toEqual({ minted: false, status: 404 });
+  });
+
+  it("raises on a refusal, so a declined session never falls back to a provider key", async () => {
+    // The endpoint's own message names the cause: a budget, a session cap, a
+    // missing provider. Falling back here would run a call the gateway just
+    // declined to bill.
     const fetchImpl = vi.fn(
       async () =>
         new Response(
@@ -147,7 +175,7 @@ describe("given a mint through the gateway", () => {
     );
 
     await expect(
-      mintOpenAIRealtimeSession(broker, {
+      mintOpenAIRealtimeSession(endpoint, {
         model: "gpt-realtime",
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
@@ -160,7 +188,7 @@ describe("given a mint through the gateway", () => {
     );
 
     await expect(
-      mintOpenAIRealtimeSession(broker, {
+      mintOpenAIRealtimeSession(endpoint, {
         model: "gpt-realtime",
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
@@ -169,7 +197,10 @@ describe("given a mint through the gateway", () => {
 });
 
 describe("given a usage report at the end of a session", () => {
-  const broker = { baseUrl: "https://gateway.example", apiKey: "vk-lw-test" };
+  const endpoint = {
+    baseUrl: "https://gateway.example/v1",
+    apiKey: "vk-lw-test",
+  };
 
   it("posts the vendor's usage object against the session id", async () => {
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
@@ -182,7 +213,7 @@ describe("given a usage report at the end of a session", () => {
       return new Response("{}", { status: 202 });
     });
 
-    await reportOpenAIRealtimeUsage(broker, {
+    await reportOpenAIRealtimeUsage(endpoint, {
       sessionId: "req_123",
       usage: { input_tokens: 15, output_tokens: 43 },
       fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -191,9 +222,9 @@ describe("given a usage report at the end of a session", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it("sends nothing when the mint never named a session", async () => {
+  it("sends nothing when the vendor minted the session", async () => {
     const fetchImpl = vi.fn();
-    await reportOpenAIRealtimeUsage(broker, {
+    await reportOpenAIRealtimeUsage(endpoint, {
       sessionId: "",
       usage: { input_tokens: 1 },
       fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -202,15 +233,15 @@ describe("given a usage report at the end of a session", () => {
   });
 
   it("never throws, because a billing report must not fail the test it measures", async () => {
-    // The session still settles: the gateway closes an unreported admission
-    // as cost-unknown once its grace expires.
+    // The session still settles: the gateway closes an unreported admission as
+    // cost-unknown once its grace expires.
     const onError = vi.fn();
     const fetchImpl = vi.fn(async () => {
       throw new Error("gateway unreachable");
     });
 
     await expect(
-      reportOpenAIRealtimeUsage(broker, {
+      reportOpenAIRealtimeUsage(endpoint, {
         sessionId: "req_123",
         usage: { input_tokens: 1 },
         fetchImpl: fetchImpl as unknown as typeof fetch,

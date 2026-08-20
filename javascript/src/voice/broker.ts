@@ -1,101 +1,98 @@
 /**
- * Brokered realtime voice sessions.
+ * Minting a realtime voice session, at OpenAI or at a gateway in front of it.
  *
- * A voice gateway can broker a realtime session instead of relaying it: the
- * client presents a virtual key, the gateway checks the budget and mints the
- * vendor's own short-lived session credential, and the media socket then runs
- * client to vendor directly. Audio never crosses the gateway, so latency is
- * unchanged, and the session still lands on one spend record.
+ * `POST /v1/realtime/client_secrets` is OpenAI's own path. A LangWatch AI
+ * Gateway mirrors it: it checks the virtual key's budget and its open-session
+ * cap, mints OpenAI's ephemeral client secret, and opens one spend record for
+ * the call. The media socket still runs client to vendor in both cases, so
+ * latency and the wire protocol are unchanged.
  *
- * Two vendors reach a broker differently, which is why only OpenAI needs this
- * module:
+ * That symmetry is the whole design. The adapter reads `OPENAI_BASE_URL` and
+ * `OPENAI_API_KEY`, the two variables scenario already reads for chat, and
+ * mints at `${OPENAI_BASE_URL}/realtime/client_secrets`. Point those at OpenAI
+ * and the mint happens at OpenAI with a provider key. Point them at a gateway
+ * and the mint happens through the broker with a virtual key. There is no
+ * third URL, no third key, and no branch on who is answering. Anyone already
+ * routing chat through a gateway gets voice with no new configuration.
  *
- * - ElevenLabs mints through its own REST path, so pointing the official SDK
- *   at the gateway's base URL is the whole change (see `baseUrl` on
- *   {@link ElevenLabsAgentAdapterOptions}).
- * - OpenAI Realtime dials a websocket with a bearer token and has no mint step
- *   of its own, so the caller performs the mint, dials with the credential it
- *   returns, and reports what the socket measured when the session ends.
- *
- * Brokering is opt-in. With no broker configured every adapter connects
- * straight to its vendor exactly as before.
+ * ElevenLabs needs nothing from this module: it mints over its own REST path,
+ * so its official SDK reaches a gateway through the `baseUrl` option the SDK
+ * already exposes.
  */
 
-/** Where to mint, and the key to mint with. */
-export interface VoiceBrokerConfig {
-  /** Gateway base URL, without a trailing slash. */
+import { Logger } from "../utils/logger";
+
+const logger = new Logger("scenario.voice.broker");
+
+/** Where the mint request goes, and the key it carries. */
+export interface RealtimeMintEndpoint {
+  /** OpenAI-compatible base URL, including `/v1`, without a trailing slash. */
   baseUrl: string;
-  /** The virtual key the gateway authenticates and bills. */
+  /** The key the endpoint authenticates: a provider key, or a virtual key. */
   apiKey: string;
 }
 
-/** A minted session: the vendor credential, and the id the gateway bills. */
-export interface BrokeredRealtimeSession {
-  /** The vendor's own short-lived credential, used as the socket's bearer. */
-  clientSecret: string;
-  /**
-   * The gateway's id for this session, or "" when it did not name one. Usage
-   * is reported against it, so an empty id means the session cannot be
-   * closed by report and settles on the gateway's own grace instead.
-   */
-  sessionId: string;
-}
+/** The vendor's default, used when `OPENAI_BASE_URL` is unset. */
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+
+const MINT_PATH = "/realtime/client_secrets";
+const usagePath = (sessionId: string) =>
+  `/realtime/sessions/${encodeURIComponent(sessionId)}/usage`;
+
+/** A gateway names the session it opened on this response header. OpenAI does not. */
+const SESSION_ID_HEADER = "x-langwatch-session-id";
+
+/**
+ * What a mint attempt produced.
+ *
+ * `sessionId` is empty unless a gateway answered, because only a gateway
+ * carries {@link SESSION_ID_HEADER}. An empty id therefore means the vendor
+ * minted the credential itself and there is no session to report usage to.
+ */
+export type RealtimeMintResult =
+  | { minted: true; clientSecret: string; sessionId: string }
+  | { minted: false; status: number };
 
 /** Token counts a realtime socket reported, in the vendor's own shape. */
 export type RealtimeUsage = Record<string, unknown>;
 
-const MINT_PATH = "/v1/realtime/client_secrets";
-const USAGE_PATH = (sessionId: string) =>
-  `/v1/realtime/sessions/${encodeURIComponent(sessionId)}/usage`;
-
-/** The gateway names the session it billed on this response header. */
-const SESSION_ID_HEADER = "x-langwatch-session-id";
-
 /**
- * Resolves broker configuration, or null when brokering is off.
+ * Resolves where to mint, or null when there is no key to mint with.
  *
- * The base URL is what turns brokering on; there is no separate flag, because
- * a broker with no address is not a configuration anyone meant. The key falls
- * back to `OPENAI_API_KEY` because a gateway user already puts their virtual
- * key there.
- *
- * `OPENAI_REALTIME_API_KEY` is deliberately NOT consulted. That variable
- * exists to hold a direct provider key, so reading it here would mint with a
- * credential the gateway does not issue and cannot bill.
+ * `OPENAI_REALTIME_API_KEY` is deliberately not consulted here. That variable
+ * holds a direct provider key for the socket, and presenting it to a gateway
+ * would offer a credential the gateway did not issue and cannot bill. It stays
+ * what it already was: the fallback for dialing the vendor directly.
  */
-export function resolveVoiceBroker(
-  explicit?: Partial<VoiceBrokerConfig>,
-): VoiceBrokerConfig | null {
+export function resolveRealtimeMintEndpoint(
+  explicit?: Partial<RealtimeMintEndpoint>,
+): RealtimeMintEndpoint | null {
+  const apiKey = explicit?.apiKey ?? process.env.OPENAI_API_KEY ?? "";
+  if (!apiKey) return null;
   const baseUrl =
-    explicit?.baseUrl ?? process.env.LANGWATCH_VOICE_BROKER_URL ?? "";
-  if (!baseUrl) return null;
-  const apiKey =
-    explicit?.apiKey ??
-    process.env.LANGWATCH_VOICE_BROKER_KEY ??
-    process.env.OPENAI_API_KEY ??
-    "";
-  if (!apiKey) {
-    throw new Error(
-      "voice broker: a base URL is set but no key. Set " +
-        "LANGWATCH_VOICE_BROKER_KEY (or OPENAI_API_KEY) to the virtual key " +
-        "the gateway should bill.",
-    );
-  }
+    explicit?.baseUrl ?? process.env.OPENAI_BASE_URL ?? OPENAI_DEFAULT_BASE_URL;
   return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
 }
 
 /**
- * Mints an OpenAI realtime session through the gateway.
+ * Mints a realtime session, and reports whether the route existed.
  *
- * The body is OpenAI's own, so the gateway forwards it as written apart from
- * resolving the model against the key's allowlist. What comes back is
- * OpenAI's ephemeral client secret, which authenticates a server-side
- * websocket as a bearer token.
+ * A 404 means the base URL points at something with no mint route, which is
+ * what a LangWatch gateway older than this feature answers. That is an absence,
+ * so the caller may fall back to dialing the vendor directly. Any other error
+ * status is a refusal by an endpoint that does have the route, such as an
+ * exhausted budget or a rejected model, and it raises. Falling back on a
+ * refusal would spend a direct provider key on a call the gateway just
+ * declined to bill.
  */
 export async function mintOpenAIRealtimeSession(
-  broker: VoiceBrokerConfig,
-  params: { model: string; expiresAfterSeconds?: number; fetchImpl?: typeof fetch },
-): Promise<BrokeredRealtimeSession> {
+  endpoint: RealtimeMintEndpoint,
+  params: {
+    model: string;
+    expiresAfterSeconds?: number;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<RealtimeMintResult> {
   const doFetch = params.fetchImpl ?? fetch;
   const body: Record<string, unknown> = {
     session: { type: "realtime", model: params.model },
@@ -107,21 +104,22 @@ export async function mintOpenAIRealtimeSession(
     };
   }
 
-  const response = await doFetch(`${broker.baseUrl}${MINT_PATH}`, {
+  const response = await doFetch(`${endpoint.baseUrl}${MINT_PATH}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${broker.apiKey}`,
+      Authorization: `Bearer ${endpoint.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
   });
 
   const text = await response.text();
+  if (response.status === 404) return { minted: false, status: 404 };
   if (!response.ok) {
-    // The gateway's own message is the useful one: it names a budget, a
-    // session cap or a missing provider far more precisely than a status.
+    // The endpoint's own message is the useful one: it names the budget, the
+    // session cap or the missing provider far more precisely than a status.
     throw new Error(
-      `voice broker: mint failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
+      `realtime mint failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
     );
   }
 
@@ -129,17 +127,17 @@ export async function mintOpenAIRealtimeSession(
   try {
     parsed = JSON.parse(text) as Record<string, unknown>;
   } catch {
-    throw new Error("voice broker: mint returned a body that is not JSON");
+    throw new Error("realtime mint returned a body that is not JSON");
   }
 
   const clientSecret = readClientSecret(parsed);
   if (!clientSecret) {
-    throw new Error("voice broker: mint returned no client secret");
+    throw new Error("realtime mint returned no client secret");
   }
   return {
+    minted: true,
     clientSecret,
-    sessionId:
-      response.headers.get(SESSION_ID_HEADER) ?? readEchoedSessionId(parsed),
+    sessionId: response.headers.get(SESSION_ID_HEADER) ?? "",
   };
 }
 
@@ -147,15 +145,15 @@ export async function mintOpenAIRealtimeSession(
  * Reports what the socket measured, closing the session's spend record.
  *
  * OpenAI reports usage over the socket, in `response.done`, and that socket
- * runs client to vendor, so this is the only path by which those numbers
- * reach the gateway. A session that never reports is not lost: the gateway
- * settles it as cost-unknown once its grace expires.
+ * runs client to vendor, so this is the only path by which those numbers reach
+ * a gateway. A session that never reports is not lost: the gateway settles it
+ * as cost-unknown once its grace expires.
  *
- * Never throws. A failed report costs accuracy on one session, and raising
- * here would fail a test whose subject is the agent, not the billing.
+ * Never throws. A failed report costs accuracy on one session, and raising here
+ * would fail a test whose subject is the agent, not the billing.
  */
 export async function reportOpenAIRealtimeUsage(
-  broker: VoiceBrokerConfig,
+  endpoint: RealtimeMintEndpoint,
   params: {
     sessionId: string;
     usage: RealtimeUsage;
@@ -163,13 +161,15 @@ export async function reportOpenAIRealtimeUsage(
     onError?: (error: unknown) => void;
   },
 ): Promise<void> {
+  // No session id means the vendor minted this credential, so there is no
+  // spend record anywhere to close.
   if (!params.sessionId) return;
   const doFetch = params.fetchImpl ?? fetch;
   try {
-    await doFetch(`${broker.baseUrl}${USAGE_PATH(params.sessionId)}`, {
+    await doFetch(`${endpoint.baseUrl}${usagePath(params.sessionId)}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${broker.apiKey}`,
+        Authorization: `Bearer ${endpoint.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ usage: params.usage }),
@@ -180,11 +180,26 @@ export async function reportOpenAIRealtimeUsage(
 }
 
 /**
+ * Warns that a mint route was absent and a direct provider key is in use.
+ *
+ * Loud on purpose. A silent fall back to a direct key looks exactly like a
+ * successful brokered run while producing no spend record at all, so a test
+ * run that proved nothing would read as a run that proved everything.
+ */
+export function warnDirectDialFallback(baseUrl: string): void {
+  logger.warn(
+    `realtime mint route not found at ${baseUrl}${MINT_PATH}; dialing the ` +
+      `vendor directly with OPENAI_REALTIME_API_KEY. This session is not ` +
+      `billed or budgeted by the gateway at ${baseUrl}.`,
+  );
+}
+
+/**
  * The credential, wherever the mint put it.
  *
- * OpenAI returns `{ value }` at the top level today and has previously
- * nested it under `client_secret`, so both are read rather than pinning the
- * adapter to one release's shape.
+ * OpenAI returns `{ value }` at the top level today and has previously nested
+ * it under `client_secret`, so both are read rather than pinning the adapter to
+ * one release's shape.
  */
 function readClientSecret(body: Record<string, unknown>): string {
   if (typeof body.value === "string" && body.value) return body.value;
@@ -195,19 +210,6 @@ function readClientSecret(body: Record<string, unknown>): string {
     typeof (nested as Record<string, unknown>).value === "string"
   ) {
     return (nested as Record<string, unknown>).value as string;
-  }
-  return "";
-}
-
-/** The session id the gateway echoes into the body, for clients that read it there. */
-function readEchoedSessionId(body: Record<string, unknown>): string {
-  const langwatch = body.langwatch;
-  if (
-    langwatch &&
-    typeof langwatch === "object" &&
-    typeof (langwatch as Record<string, unknown>).session_id === "string"
-  ) {
-    return (langwatch as Record<string, unknown>).session_id as string;
   }
   return "";
 }
