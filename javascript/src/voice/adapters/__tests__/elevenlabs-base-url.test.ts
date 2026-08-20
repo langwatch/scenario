@@ -8,12 +8,35 @@
  * real debugging round before this check existed.
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ElevenLabsAgentAdapter,
   normalizeElevenLabsBaseUrl,
 } from "../elevenlabs";
+
+/** Options every `ElevenLabsClient` this file builds was constructed with. */
+const clientOptions = vi.hoisted(() => [] as Record<string, unknown>[]);
+
+// The SDK runtime is replaced so the client's own construction is observable.
+// `connect()` is then allowed to fail at the Conversation, because what is
+// under test is the option bag the client received, not a live session.
+vi.mock("../../elevenlabs-sdk", () => ({
+  loadElevenLabsConversationRuntime: () =>
+    Promise.resolve({
+      AudioInterface: class {},
+      Conversation: class {
+        constructor() {
+          throw new Error("stop after the client is built");
+        }
+      },
+      ElevenLabsClient: class {
+        constructor(options: Record<string, unknown>) {
+          clientOptions.push(options);
+        }
+      },
+    }),
+}));
 
 function adapterWith(baseUrl?: string): ElevenLabsAgentAdapter {
   return new ElevenLabsAgentAdapter({
@@ -24,6 +47,10 @@ function adapterWith(baseUrl?: string): ElevenLabsAgentAdapter {
 }
 
 describe("given a base URL for the ElevenLabs SDK", () => {
+  beforeEach(() => {
+    clientOptions.length = 0;
+  });
+
   describe("when it carries the /v1 prefix", () => {
     it("refuses it, naming the doubling it would produce", () => {
       expect(() => adapterWith("https://gateway.example/v1")).toThrow(/\/v1\/v1/);
@@ -70,5 +97,36 @@ describe("given a base URL for the ElevenLabs SDK", () => {
       expect(normalizeElevenLabsBaseUrl(undefined)).toBeUndefined();
       expect(normalizeElevenLabsBaseUrl("   ")).toBeUndefined();
     });
+  });
+});
+
+describe("given the adapter builds its SDK client", () => {
+  beforeEach(() => {
+    clientOptions.length = 0;
+  });
+
+  it("hands a configured base URL to the client", async () => {
+    // Normalizing a value it never passes on would be a check with no effect.
+    await expect(
+      adapterWith("https://gateway.example").connect(),
+    ).rejects.toThrow();
+
+    expect(clientOptions).toHaveLength(1);
+    expect(clientOptions[0]).toMatchObject({
+      apiKey: "key_test",
+      baseUrl: "https://gateway.example",
+    });
+  });
+
+  it("omits the option entirely when no base URL is set", async () => {
+    // Passing `baseUrl: undefined` is not the same as omitting it: an
+    // unconfigured adapter must send byte-for-byte what it sent before.
+    await expect(adapterWith(undefined).connect()).rejects.toThrow();
+
+    expect(clientOptions).toHaveLength(1);
+    // Keys, not toEqual: an undefined property is invisible to toEqual, so
+    // that assertion would pass on `baseUrl: undefined` too, which is the
+    // exact thing this test exists to rule out.
+    expect(Object.keys(clientOptions[0] ?? {})).toEqual(["apiKey"]);
   });
 });
