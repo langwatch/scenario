@@ -11,7 +11,8 @@
     "format": "pnpm lint --fix"
   },
   "dependencies": {
-    "@openai/agents": "^0.16.0"
+    "@openai/agents": "^0.16.0",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
