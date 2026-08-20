@@ -69,11 +69,6 @@ import { openai } from "@ai-sdk/openai";
 // map, so Node resolves these deep paths as literal files. Extensionless they
 // only resolve under bundler semantics (vitest/tsx/webpack) and crash plain
 // `node` consumers of the published dist/index.mjs with ERR_MODULE_NOT_FOUND.
-import { AudioInterface } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/AudioInterface.js";
-import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation.js";
-import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/ConversationClient";
-import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client.js";
 import type { LanguageModel } from "ai";
 
 import { AgentRole } from "../../domain/agents";
@@ -81,6 +76,14 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import {
+  type ElevenLabsAudioInterface,
+  type ElevenLabsAudioInterfaceCtor,
+  type ElevenLabsConversation,
+  type ElevenLabsConversationClient,
+  type ElevenLabsWebSocketFactory,
+  loadElevenLabsConversationRuntime,
+} from "../elevenlabs-sdk";
 import { currentSpan, setSpanAttributes } from "../telemetry";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
@@ -206,33 +209,41 @@ const SILENCE_FRAME = Buffer.alloc(PUMP_FRAME_BYTES);
  * members private — the closures are created inside the adapter and close over
  * `this`.
  */
-class BridgeAudioInterface extends AudioInterface {
-  constructor(
-    private readonly hooks: {
-      onStart: (inputCallback: (audio: Buffer) => void) => void;
-      onStop: () => void;
-      onOutput: (audio: Buffer) => void;
-      onInterrupt: () => void;
-    },
-  ) {
-    super();
-  }
+interface BridgeAudioHooks {
+  onStart: (inputCallback: (audio: Buffer) => void) => void;
+  onStop: () => void;
+  onOutput: (audio: Buffer) => void;
+  onInterrupt: () => void;
+}
 
-  override start(inputCallback: (audio: Buffer) => void): void {
-    this.hooks.onStart(inputCallback);
-  }
+/**
+ * Built rather than declared, because the base class arrives with the SDK and
+ * the SDK is only loaded once a session actually starts. A module-scope
+ * `class ... extends AudioInterface` would need it at import time, which is
+ * what used to put 4,549 ElevenLabs modules into every consumer's graph.
+ */
+function createBridgeAudioInterface(
+  AudioInterfaceBase: ElevenLabsAudioInterfaceCtor,
+  hooks: BridgeAudioHooks,
+): ElevenLabsAudioInterface {
+  class BridgeAudioInterface extends AudioInterfaceBase {
+    start(inputCallback: (audio: Buffer) => void): void {
+      hooks.onStart(inputCallback);
+    }
 
-  override stop(): void {
-    this.hooks.onStop();
-  }
+    stop(): void {
+      hooks.onStop();
+    }
 
-  override output(audio: Buffer): void {
-    this.hooks.onOutput(audio);
-  }
+    output(audio: Buffer): void {
+      hooks.onOutput(audio);
+    }
 
-  override interrupt(): void {
-    this.hooks.onInterrupt();
+    interrupt(): void {
+      hooks.onInterrupt();
+    }
   }
+  return new BridgeAudioInterface();
 }
 
 /** A non-null, non-array object — the only value kind {@link deepMerge} recurses into. */
@@ -332,14 +343,14 @@ export interface ElevenLabsAgentAdapterOptions {
    * runs against an in-memory socket (no network). Production callers leave this
    * unset; the SDK's `DefaultWebSocketFactory` (the `ws` package) is used.
    */
-  webSocketFactory?: WebSocketFactory;
+  webSocketFactory?: ElevenLabsWebSocketFactory;
   /**
    * SDK conversation client used ONLY for the `requiresAuth` signed-URL handshake
    * — injected for unit tests so `startSession()` does not make a real
    * `getSignedUrl` HTTP call. Production callers leave this unset; the adapter's
-   * authenticated {@link ElevenLabsClient} is used.
+   * own authenticated `ElevenLabsClient` is used.
    */
-  conversationClient?: ConversationClient;
+  conversationClient?: ElevenLabsConversationClient;
 }
 
 /**
@@ -366,11 +377,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly firstMessageOverride?: string;
   private readonly dynamicVariables?: Record<string, string | number | boolean>;
   private readonly overrides?: Record<string, unknown>;
-  private readonly webSocketFactory?: WebSocketFactory;
-  private readonly conversationClient?: ConversationClient;
+  private readonly webSocketFactory?: ElevenLabsWebSocketFactory;
+  private readonly conversationClient?: ElevenLabsConversationClient;
 
   /** Live SDK session; null whenever disconnected (or before the first connect). */
-  private conversation: Conversation | null = null;
+  private conversation: ElevenLabsConversation | null = null;
   /**
    * The SDK's mic-input sink, captured when the SDK calls `AudioInterface.start`
    * on session open. The continuous mic pump feeds it one frame per tick; the SDK
@@ -474,6 +485,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     setSpanAttributes(currentSpan(), {
       "voice.elevenlabs.agent_id": this.agentId,
     });
+    const { AudioInterface, Conversation, ElevenLabsClient } =
+      await loadElevenLabsConversationRuntime();
     const client = new ElevenLabsClient({ apiKey: this.apiKey });
 
     // The adapter's NARROW prompt/first-message knobs build an `agent` override
@@ -497,7 +510,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       agent: agentOverride,
     });
 
-    const audioInterface = new BridgeAudioInterface({
+    const audioInterface = createBridgeAudioInterface(AudioInterface, {
       onStart: (inputCallback) => this.onAudioStart(inputCallback),
       onStop: () => this.onAudioStop(),
       onOutput: (audio) => this.onAgentAudio(audio),
@@ -525,10 +538,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // and to `client` for getSignedUrl. Set only by unit tests.
       webSocketFactory: this.webSocketFactory,
       conversationClient: this.conversationClient,
-      callbackUserTranscript: (transcript) => {
+      callbackUserTranscript: (transcript: string) => {
         this.lastUserTranscript = transcript;
       },
-      callbackAgentResponse: (response) => {
+      callbackAgentResponse: (response: string) => {
         // #734 (AC4) — measure how far this transcript event lags the audio it
         // describes. A lag exceeding `responseTailSilence` is a turn whose
         // transcript would have LOST the drain-close race pre-fix; the grace-wait
@@ -544,13 +557,13 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         });
         this.lastAgentTranscript = response;
       },
-      callbackAgentResponseCorrection: (_original, corrected) => {
+      callbackAgentResponseCorrection: (_original: string, corrected: string) => {
         // Post-barge-in correction replaces the agent transcript.
         this.lastAgentTranscript = corrected;
       },
       // Fires for EVERY inbound message (ping included) AFTER the SDK has routed it
       // — our universal liveness + terminal-turn hook. See onMessage.
-      callbackMessageReceived: (message) => this.onMessage(message),
+      callbackMessageReceived: (message: unknown) => this.onMessage(message),
     });
 
     // The SDK re-emits WS errors as an `error` event on the Conversation itself; an
