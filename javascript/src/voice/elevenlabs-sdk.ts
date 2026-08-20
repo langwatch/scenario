@@ -51,14 +51,37 @@ export interface ElevenLabsClientLike {
 export type ElevenLabsClientFactory = (apiKey: string) => ElevenLabsClientLike;
 
 /**
- * Handed to the SDK unchanged and never called by us, so it is typed as opaque
- * rather than as the SDK's own `WebSocketFactory`. That is what keeps the SDK
- * out of the published types.
+ * Opens the session socket. Forwarded to the SDK unchanged; described here
+ * structurally so a caller still gets checked without the SDK's own
+ * `WebSocketFactory` entering the published types.
  */
-export type ElevenLabsWebSocketFactory = object;
+export interface ElevenLabsWebSocketFactory {
+  create(url: string, ...rest: never[]): unknown;
+}
 
-/** Handed to the SDK unchanged and never inspected by us. See above. */
-export type ElevenLabsConversationClient = object;
+/**
+ * Signs the session URL for the `requiresAuth` handshake. Structural for the
+ * same reason as {@link ElevenLabsWebSocketFactory}; a real SDK client
+ * satisfies it.
+ */
+export interface ElevenLabsConversationClient {
+  conversationalAi: {
+    conversations: {
+      getSignedUrl(request: { agentId: string }): Promise<unknown>;
+    };
+  };
+}
+
+/** The audio sink the adapter subclasses to bridge SDK audio to the run. */
+export interface ElevenLabsAudioInterface {
+  start(inputCallback: (audio: Buffer) => void): void;
+  stop(): void;
+  output(audio: Buffer): void;
+  interrupt(): void;
+}
+
+/** Constructor for {@link ElevenLabsAudioInterface}, used as a base class. */
+export type ElevenLabsAudioInterfaceCtor = new () => ElevenLabsAudioInterface;
 
 /** The live session surface the agent adapter drives. */
 export interface ElevenLabsConversation {
@@ -97,15 +120,14 @@ export async function loadElevenLabsClient(
  * the published declarations if they were named in an exported signature. The
  * adapter keeps the loaded values inside its own module.
  */
-/* eslint-disable @typescript-eslint/no-explicit-any -- naming these classes
-   in an exported signature is exactly what would put the SDK back into the
-   published declarations. The opacity is the point; the adapter keeps them
-   inside its own module. */
-export async function loadElevenLabsConversationRuntime(): Promise<{
-  AudioInterface: any;
-  Conversation: any;
-  ElevenLabsClient: any;
-}> {
+interface ElevenLabsRuntimeModule {
+  AudioInterface: ElevenLabsAudioInterfaceCtor;
+  /** Its option bag is wide and SDK-shaped, so it stays a bare constructor. */
+  Conversation: new (options: Record<string, unknown>) => ElevenLabsConversation;
+  ElevenLabsClient: new (options: { apiKey: string }) => unknown;
+}
+
+export async function loadElevenLabsConversationRuntime(): Promise<ElevenLabsRuntimeModule> {
   try {
     const [audio, conversation, client] = await Promise.all([
       import(
@@ -116,13 +138,17 @@ export async function loadElevenLabsConversationRuntime(): Promise<{
       ),
       import("@elevenlabs/elevenlabs-js/Client.js"),
     ]);
+    // The casts are the seam itself: the SDK's own declarations would come
+    // with the SDK, so each export is narrowed to the shape we drive it by.
     return {
-      AudioInterface: (audio as any).AudioInterface,
-      Conversation: (conversation as any).Conversation,
-      ElevenLabsClient: (client as any).ElevenLabsClient,
+      AudioInterface: (audio as unknown as ElevenLabsRuntimeModule)
+        .AudioInterface,
+      Conversation: (conversation as unknown as ElevenLabsRuntimeModule)
+        .Conversation,
+      ElevenLabsClient: (client as unknown as ElevenLabsRuntimeModule)
+        .ElevenLabsClient,
     };
   } catch (cause) {
     throw missingSdk(cause);
   }
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */

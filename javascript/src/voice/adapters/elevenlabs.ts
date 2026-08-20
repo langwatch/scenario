@@ -77,6 +77,8 @@ import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import {
+  type ElevenLabsAudioInterface,
+  type ElevenLabsAudioInterfaceCtor,
   type ElevenLabsConversation,
   type ElevenLabsConversationClient,
   type ElevenLabsWebSocketFactory,
@@ -221,10 +223,9 @@ interface BridgeAudioHooks {
  * what used to put 4,549 ElevenLabs modules into every consumer's graph.
  */
 function createBridgeAudioInterface(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the base class comes from the lazily loaded SDK; see voice/elevenlabs-sdk.ts
-  AudioInterfaceBase: any,
+  AudioInterfaceBase: ElevenLabsAudioInterfaceCtor,
   hooks: BridgeAudioHooks,
-): unknown {
+): ElevenLabsAudioInterface {
   class BridgeAudioInterface extends AudioInterfaceBase {
     start(inputCallback: (audio: Buffer) => void): void {
       hooks.onStart(inputCallback);
@@ -347,7 +348,7 @@ export interface ElevenLabsAgentAdapterOptions {
    * SDK conversation client used ONLY for the `requiresAuth` signed-URL handshake
    * — injected for unit tests so `startSession()` does not make a real
    * `getSignedUrl` HTTP call. Production callers leave this unset; the adapter's
-   * authenticated {@link ElevenLabsClient} is used.
+   * own authenticated `ElevenLabsClient` is used.
    */
   conversationClient?: ElevenLabsConversationClient;
 }

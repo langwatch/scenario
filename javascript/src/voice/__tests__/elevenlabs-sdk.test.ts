@@ -30,15 +30,36 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** `import ... from "@elevenlabs/..."`, the static form. `import(...)` is fine. */
-const STATIC_IMPORT = /^\s*import\s(?![^;]*\bfrom\s*\(\s*)[^;]*?from\s*["']@elevenlabs\//gm;
+/**
+ * Every specifier reached by a static import, in all the forms that load a
+ * module: named, type-only, re-export, and bare side-effect.
+ *
+ * A named import may wrap over several lines, so the `from` pattern has to
+ * cross newlines. What stops it running into a function body and finding the
+ * seam's own `import(...)` is excluding `;`, `(` and `)`: every dynamic import
+ * sits inside a call, and no static import declaration contains one.
+ *
+ * `matchAll` rather than `.test()`, because a `g`-flagged regex carries
+ * `lastIndex` between calls and would skip every second offending file.
+ */
+const IMPORT_FROM = /^[ \t]*(?:import|export)\s[^;()]*?\bfrom\s*["']([^"']+)["']/gm;
+const IMPORT_BARE = /^[ \t]*import\s+["']([^"']+)["']/gm;
+
+function staticallyImportsSdk(text: string): boolean {
+  for (const pattern of [IMPORT_FROM, IMPORT_BARE]) {
+    for (const [, specifier] of text.matchAll(pattern)) {
+      if (specifier?.startsWith("@elevenlabs/")) return true;
+    }
+  }
+  return false;
+}
 
 describe("given the package is imported without running voice", () => {
   describe("when a consumer imports the entry point", () => {
     it("loads no ElevenLabs module, because nothing imports the SDK statically", () => {
       const offenders = sourceFiles(SRC)
         .map((path) => ({ path, text: readFileSync(path, "utf8") }))
-        .filter(({ text }) => STATIC_IMPORT.test(text))
+        .filter(({ text }) => staticallyImportsSdk(text))
         .map(({ path }) => relative(SRC, path));
 
       expect(
