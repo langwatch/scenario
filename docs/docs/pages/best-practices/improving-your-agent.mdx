@@ -7,7 +7,7 @@ import { Authors } from "vocs/components";
 
 # Improving Your Agent [Fixing failures without overfitting]
 
-<Authors authors="@_rchaves_" date="2026-08-19" />
+<Authors authors={["@_rchaves_", "@andrewgardejoia"]} date="2026-08-19" />
 
 When a scenario fails, the fix that comes to mind first is a new instruction in the system prompt. That instinct is reasonable: the prompt is the part of the agent you can edit in seconds, the new rule speaks directly to what went wrong, and the scenario usually turns green on the next run. Sometimes it is also the wrong fix, because the problem can be deeper in the harness, and patching it in the prompt can do more damage than good.
 
