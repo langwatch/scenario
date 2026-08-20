@@ -6,10 +6,10 @@
  * (`receiveAudio`/`sendAudio`) is faked. Mirrors the Python
  * `test_voice_spans.py` A1/A3/A4/A5/A6/A7.
  *
- * H2 note: TS has no typed timeout, so a first-chunk timeout and a first-chunk
- * transport error are indistinguishable at the drain — `voice.audio.receive`
- * labels a first-chunk error `first_chunk_timeout` best-effort. The A4-negative
- * (non-timeout first error NOT labelled) is Python-only.
+ * Both receive paths now read the typed timeout signal (#756), so the
+ * A4-negative — a non-timeout first-chunk error is NOT labelled
+ * `first_chunk_timeout` — holds in TypeScript too and is asserted below.
+ * `drain-tail-error-propagation.test.ts` covers the propagation itself.
  */
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
@@ -43,7 +43,7 @@ function tone(seconds: number, transcript = "agent"): AudioChunk {
   return new AudioChunk({ data, transcript });
 }
 
-type RecvAction = AudioChunk | "throw" | "empty";
+type RecvAction = AudioChunk | "throw" | "timeout" | "empty";
 
 class ScriptedAdapter extends VoiceAgentAdapter {
   override role = AgentRole.AGENT;
@@ -75,6 +75,11 @@ class ScriptedAdapter extends VoiceAgentAdapter {
     const a = this.actions.shift();
     if (a === undefined || a === "empty") return silentChunk(0);
     if (a === "throw") throw new Error("recv failed");
+    if (a === "timeout") {
+      const err = new Error("recv timed out");
+      err.name = "TimeoutError";
+      throw err;
+    }
     return a;
   }
 }
@@ -106,7 +111,7 @@ describe("voice.* span instrumentation (base runtime)", () => {
 
   // A1
   it("emits voice.-named spans from a real call()", async () => {
-    await new ScriptedAdapter([tone(0.1), "throw"]).call(audioInput(tone(0.05)));
+    await new ScriptedAdapter([tone(0.1), "timeout"]).call(audioInput(tone(0.05)));
     const names = exporter.getFinishedSpans().map((s) => s.name);
     expect(names.some((n) => n.startsWith("voice."))).toBe(true);
     expect(names).toEqual(
@@ -116,8 +121,8 @@ describe("voice.* span instrumentation (base runtime)", () => {
 
   // A3
   it.each([
-    [["throw"] as RecvAction[], "first_chunk_timeout", true],
-    [[tone(0.1), "throw"] as RecvAction[], "tail_silence", false],
+    [["timeout"] as RecvAction[], "first_chunk_timeout", true],
+    [[tone(0.1), "timeout"] as RecvAction[], "tail_silence", false],
     [[tone(0.1), "empty"] as RecvAction[], "terminal_chunk", false],
   ])("labels terminated_reason=%s#1", async (actions, reason, throws) => {
     const run = new ScriptedAdapter(actions).call(audioInput(tone(0.05)));
@@ -125,6 +130,17 @@ describe("voice.* span instrumentation (base runtime)", () => {
     else await run;
     const recv = byName(exporter.getFinishedSpans())["voice.audio.receive"];
     expect(recv.attributes["voice.audio.terminated_reason"]).toBe(reason);
+  });
+
+  // A4-negative: a transport that dies before the first chunk is an ERROR span
+  // with no terminated_reason, never a turn the agent chose not to take.
+  it("does not label a hard first-chunk error as first_chunk_timeout", async () => {
+    await expect(
+      new ScriptedAdapter(["throw"]).call(audioInput(tone(0.05))),
+    ).rejects.toThrow("recv failed");
+    const recv = byName(exporter.getFinishedSpans())["voice.audio.receive"];
+    expect(recv.attributes["voice.audio.terminated_reason"]).toBeUndefined();
+    expect(recv.status.code).toBe(SpanStatusCode.ERROR);
   });
 
   it("labels max/hard-ceiling as hard_ceiling in TS + sets first_chunk_latency_ms", async () => {
@@ -136,10 +152,10 @@ describe("voice.* span instrumentation (base runtime)", () => {
     expect(recv.attributes["voice.audio.chunk_count"]).toBeGreaterThanOrEqual(1);
   });
 
-  // A4 (positive; H2 note above — negative is Python-only)
-  it("marks voice.audio.receive ERROR + first_chunk_timeout on a first-chunk failure", async () => {
+  // A4 (positive; the negative is the test above)
+  it("marks voice.audio.receive ERROR + first_chunk_timeout on a first-chunk timeout", async () => {
     await expect(
-      new ScriptedAdapter(["throw"]).call(audioInput(tone(0.05))),
+      new ScriptedAdapter(["timeout"]).call(audioInput(tone(0.05))),
     ).rejects.toThrow();
     const recv = byName(exporter.getFinishedSpans())["voice.audio.receive"];
     expect(recv.status.code).toBe(SpanStatusCode.ERROR);
@@ -152,14 +168,14 @@ describe("voice.* span instrumentation (base runtime)", () => {
       newMessages: [createAudioMessage(tone(0.05), "user")],
       scenarioState: { currentTurn: 3 },
     } as unknown as AgentInput;
-    await new ScriptedAdapter([tone(0.1), "throw"]).call(input);
+    await new ScriptedAdapter([tone(0.1), "timeout"]).call(input);
     const turn = byName(exporter.getFinishedSpans())["voice.turn"];
     expect(turn.attributes["voice.turn.index"]).toBe(3);
   });
 
   // A5
   it("nests send/receive under voice.turn and carries turn attrs", async () => {
-    await new ScriptedAdapter([tone(0.1), "throw"]).call(audioInput(tone(0.05)));
+    await new ScriptedAdapter([tone(0.1), "timeout"]).call(audioInput(tone(0.05)));
     const spans = byName(exporter.getFinishedSpans());
     const turn = spans["voice.turn"];
     expect(turn.attributes["voice.adapter.class"]).toBe("ScriptedAdapter");
@@ -171,12 +187,12 @@ describe("voice.* span instrumentation (base runtime)", () => {
   // A6
   it("emits voice.audio.send with bytes; a no-incoming turn emits none", async () => {
     const incoming = tone(0.05);
-    await new ScriptedAdapter([tone(0.1), "throw"]).call(audioInput(incoming));
+    await new ScriptedAdapter([tone(0.1), "timeout"]).call(audioInput(incoming));
     const send = byName(exporter.getFinishedSpans())["voice.audio.send"];
     expect(send.attributes["voice.audio.bytes"]).toBe(incoming.data.length);
 
     exporter.reset();
-    await new ScriptedAdapter([tone(0.1), "throw"]).call(audioInput()); // no incoming
+    await new ScriptedAdapter([tone(0.1), "timeout"]).call(audioInput()); // no incoming
     const names = exporter.getFinishedSpans().map((s) => s.name);
     expect(names).not.toContain("voice.audio.send");
     expect(names).toContain("voice.turn");
@@ -200,7 +216,7 @@ describe("voice.* span instrumentation (base runtime)", () => {
     // safe via the SDK here; our voiceSpan guard is defense-in-depth and ALSO
     // guards the raw-throw path Python's use_span leaves open — proven in the
     // Python A7, where span.end() genuinely propagates and the guard WARNs.)
-    const result = await new ScriptedAdapter([tone(0.1), "throw"]).call(
+    const result = await new ScriptedAdapter([tone(0.1), "timeout"]).call(
       audioInput(tone(0.05)),
     );
     expect(result).toBeTruthy();

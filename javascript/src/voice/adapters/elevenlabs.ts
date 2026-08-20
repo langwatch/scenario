@@ -81,6 +81,7 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { ReceiveTimeoutError } from "../receive-timeout-error";
 import { currentSpan, setSpanAttributes } from "../telemetry";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
@@ -381,10 +382,23 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   /** Queue of agent audio chunks the SDK pushed via `output()` ahead of a receiver. */
   private readonly audioQueue: AudioChunk[] = [];
-  /** Resolvers waiting on the next agent audio chunk (FIFO). */
-  private readonly waiters: Array<(chunk: AudioChunk) => void> = [];
+  /**
+   * Receivers waiting on the next agent audio chunk (FIFO).
+   *
+   * Both outcomes are needed: a session that ENDS resolves them with the empty
+   * terminal chunk, so the turn finishes; a session that ERRORS rejects them,
+   * so the drain fails the run instead of reporting a truncated turn (#756).
+   */
+  private readonly waiters: Array<{
+    resolve: (chunk: AudioChunk) => void;
+    reject: (err: Error) => void;
+  }> = [];
   /** Idle-timer-reset callbacks for active receiveAudio calls — called on every inbound frame. */
   private readonly timerResetters: Array<() => void> = [];
+  /** Set once the session has ended cleanly, so later receives return the terminal chunk. */
+  private streamEnded = false;
+  /** Set when the session ERRORED, so every later receive keeps failing with it. */
+  private sessionFailure: Error | null = null;
 
   /**
    * Continuous mic pump outbound queue: 20 ms PCM frames enqueued by {@link
@@ -475,6 +489,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       "voice.elevenlabs.agent_id": this.agentId,
     });
     const client = new ElevenLabsClient({ apiKey: this.apiKey });
+
+    // A previous session's terminal state must not decide this one's receives.
+    this.streamEnded = false;
+    this.sessionFailure = null;
 
     // The adapter's NARROW prompt/first-message knobs build an `agent` override
     // that is always sent (an empty `agent` object is a no-op) so the handshake
@@ -595,7 +613,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (pcm.length % 2 === 1) pcm = pcm.subarray(0, pcm.length - 1);
     const chunk = new AudioChunk({ data: new Uint8Array(pcm) });
     const waiter = this.waiters.shift();
-    if (waiter) waiter(chunk);
+    if (waiter) waiter.resolve(chunk);
     else this.audioQueue.push(chunk);
   }
 
@@ -616,7 +634,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // the executor unwinds rather than hanging, and null the session so subsequent
     // sendAudio/receiveAudio fail fast with a clear "not connected".
     this.stopPump();
-    this.drainPendingWaiters();
+    // Reject rather than resolve: the session broke, so a parked receive must
+    // surface that. Resolving with the terminal chunk would close the turn and
+    // report the partial audio as a complete one.
+    // Preserve the SDK error itself so callers retain its type, identity,
+    // stack, and any vendor-specific fields. The warning above supplies the
+    // adapter context without replacing the exception.
+    this.sessionFailure = err;
+    this.failPendingWaiters(this.sessionFailure);
     this.inputCallback = null;
     this.conversation = null;
   }
@@ -624,13 +649,22 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   /** Called on `session_ended` (clean endSession OR socket close). */
   private onSessionEnded(): void {
     this.stopPump();
+    this.streamEnded = true;
     this.drainPendingWaiters();
   }
 
+  /** Clean end of stream: finish every parked receive with the terminal chunk. */
   private drainPendingWaiters(): void {
     while (this.waiters.length > 0) {
       const waiter = this.waiters.shift();
-      waiter?.(new AudioChunk({ data: new Uint8Array(0) }));
+      waiter?.resolve(new AudioChunk({ data: new Uint8Array(0) }));
+    }
+  }
+
+  /** Broken session: fail every parked receive with the underlying error. */
+  private failPendingWaiters(failure: Error): void {
+    while (this.waiters.length > 0) {
+      this.waiters.shift()?.reject(failure);
     }
   }
 
@@ -830,13 +864,34 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // VAD measures to close the turn — until the agent responds and the pump pauses.
   }
 
+  /**
+   * Wait for the next PCM audio chunk from the hosted ElevenLabs session.
+   *
+   * @param timeout - Sliding idle deadline in seconds. An absolute ceiling of
+   *   `max(timeout, 45s)` also bounds sessions that send keepalives but no audio.
+   * @returns A non-empty audio chunk, or a zero-length terminal chunk after a clean
+   *   session end.
+   * @throws {ReceiveTimeoutError} When either receive deadline expires.
+   * @throws The original session or transport error when the session fails.
+   */
   async receiveAudio(timeout: number): Promise<AudioChunk> {
+    // Buffered audio first: it was produced while the session was live and is
+    // owed to the caller whether or not the session has since ended.
+    const queued = this.audioQueue.shift();
+    if (queued) return queued;
+
+    if (this.sessionFailure) throw this.sessionFailure;
+    if (this.streamEnded) {
+      // The session ended and everything it sent has been consumed. The drain
+      // reaches here when the close lands between its first chunk and its tail
+      // probe, which is the ordinary shape of an agent hangup (#839). Hand back
+      // the terminal chunk so the turn finishes rather than failing a run in
+      // which the agent behaved as designed.
+      return new AudioChunk({ data: new Uint8Array(0) });
+    }
     if (!this.isConnected()) {
       throw new Error("ElevenLabsAgentAdapter: not connected");
     }
-
-    const queued = this.audioQueue.shift();
-    if (queued) return queued;
 
     return await new Promise<AudioChunk>((resolve, reject) => {
       // Forward-declared so the timers, the resetter, and the waiter share them.
@@ -872,7 +927,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
       const onIdleTimeout = () => {
         cleanup();
-        reject(new Error(idleTimeoutMessage(timeout)));
+        reject(new ReceiveTimeoutError(idleTimeoutMessage(timeout)));
       };
 
       const onCeilingTimeout = () => {
@@ -881,7 +936,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
           return;
         }
         cleanup();
-        reject(new Error(ceilingTimeoutMessage(timeout, ceilingS)));
+        reject(
+          new ReceiveTimeoutError(
+            ceilingTimeoutMessage(timeout, ceilingS),
+          ),
+        );
       };
 
       // Re-arm the IDLE deadline on every received message (pings included) so a
@@ -894,9 +953,15 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         timer = setTimeout(onIdleTimeout, timeout * 1000);
       };
 
-      const waiter = (chunk: AudioChunk) => {
-        cleanup();
-        resolve(chunk);
+      const waiter = {
+        resolve: (chunk: AudioChunk) => {
+          cleanup();
+          resolve(chunk);
+        },
+        reject: (err: Error) => {
+          cleanup();
+          reject(err);
+        },
       };
 
       timer = setTimeout(onIdleTimeout, timeout * 1000);
@@ -966,7 +1031,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // before the agent acts, so a mid-turn tool call finds one. Parity with the
       // close/error drain.
       const waiter = this.waiters.shift();
-      if (waiter) waiter(new AudioChunk({ data: new Uint8Array(0) }));
+      if (waiter) waiter.resolve(new AudioChunk({ data: new Uint8Array(0) }));
       return;
     }
 

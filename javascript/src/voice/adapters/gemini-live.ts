@@ -35,6 +35,7 @@ import { Buffer } from "node:buffer";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { ReceiveTimeoutError } from "../receive-timeout-error";
 import { currentSpan, setSpanAttributes } from "../telemetry";
 import { GEMINI_LIVE_MODEL } from "../voice-models";
 
@@ -613,11 +614,11 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
       const timer = setTimeout(() => {
         // Detach the pending resolver if we're the active waiter.
         if (this.resolveNext === wrapped) this.resolveNext = null;
-        const err = new Error(
-          `GeminiLiveAgentAdapter: no message within ${timeoutMs}ms`,
+        reject(
+          new ReceiveTimeoutError(
+            `GeminiLiveAgentAdapter: no message within ${timeoutMs}ms`,
+          ),
         );
-        err.name = "TimeoutError";
-        reject(err);
       }, timeoutMs);
 
       const wrapped = (item: QueueItem): void => {

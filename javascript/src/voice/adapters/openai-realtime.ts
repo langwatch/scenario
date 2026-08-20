@@ -34,6 +34,7 @@ import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage, extractAudio } from "../messages";
+import { isReceiveTimeoutError, ReceiveTimeoutError } from "../receive-timeout-error";
 import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
 
@@ -899,8 +900,13 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       let chunk: AudioChunk;
       try {
         chunk = await this.receiveAudio(tailTimeoutS);
-      } catch {
-        break; // timeout / socket close = end of the model's spoken turn
+      } catch (err) {
+        // The idle timeout is the natural end of the model's spoken turn, and a
+        // closed stream arrives as the zero-length chunk below. Anything else is
+        // a real failure, and returning the audio collected so far would hand
+        // back a truncated user line as a complete one (#756).
+        if (!isReceiveTimeoutError(err)) throw err;
+        break;
       }
       if (chunk.data.length === 0) break;
       chunks.push(chunk.data);
@@ -1199,7 +1205,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         this._waitResolve = null;
         this._waitReject = null;
         reject(
-          new Error("OpenAIRealtimeAgentAdapter: receiveAudio timed out"),
+          new ReceiveTimeoutError(
+            "OpenAIRealtimeAgentAdapter: receiveAudio timed out",
+          ),
         );
       }, Math.max(0, timeoutMs));
       this._waitResolve = (evt) => {

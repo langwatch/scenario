@@ -389,12 +389,14 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
     // _drainSpokenTurn's idle timeout is a hardcoded 15s (speakGeneratedUserTurn
     // is called with no override), not sourced from adapter.responseTailSilence —
     // so a real "just stop sending" tail-silence close would hang this test for
-    // 15 real seconds. Push a synthetic error event instead: the drain loop
-    // treats ANY receiveAudio rejection as "the model stopped talking" (see
-    // speakUserTurn's jsdoc), so this ends the ALREADY-drained turn (1 chunk)
-    // immediately. The R2 markers/attrs asserted below are already stamped
-    // (from the response.created/response.done events above) before this fires.
-    handle.push({ type: "error", error: { message: "test: end turn" } });
+    // 15 real seconds. Push an EMPTY audio delta instead: a zero-length chunk is
+    // this codebase's end-of-stream signal, so it ends the ALREADY-drained turn
+    // (1 chunk) immediately. The R2 markers/attrs asserted below are already
+    // stamped (from the response.created/response.done events above) before this
+    // fires. Not an `error` event: a server error is a real failure that
+    // _drainSpokenTurn propagates, and a test that ends its turn with one would
+    // pass just as happily if the propagation broke (#756).
+    handle.push({ type: "response.output_audio.delta", delta: "" });
     await callPromise;
 
     const spans = byName(exporter.getFinishedSpans());
@@ -472,13 +474,13 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
     handle.push({ type: "response.done" });
     // _drainSpokenTurn's idle timeout is a hardcoded 15s default (speakUserTurn
     // is called with no override) — a real "just stop sending" tail-silence
-    // close would hang this test for 15 real seconds. Push a synthetic error
-    // event instead, exactly like the R4 test above: the drain loop treats ANY
-    // receiveAudio rejection as "the model stopped talking", so this ends the
-    // already-drained turn (1 chunk) immediately. No voice.audio.receive span
-    // is ever opened on this path (scope guard) — the assertions below are
-    // what that actually means: neither the receive nor the turn span exist.
-    handle.push({ type: "error", error: { message: "test: end turn" } });
+    // close would hang this test for 15 real seconds. Push an EMPTY audio delta
+    // instead, exactly like the R4 test above: a zero-length chunk is the
+    // end-of-stream signal, so it ends the already-drained turn (1 chunk)
+    // immediately. No voice.audio.receive span is ever opened on this path
+    // (scope guard) — the assertions below are what that actually means:
+    // neither the receive nor the turn span exist.
+    handle.push({ type: "response.output_audio.delta", delta: "" });
     await turnPromise;
 
     const spans = byName(exporter.getFinishedSpans());

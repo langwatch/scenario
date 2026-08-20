@@ -151,7 +151,20 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
   /** Transmit an {@link AudioChunk} to the agent under test. */
   abstract sendAudio(chunk: AudioChunk): Promise<void>;
 
-  /** Receive the next {@link AudioChunk} from the agent. */
+  /**
+   * Receive the next {@link AudioChunk} from the agent.
+   *
+   * Expiry of `timeout` MUST reject with an error whose `name` is
+   * `"TimeoutError"` — what `AbortSignal.timeout()` already produces, and what
+   * the built-in adapters get from `ReceiveTimeoutError`. That is the only
+   * rejection the default drain reads as the end of a turn; every other one
+   * propagates and fails the run, so a dead transport is never reported as an
+   * agent that simply stopped talking (#756).
+   *
+   * Returning an empty {@link AudioChunk} also ends the turn, cleanly. Use it
+   * for a terminal condition that is not a failure, such as the agent hanging
+   * up or the peer closing the stream after it finished speaking.
+   */
   abstract receiveAudio(timeout: number): Promise<AudioChunk>;
 
   /**
