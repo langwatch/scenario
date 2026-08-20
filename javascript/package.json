@@ -74,7 +74,7 @@
     "rxjs": "^7.8.2",
     "ws": "^8.20.1",
     "xksuid": "^0.0.4",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^7.0.0",
