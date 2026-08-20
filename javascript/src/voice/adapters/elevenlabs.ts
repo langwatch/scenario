@@ -286,6 +286,20 @@ export interface ElevenLabsAgentAdapterOptions {
   /** ElevenLabs API key (`xi-api-key`). */
   apiKey: string;
   /**
+   * Base URL for the ElevenLabs REST API, passed straight to the SDK client.
+   *
+   * Points the signed-URL handshake at a LangWatch voice gateway, which
+   * mirrors the vendor's own mint path: the gateway checks the virtual key's
+   * budget and session cap, mints the signed URL, and bills the call as one
+   * spend record. The websocket the URL names still belongs to ElevenLabs,
+   * so the media stream runs client to vendor and nothing about latency or
+   * the wire protocol changes. `apiKey` then carries the virtual key.
+   *
+   * Omitted, this follows `LANGWATCH_VOICE_BROKER_URL`, and with that unset
+   * the SDK talks to ElevenLabs directly as it always has.
+   */
+  baseUrl?: string;
+  /**
    * Per-session system prompt override applied via the SDK's
    * `conversationConfigOverride.agent.prompt.prompt`. Lets demos use a different
    * prompt shape without mutating the shared test agent.
@@ -373,6 +387,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   readonly agentId: string;
   private readonly apiKey: string;
+  private readonly baseUrl?: string;
   private readonly systemPromptOverride?: string;
   private readonly firstMessageOverride?: string;
   private readonly dynamicVariables?: Record<string, string | number | boolean>;
@@ -462,6 +477,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     super();
     this.agentId = options.agentId;
     this.apiKey = options.apiKey;
+    this.baseUrl = options.baseUrl ?? process.env.LANGWATCH_VOICE_BROKER_URL;
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
     this.dynamicVariables = options.dynamicVariables;
@@ -487,7 +503,13 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     });
     const { AudioInterface, Conversation, ElevenLabsClient } =
       await loadElevenLabsConversationRuntime();
-    const client = new ElevenLabsClient({ apiKey: this.apiKey });
+    // `baseUrl` is the SDK's documented custom-URL option. Undefined leaves
+    // the SDK on its own default host, so an unconfigured adapter is
+    // byte-for-byte the request it sent before.
+    const client = new ElevenLabsClient({
+      apiKey: this.apiKey,
+      ...(this.baseUrl ? { baseUrl: this.baseUrl } : {}),
+    });
 
     // The adapter's NARROW prompt/first-message knobs build an `agent` override
     // that is always sent (an empty `agent` object is a no-op) so the handshake
