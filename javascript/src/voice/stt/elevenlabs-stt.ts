@@ -12,9 +12,11 @@
  * copy that used to live in `adapters/composable.ts` is gone; composable and
  * the branded preset import this leaf.
  */
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
-
 import { AudioChunk } from "../audio-chunk";
+import {
+  type ElevenLabsClientLike,
+  loadElevenLabsClient,
+} from "../elevenlabs-sdk";
 import { ELEVENLABS_STT_MODEL } from "../voice-models";
 import type { STTProvider } from "./stt-provider";
 import { pcm16ToWav } from "./wav";
@@ -28,7 +30,7 @@ export interface ElevenLabsSTTProviderOptions {
   /** API key; falls back to `process.env.ELEVENLABS_API_KEY`. */
   apiKey?: string;
   /** Test seam — override the SDK client constructor. */
-  clientFactory?: (apiKey: string) => ElevenLabsClient;
+  clientFactory?: (apiKey: string) => ElevenLabsClientLike;
 }
 
 /**
@@ -36,12 +38,11 @@ export interface ElevenLabsSTTProviderOptions {
  */
 export class ElevenLabsSTTProvider implements STTProvider {
   private readonly apiKey: string;
-  private readonly clientFactory: (apiKey: string) => ElevenLabsClient;
+  private readonly clientFactory?: (apiKey: string) => ElevenLabsClientLike;
 
   constructor(options: ElevenLabsSTTProviderOptions = {}) {
     this.apiKey = options.apiKey ?? process.env.ELEVENLABS_API_KEY ?? "";
-    this.clientFactory =
-      options.clientFactory ?? ((apiKey) => new ElevenLabsClient({ apiKey }));
+    this.clientFactory = options.clientFactory;
   }
 
   toString(): string {
@@ -49,7 +50,11 @@ export class ElevenLabsSTTProvider implements STTProvider {
   }
 
   async transcribe(audio: AudioChunk): Promise<string> {
-    const client = this.clientFactory(this.apiKey);
+    // Loaded here rather than at module scope: the SDK is 4,549 modules and
+    // only a run that actually transcribes should pay for them.
+    const client = this.clientFactory
+      ? this.clientFactory(this.apiKey)
+      : await loadElevenLabsClient(this.apiKey);
     const wav = pcm16ToWav(audio.data);
     // The SDK accepts Blob/File/ReadStream. Node 20+ supplies Blob globally so
     // we don't need a polyfill.
