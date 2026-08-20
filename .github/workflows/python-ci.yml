@@ -95,9 +95,27 @@ jobs:
         run: uv run pyright .
         working-directory: python
 
-      # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
+      # One definition of "this run can read repo secrets", so the live suite
+      # below and its secret-free fallback cannot drift into both running or
+      # neither. Dependabot PRs and fork PRs run without secrets.
+      - name: Resolve secret availability
+        id: secrets
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ "$ACTOR" = "dependabot[bot]" ] \
+            || { [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$THIS_REPO" ]; }; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Examples: the live suite, for runs that can read repo secrets.
       - name: Test (Examples)
-        if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: steps.secrets.outputs.available == 'true'
         # Examples hit real LLMs over the network; they can legitimately take
         # well over the 60s per-test timeout that pytest.ini sets for the unit
         # suite. Override to 300s here so slow-but-correct runs don't get
@@ -107,6 +125,18 @@ jobs:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        working-directory: python
+
+      # The same examples, imported rather than run, for the runs the step
+      # above cannot cover. Without this an examples-only change from an
+      # external contributor reaches a green required check with nothing
+      # having read the file it changed: `pytest tests/` never imports
+      # `examples/`, and `pyright` sets `reportMissingImports: false`, so a
+      # module that does not exist type-checks clean. Collection imports every
+      # example module and makes no provider call, so it needs no secrets.
+      - name: Collect (Examples)
+        if: steps.secrets.outputs.available != 'true'
+        run: uv run pytest examples/ --collect-only -q
         working-directory: python
 
   # One required check for the whole workflow. Reports success if every

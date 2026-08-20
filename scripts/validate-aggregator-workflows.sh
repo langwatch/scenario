@@ -220,6 +220,64 @@ check_workflow \
   ".github/workflows/docs-ci.yml"
 
 # ---------------------------------------------------------------------------
+# Examples coverage on runs without secrets (see #893)
+#
+# The examples suite needs repo secrets, so it cannot run on a fork PR or a
+# Dependabot PR. Skipping it there is right; leaving nothing in its place is
+# not, because the aggregator counts a skipped step's job as success and an
+# examples-only change from an external contributor then reaches a green
+# required check with nothing having read the file it changed.
+#
+# The invariant is that exactly one of the two examples steps runs on any
+# given run: the live suite when secrets are readable, the secret-free
+# collection when they are not. Both must therefore be gated on the same
+# resolver output, with opposite senses. Complementary conditions written out
+# by hand in two places drift; this is what notices when they do.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Validating examples coverage without secrets ==="
+if python3 - "$REPO_ROOT/.github/workflows/python-ci.yml" <<'EOF'
+import yaml, sys
+
+with open(sys.argv[1]) as f:
+    workflow = yaml.safe_load(f)
+
+steps = workflow.get("jobs", {}).get("test", {}).get("steps", [])
+if not steps:
+    print("python-ci: test job has no steps")
+    sys.exit(1)
+
+resolver = [s for s in steps if s.get("id") == "secrets"]
+if len(resolver) != 1:
+    print(f"expected exactly one step with id: secrets, found {len(resolver)}")
+    sys.exit(1)
+if "$GITHUB_OUTPUT" not in resolver[0].get("run", ""):
+    print("the secrets resolver writes nothing to $GITHUB_OUTPUT")
+    sys.exit(1)
+
+GATE = "steps.secrets.outputs.available"
+examples = [s for s in steps if "examples/" in s.get("run", "")]
+if len(examples) != 2:
+    print(f"expected two steps running examples/, found {len(examples)}")
+    sys.exit(1)
+
+with_secrets = [s for s in examples if s.get("if", "") == f"{GATE} == 'true'"]
+without_secrets = [s for s in examples if s.get("if", "") == f"{GATE} != 'true'"]
+if len(with_secrets) != 1 or len(without_secrets) != 1:
+    print("the two examples steps are not complementary on " + GATE)
+    for s in examples:
+        print(f"  {s.get('name', '<unnamed>')!r}: if: {s.get('if', '<none>')!r}")
+    sys.exit(1)
+
+if "--collect-only" not in without_secrets[0].get("run", ""):
+    print("the secret-free examples step does not collect: "
+          + without_secrets[0].get("run", ""))
+    sys.exit(1)
+EOF
+then pass "python-ci: examples are covered on runs without secrets"
+else fail "python-ci: examples are not covered on runs without secrets"; fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
