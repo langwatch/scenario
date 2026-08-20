@@ -251,9 +251,19 @@ resolver = [s for s in steps if s.get("id") == "secrets"]
 if len(resolver) != 1:
     print(f"expected exactly one step with id: secrets, found {len(resolver)}")
     sys.exit(1)
-if "$GITHUB_OUTPUT" not in resolver[0].get("run", ""):
-    print("the secrets resolver writes nothing to $GITHUB_OUTPUT")
-    sys.exit(1)
+# Both senses, and written where a later step can read them. A resolver that
+# sets some other name, or echoes the right name without the redirect, leaves
+# `steps.secrets.outputs.available` empty: the live suite's `== 'true'` is then
+# never true and the collection's `!= 'true'` always is, so the examples suite
+# silently stops running everywhere while this validator reports PASS.
+resolver_run = resolver[0].get("run", "")
+for value in ("true", "false"):
+    if not any(
+        f"available={value}" in line and "$GITHUB_OUTPUT" in line
+        for line in resolver_run.splitlines()
+    ):
+        print(f"the resolver never writes available={value} to $GITHUB_OUTPUT")
+        sys.exit(1)
 
 GATE = "steps.secrets.outputs.available"
 examples = [s for s in steps if "examples/" in s.get("run", "")]
@@ -269,9 +279,16 @@ if len(with_secrets) != 1 or len(without_secrets) != 1:
         print(f"  {s.get('name', '<unnamed>')!r}: if: {s.get('if', '<none>')!r}")
     sys.exit(1)
 
-if "--collect-only" not in without_secrets[0].get("run", ""):
-    print("the secret-free examples step does not collect: "
-          + without_secrets[0].get("run", ""))
+# Which step does what, not just that two exist. The failure worth catching is
+# the live suite quietly becoming a second collection: both steps would still
+# be present and complementary, and nothing would run the examples again.
+live_run = with_secrets[0].get("run", "")
+collect_run = without_secrets[0].get("run", "")
+if "pytest examples/" not in live_run or "--collect-only" in live_run:
+    print("the secret-enabled step does not run the live suite: " + live_run)
+    sys.exit(1)
+if "pytest examples/" not in collect_run or "--collect-only" not in collect_run:
+    print("the secret-free step does not collect: " + collect_run)
     sys.exit(1)
 EOF
 then pass "python-ci: examples are covered on runs without secrets"
