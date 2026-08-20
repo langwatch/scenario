@@ -251,19 +251,10 @@ resolver = [s for s in steps if s.get("id") == "secrets"]
 if len(resolver) != 1:
     print(f"expected exactly one step with id: secrets, found {len(resolver)}")
     sys.exit(1)
-# Both senses, and written where a later step can read them. A resolver that
-# sets some other name, or echoes the right name without the redirect, leaves
-# `steps.secrets.outputs.available` empty: the live suite's `== 'true'` is then
-# never true and the collection's `!= 'true'` always is, so the examples suite
-# silently stops running everywhere while this validator reports PASS.
-resolver_run = resolver[0].get("run", "")
-for value in ("true", "false"):
-    if not any(
-        f"available={value}" in line and "$GITHUB_OUTPUT" in line
-        for line in resolver_run.splitlines()
-    ):
-        print(f"the resolver never writes available={value} to $GITHUB_OUTPUT")
-        sys.exit(1)
+# What the resolver WRITES is checked by running it, in the section below.
+# Reading the shell for it does not work: a substring matches a commented-out
+# line, and whether two writes are mutually exclusive is a control-flow
+# question no amount of string matching answers.
 
 GATE = "steps.secrets.outputs.available"
 examples = [s for s in steps if "examples/" in s.get("run", "")]
@@ -282,17 +273,86 @@ if len(with_secrets) != 1 or len(without_secrets) != 1:
 # Which step does what, not just that two exist. The failure worth catching is
 # the live suite quietly becoming a second collection: both steps would still
 # be present and complementary, and nothing would run the examples again.
-live_run = with_secrets[0].get("run", "")
-collect_run = without_secrets[0].get("run", "")
-if "pytest examples/" not in live_run or "--collect-only" in live_run:
+#
+# Matched as a command rather than a substring, on the executable lines only.
+# `pytest examples/voice/` contains "pytest examples/" while covering a
+# fraction of the tree, and a commented-out command contains it while running
+# nothing at all.
+import re
+
+
+def commands(run: str) -> str:
+    return "\n".join(
+        line for line in run.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+WHOLE_EXAMPLES_TREE = re.compile(r"pytest\s+examples/(?:\s|$)")
+
+live_run = commands(with_secrets[0].get("run", ""))
+collect_run = commands(without_secrets[0].get("run", ""))
+if not WHOLE_EXAMPLES_TREE.search(live_run) or "--collect-only" in live_run:
     print("the secret-enabled step does not run the live suite: " + live_run)
     sys.exit(1)
-if "pytest examples/" not in collect_run or "--collect-only" not in collect_run:
+if (
+    not WHOLE_EXAMPLES_TREE.search(collect_run)
+    or "--collect-only" not in collect_run
+):
     print("the secret-free step does not collect: " + collect_run)
     sys.exit(1)
 EOF
 then pass "python-ci: examples are covered on runs without secrets"
 else fail "python-ci: examples are not covered on runs without secrets"; fi
+
+# The resolver's own decision, by running it rather than reading it. Executing
+# it is no wider a trust boundary than the workflow already is: this is the
+# same script python-ci runs, from the same commit. Every case below is a real
+# event shape, and GitHub takes the LAST write for a key, which is what makes
+# an unconditional pair of writes visible here.
+echo "--- the resolver's decision, over every event shape ---"
+RESOLVER_SH="$(mktemp)"
+trap 'rm -f "$RESOLVER_SH"' EXIT
+if python3 - "$REPO_ROOT/.github/workflows/python-ci.yml" > "$RESOLVER_SH" <<'EOF'
+import yaml, sys
+
+with open(sys.argv[1]) as f:
+    workflow = yaml.safe_load(f)
+
+steps = workflow.get("jobs", {}).get("test", {}).get("steps", [])
+resolver = [s for s in steps if s.get("id") == "secrets"]
+if len(resolver) != 1:
+    sys.exit(1)
+print(resolver[0].get("run", ""))
+EOF
+then
+  BAD=0
+  # <actor> <event> <head repo> <this repo> <expected>
+  check_resolver() {
+    local out
+    out="$(mktemp)"
+    ACTOR="$1" EVENT_NAME="$2" HEAD_REPO="$3" THIS_REPO="$4" GITHUB_OUTPUT="$out" \
+      bash "$RESOLVER_SH" >/dev/null 2>&1 || true
+    local got
+    got="$(grep -o 'available=[a-z]*' "$out" 2>/dev/null | tail -1)"
+    if [ "$got" != "available=$5" ]; then
+      echo "    $2 actor=$1 head=$3 -> ${got:-<nothing written>}, expected available=$5"
+      BAD=1
+    fi
+    rm -f "$out"
+  }
+  check_resolver "dependabot[bot]" pull_request langwatch/scenario langwatch/scenario false
+  check_resolver outsider pull_request outsider/scenario langwatch/scenario false
+  check_resolver maintainer pull_request langwatch/scenario langwatch/scenario true
+  check_resolver maintainer push "" langwatch/scenario true
+  check_resolver maintainer workflow_dispatch "" langwatch/scenario true
+  if [ "$BAD" -eq 0 ]; then
+    pass "python-ci: the resolver answers correctly for every event shape"
+  else
+    fail "python-ci: the resolver answers wrongly for some event shape"
+  fi
+else
+  fail "python-ci: could not extract the secrets resolver to run it"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary
