@@ -195,6 +195,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   lastAgentTranscript: string | null = null;
 
   private readonly _apiKey: string;
+  private readonly _apiKeySource: string;
   private readonly _urlOverride: string | null;
   /** Where to mint, or null when there is no key to mint with. */
   private readonly _mint: RealtimeMintEndpoint | null;
@@ -262,6 +263,15 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       process.env.OPENAI_REALTIME_API_KEY ??
       process.env.OPENAI_API_KEY ??
       "";
+    // Which of the three the key came from. Only used to name it in the
+    // direct-dial warning, where naming the wrong one sends the reader to a
+    // variable that is not set.
+    this._apiKeySource =
+      init.apiKey !== undefined
+        ? "the apiKey passed to the adapter"
+        : process.env.OPENAI_REALTIME_API_KEY !== undefined
+          ? "OPENAI_REALTIME_API_KEY"
+          : "OPENAI_API_KEY";
     this._urlOverride = init.url ?? null;
     this._wsFactory = init.wsFactory ?? null;
     this._mint =
@@ -333,7 +343,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         // No mint route: a gateway older than this feature, or a plain proxy.
         // Dial the vendor directly, and say so, because an unbilled session
         // otherwise looks identical to a billed one.
-        warnDirectDialFallback(this._mint.baseUrl);
+        warnDirectDialFallback(this._mint.baseUrl, this._apiKeySource);
       }
     }
     if (socketKey === this._apiKey && !this._apiKey) {

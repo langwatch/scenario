@@ -43,6 +43,16 @@ const usagePath = (sessionId: string) =>
 const SESSION_ID_HEADER = "x-langwatch-session-id";
 
 /**
+ * How long a usage report may take before it is abandoned.
+ *
+ * `disconnect()` awaits the report, so an unbounded request holds the socket
+ * open and the test that owns it never finishes. A report is worth a few
+ * seconds and never worth a hang: the session still settles on the gateway's
+ * own grace if it never arrives.
+ */
+const USAGE_REPORT_TIMEOUT_MS = 5_000;
+
+/**
  * What a mint attempt produced.
  *
  * `sessionId` is empty unless a gateway answered, because only a gateway
@@ -158,6 +168,7 @@ export async function reportOpenAIRealtimeUsage(
     sessionId: string;
     usage: RealtimeUsage;
     fetchImpl?: typeof fetch;
+    timeoutMs?: number;
     onError?: (error: unknown) => void;
   },
 ): Promise<void> {
@@ -166,14 +177,29 @@ export async function reportOpenAIRealtimeUsage(
   if (!params.sessionId) return;
   const doFetch = params.fetchImpl ?? fetch;
   try {
-    await doFetch(`${endpoint.baseUrl}${usagePath(params.sessionId)}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${endpoint.apiKey}`,
-        "Content-Type": "application/json",
+    const response = await doFetch(
+      `${endpoint.baseUrl}${usagePath(params.sessionId)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${endpoint.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ usage: params.usage }),
+        signal: AbortSignal.timeout(
+          params.timeoutMs ?? USAGE_REPORT_TIMEOUT_MS,
+        ),
       },
-      body: JSON.stringify({ usage: params.usage }),
-    });
+    );
+    // A refused report is a failure that answers. Reading only the thrown
+    // case would treat a 404 for an unknown session, or a 401 for a rotated
+    // key, as a report that landed, and the session would settle as
+    // cost-unknown with nobody told why.
+    if (!response.ok) {
+      params.onError?.(
+        new Error(`realtime usage report refused with HTTP ${response.status}`),
+      );
+    }
   } catch (error) {
     params.onError?.(error);
   }
@@ -185,11 +211,18 @@ export async function reportOpenAIRealtimeUsage(
  * Loud on purpose. A silent fall back to a direct key looks exactly like a
  * successful brokered run while producing no spend record at all, so a test
  * run that proved nothing would read as a run that proved everything.
+ *
+ * `credentialSource` names where the key being dialled came from, because the
+ * adapter reads three in order and naming a fixed one sends the reader to a
+ * variable that is not set.
  */
-export function warnDirectDialFallback(baseUrl: string): void {
+export function warnDirectDialFallback(
+  baseUrl: string,
+  credentialSource: string,
+): void {
   logger.warn(
     `realtime mint route not found at ${baseUrl}${MINT_PATH}; dialing the ` +
-      `vendor directly with OPENAI_REALTIME_API_KEY. This session is not ` +
+      `vendor directly with ${credentialSource}. This session is not ` +
       `billed or budgeted by the gateway at ${baseUrl}.`,
   );
 }

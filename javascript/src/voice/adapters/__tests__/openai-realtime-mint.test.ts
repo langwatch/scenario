@@ -71,6 +71,9 @@ describe("given an adapter connecting to a realtime session", () => {
       else process.env[key] = saved[key];
     }
     vi.unstubAllGlobals();
+    // spyOn is not undone by unstubAllGlobals, so a silenced console.warn
+    // would outlive this file and mute a later test that asserts on one.
+    vi.restoreAllMocks();
   });
 
   describe("when a gateway answers the mint", () => {
@@ -78,7 +81,9 @@ describe("given an adapter connecting to a realtime session", () => {
       process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
       process.env.OPENAI_API_KEY = "vk-lw-test";
       process.env.OPENAI_REALTIME_API_KEY = "sk-direct-provider-key";
-      const fetchSpy = vi.fn(async () => mintResponse(200, "req_abc"));
+      const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) =>
+        mintResponse(200, "req_abc"),
+      );
       vi.stubGlobal("fetch", fetchSpy);
 
       const adapter = adapterAt(server.port());
@@ -99,7 +104,9 @@ describe("given an adapter connecting to a realtime session", () => {
   describe("when the vendor answers the mint", () => {
     it("dials with the ephemeral secret but reports no session, because OpenAI names none", async () => {
       process.env.OPENAI_API_KEY = "sk-provider";
-      const fetchSpy = vi.fn(async () => mintResponse(200));
+      const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) =>
+        mintResponse(200),
+      );
       vi.stubGlobal("fetch", fetchSpy);
 
       const adapter = adapterAt(server.port());
@@ -136,9 +143,12 @@ describe("given an adapter connecting to a realtime session", () => {
 
       expect(dialledWith).toEqual(["Bearer sk-direct-provider-key"]);
       expect(adapter.brokered).toBe(false);
-      expect(warn.mock.calls.map(String).join(" ")).toMatch(
-        /old-gateway\.example.*not billed|not billed.*old-gateway\.example/s,
-      );
+      // The warning names the variable the key actually came from. Naming a
+      // fixed one would send a reader to a variable that is not set.
+      const warned = warn.mock.calls.map(String).join(" ");
+      expect(warned).toMatch(/old-gateway\.example/);
+      expect(warned).toMatch(/OPENAI_REALTIME_API_KEY/);
+      expect(warned).toMatch(/not billed/);
     });
   });
 

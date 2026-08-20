@@ -232,6 +232,54 @@ describe("given a usage report at the end of a session", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("reports a refusal, because a rejected report is not a delivered one", async () => {
+    // A 404 for an unknown session or a 401 for a rotated key answers, so
+    // nothing throws. Reading only the thrown case would treat both as a
+    // report that landed, and the session would settle as cost-unknown with
+    // nobody told why.
+    const onError = vi.fn();
+    const fetchImpl = vi.fn(async () => new Response("no", { status: 404 }));
+
+    await reportOpenAIRealtimeUsage(endpoint, {
+      sessionId: "req_123",
+      usage: { input_tokens: 1 },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      onError,
+    });
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(String(onError.mock.calls[0]?.[0])).toMatch(/HTTP 404/);
+  });
+
+  it("gives up on a stalled gateway rather than holding the socket open", async () => {
+    // disconnect() awaits this, so an unbounded request keeps the websocket
+    // open and the test that owns it never finishes.
+    const onError = vi.fn();
+    const fetchImpl = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason ?? new Error("aborted")),
+          );
+        }),
+    );
+
+    await reportOpenAIRealtimeUsage(endpoint, {
+      sessionId: "req_123",
+      usage: { input_tokens: 1 },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 20,
+      onError,
+    });
+
+    expect(onError).toHaveBeenCalledOnce();
+    // The bound came from the signal the helper attached, not from the test
+    // giving up first.
+    expect(
+      (fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined)?.signal,
+    ).toBeInstanceOf(AbortSignal);
+  });
+
   it("never throws, because a billing report must not fail the test it measures", async () => {
     // The session still settles: the gateway closes an unreported admission as
     // cost-unknown once its grace expires.
