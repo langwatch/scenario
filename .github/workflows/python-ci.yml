@@ -8,9 +8,35 @@
 # that branch protection requires.
 name: python-ci
 
-# All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
-# AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
-# URLs point every client family (openai SDK, litellm, ai-sdk) at it.
+# All model traffic rides the LangWatch AI Gateway. One virtual key replaces
+# every provider key: it is metered, capped, and revocable on its own, and no
+# raw provider key sits in this repository's secrets for the examples job.
+#
+# The key lives in the OPENAI_API_KEY secret and is copied into whichever
+# variable each client family reads. The base URLs below point those clients
+# at the gateway: the openai SDK and litellm's openai lane read
+# OPENAI_BASE_URL / OPENAI_API_BASE, and litellm's gemini lane reads
+# GEMINI_API_BASE, set on the examples step.
+#
+# Operating notes:
+#   - Rotate:   `langwatch virtual-keys rotate <id>` mints a new secret and
+#               keeps the old one working for 24 hours. Put the new secret in
+#               the OPENAI_API_KEY repository secret inside that window.
+#   - Revoke:   `langwatch virtual-keys revoke <id>`. Allow up to a minute
+#               before the old secret stops working everywhere: each gateway
+#               pod caches a key's config for 60 seconds
+#               (LW_GATEWAY_AUTH_CACHE_CONFIG_TTL_SECONDS). Restarting the
+#               gateway deployment clears it at once.
+#   - Cap:      the key carries its own spending budget, currently $10 per
+#               day at virtual-key scope. On a hard breach the gateway
+#               answers HTTP 402 `budget_exceeded` with the scope in
+#               `error.meta.budget_scope`, and every test in this job fails
+#               until the window resets. Size the cap well above a busy
+#               day's spend: one full run costs about $0.09, and the
+#               busiest day seen so far was 31 runs.
+#   - Fall back: to call the providers directly again, clear the two base
+#               URLs below and GEMINI_API_BASE on the examples step, and put
+#               provider keys back in OPENAI_API_KEY and GEMINI_API_KEY.
 env:
   CI: true
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
@@ -106,6 +132,26 @@ jobs:
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # The Gemini examples still call Google directly. The mechanism to
+          # route them is ready and measured: litellm builds
+          # `{GEMINI_API_BASE}/models/{model}:generateContent` and sends the
+          # key as x-goog-api-key, so setting GEMINI_API_BASE to the
+          # gateway's /v1beta surface and GEMINI_API_KEY to the same virtual
+          # key moves them over with no change to any example. The whole
+          # suite passes that way against a gateway that has a Google
+          # credential.
+          #
+          # What is missing is the credential, and it takes two steps rather
+          # than one. Add a Gemini provider to the LangWatch organization,
+          # then add that provider to the routing policy this virtual key
+          # is pinned to: a key with a policy reaches only the providers
+          # listed in the policy's modelProviderIds, so an enabled provider
+          # left off the list never joins the chain. Confirm with
+          # `GET /v1/models` on the key, which lists what it can actually
+          # dispatch to, before swapping in these two lines:
+          #
+          #   GEMINI_API_BASE: https://gateway.langwatch.ai/v1beta
+          #   GEMINI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         working-directory: python
 
