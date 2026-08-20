@@ -556,6 +556,10 @@ export default defineConfig({
           link: "/best-practices/the-vibe-eval-loop",
         },
         {
+          text: "Improving Your Agent",
+          link: "/best-practices/improving-your-agent",
+        },
+        {
           text: "Domain-Driven TDD",
           link: "/best-practices/domain-driven-tdd",
         },
