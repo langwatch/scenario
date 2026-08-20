@@ -362,18 +362,28 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       ? this._wsFactory(this.url, authHeader)
       : new WebSocket(this.url, { headers: { Authorization: authHeader } });
 
-    await new Promise<void>((resolve, reject) => {
-      const onOpen = () => {
-        ws.off("error", onError);
-        resolve();
-      };
-      const onError = (err: Error) => {
-        ws.off("open", onOpen);
-        reject(err);
-      };
-      ws.once("open", onOpen);
-      ws.once("error", onError);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onOpen = () => {
+          ws.off("error", onError);
+          resolve();
+        };
+        const onError = (err: Error) => {
+          ws.off("open", onOpen);
+          reject(err);
+        };
+        ws.once("open", onOpen);
+        ws.once("error", onError);
+      });
+    } catch (error) {
+      // The mint booked a session and the socket never opened, so nothing
+      // will ever report against it. Closing it at zero is the truth: an
+      // ephemeral secret that opened no socket used nothing. Leaving it open
+      // would hold one of the key's session slots until the gateway's own
+      // window expires, and book a call that never happened.
+      await this._closeUnusedSession();
+      throw error;
+    }
 
     ws.on("message", (raw: RawData) => this._handleMessage(raw));
     ws.on("close", () => {
@@ -1278,6 +1288,27 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     }
     this._captureUsage(event);
     this._enqueueEvent(event);
+  }
+
+  /**
+   * Closes a session whose socket never opened, at no cost.
+   *
+   * The mint booked it, so only a report can close it; there is no cancel.
+   * Zero is the correct number, not a placeholder: an ephemeral credential
+   * that opened no socket consumed nothing at the vendor. Doing nothing would
+   * leave the session holding a slot against the key's open-session cap until
+   * the gateway's own window expires.
+   */
+  private async _closeUnusedSession(): Promise<void> {
+    if (!this._mint || !this._brokerSessionId) return;
+    const sessionId = this._brokerSessionId;
+    this._brokerSessionId = "";
+    await reportOpenAIRealtimeUsage(this._mint, {
+      sessionId,
+      usage: {},
+      onError: (error) =>
+        logger.debug("voice broker unused-session close failed", { error }),
+    });
   }
 
   /**

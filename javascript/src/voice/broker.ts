@@ -53,6 +53,16 @@ const SESSION_ID_HEADER = "x-langwatch-session-id";
 const USAGE_REPORT_TIMEOUT_MS = 5_000;
 
 /**
+ * How long a mint may take before it is abandoned.
+ *
+ * `connect()` waits for this before it opens the socket, so an unbounded
+ * request leaves connection setup pending forever against a stalled endpoint.
+ * Generous rather than tight: a mint is a real round trip to a vendor, and a
+ * session refused for slowness costs a call that would have worked.
+ */
+const MINT_TIMEOUT_MS = 15_000;
+
+/**
  * What a mint attempt produced.
  *
  * `sessionId` is empty unless a gateway answered, because only a gateway
@@ -101,6 +111,7 @@ export async function mintOpenAIRealtimeSession(
     model: string;
     expiresAfterSeconds?: number;
     fetchImpl?: typeof fetch;
+    timeoutMs?: number;
   },
 ): Promise<RealtimeMintResult> {
   const doFetch = params.fetchImpl ?? fetch;
@@ -121,6 +132,7 @@ export async function mintOpenAIRealtimeSession(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(params.timeoutMs ?? MINT_TIMEOUT_MS),
   });
 
   const text = await response.text();

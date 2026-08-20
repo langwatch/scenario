@@ -152,6 +152,48 @@ describe("given an adapter connecting to a realtime session", () => {
     });
   });
 
+  describe("when the socket never opens", () => {
+    it("closes the session it minted, at zero, rather than leaving it open", async () => {
+      // The mint booked a session and only a report can close it. Left open
+      // it holds one of the key's session slots until the gateway's window
+      // expires, and books a call that never happened.
+      process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
+      process.env.OPENAI_API_KEY = "vk-lw-test";
+      const calls: Array<{ url: string; body: unknown }> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push({
+            url,
+            body: init?.body ? JSON.parse(String(init.body)) : null,
+          });
+          return url.endsWith("/client_secrets")
+            ? mintResponse(200, "req_abc")
+            : new Response("{}", { status: 202 });
+        }),
+      );
+
+      const adapter = new OpenAIRealtimeAgentAdapter({
+        url: "ws://127.0.0.1:1/realtime",
+        wsFactory: (url, authHeader) => {
+          dialledWith.push(authHeader);
+          // Nothing listens on port 1, so this errors before it opens.
+          return new WebSocket(url);
+        },
+      });
+
+      await expect(adapter.connect()).rejects.toThrow();
+
+      expect(calls.map((c) => c.url)).toEqual([
+        "https://gateway.example/v1/realtime/client_secrets",
+        "https://gateway.example/v1/realtime/sessions/req_abc/usage",
+      ]);
+      // Zero is the truth here, not a placeholder: an ephemeral credential
+      // that opened no socket consumed nothing at the vendor.
+      expect(calls[1]?.body).toEqual({ usage: {} });
+    });
+  });
+
   describe("when the mint is refused", () => {
     it("raises without opening a socket, so a declined call cannot run on a provider key", async () => {
       process.env.OPENAI_BASE_URL = "https://gateway.example/v1";

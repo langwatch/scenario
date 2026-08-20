@@ -88,6 +88,15 @@ describe("given the environment scenario already uses for chat", () => {
   });
 });
 
+/** A fetch that never answers, and rejects only when its signal aborts. */
+function stallUntilAborted(_url: string, init?: RequestInit): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () =>
+      reject(init.signal?.reason ?? new Error("aborted")),
+    );
+  });
+}
+
 describe("given a mint request", () => {
   const endpoint = {
     baseUrl: "https://gateway.example/v1",
@@ -182,6 +191,27 @@ describe("given a mint request", () => {
     ).rejects.toThrow(/realtime_session_limit/);
   });
 
+  it("gives up on a stalled endpoint rather than leaving connect pending", async () => {
+    // connect() waits for the mint before it opens the socket, so an
+    // unbounded request leaves connection setup pending forever and the
+    // caller never learns why.
+    const fetchImpl = vi.fn(stallUntilAborted);
+
+    await expect(
+      mintOpenAIRealtimeSession(endpoint, {
+        model: "gpt-realtime",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        timeoutMs: 20,
+      }),
+    ).rejects.toThrow();
+
+    // The bound came from the signal the mint attached, not from the test
+    // giving up first.
+    expect(
+      (fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined)?.signal,
+    ).toBeInstanceOf(AbortSignal);
+  });
+
   it("refuses a mint that returned no credential", async () => {
     const fetchImpl = vi.fn(
       async () => new Response(JSON.stringify({ expires_at: 1 }), { status: 200 }),
@@ -254,21 +284,15 @@ describe("given a usage report at the end of a session", () => {
   it("gives up on a stalled gateway rather than holding the socket open", async () => {
     // disconnect() awaits this, so an unbounded request keeps the websocket
     // open and the test that owns it never finishes.
+    const timeoutMs = 20;
     const onError = vi.fn();
-    const fetchImpl = vi.fn(
-      (_url: string, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () =>
-            reject(init.signal?.reason ?? new Error("aborted")),
-          );
-        }),
-    );
+    const fetchImpl = vi.fn(stallUntilAborted);
 
     await reportOpenAIRealtimeUsage(endpoint, {
       sessionId: "req_123",
       usage: { input_tokens: 1 },
       fetchImpl: fetchImpl as unknown as typeof fetch,
-      timeoutMs: 20,
+      timeoutMs,
       onError,
     });
 
