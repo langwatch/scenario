@@ -42,6 +42,18 @@ describe("given a base URL for the ElevenLabs SDK", () => {
     });
   });
 
+  describe("when its scheme is not http or https", () => {
+    it("refuses it, because the SDK cannot make a REST request over it", () => {
+      // `new URL` parses these, so parsing alone is not a check.
+      expect(() => adapterWith("ftp://gateway.example")).toThrow(
+        /must be http or https/,
+      );
+      expect(() => adapterWith("file:///tmp/gateway")).toThrow(
+        /must be http or https/,
+      );
+    });
+  });
+
   describe("when it names a host root", () => {
     it("keeps it, with any trailing slash removed", () => {
       expect(normalizeElevenLabsBaseUrl("https://gateway.example/")).toBe(

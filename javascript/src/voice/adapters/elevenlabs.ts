@@ -397,6 +397,13 @@ export function normalizeElevenLabsBaseUrl(raw?: string): string | undefined {
       `ElevenLabsAgentAdapter: baseUrl is not a URL: ${trimmed}`,
     );
   }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    // `new URL` accepts schemes the SDK cannot make a REST request over, so
+    // parsing alone is not a check.
+    throw new Error(
+      `ElevenLabsAgentAdapter: baseUrl must be http or https: ${trimmed}`,
+    );
+  }
   if (parsed.pathname.endsWith("/v1")) {
     throw new Error(
       `ElevenLabsAgentAdapter: baseUrl must not include /v1 (${trimmed}). ` +
