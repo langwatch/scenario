@@ -10,13 +10,13 @@ dialling the vendor around it.
 
 from __future__ import annotations
 
+import importlib
 import json
 from typing import Any, Dict, List, Optional
 
 import httpx
 import pytest
 
-import scenario.voice.broker as broker
 from scenario.voice.adapters.elevenlabs import ElevenLabsAgentAdapter
 from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
 from scenario.voice.broker import (
@@ -101,16 +101,20 @@ def patch_mint(monkeypatch: pytest.MonkeyPatch, name: str, transport) -> None:
 
     The real function still runs; only the socket underneath it is replaced.
     Stubbing the function instead would test the stub.
+
+    The original is read off the adapter module rather than the broker module,
+    so the thing wrapped here is exactly the object the adapter will call.
     """
-    original = getattr(broker, name)
+    module = importlib.import_module(
+        f"scenario.voice.adapters.{BROKER_CALLERS[name]}"
+    )
+    original = getattr(module, name)
 
     async def _with_transport(*args, **kwargs):
         kwargs.setdefault("transport", transport)
         return await original(*args, **kwargs)
 
-    monkeypatch.setattr(
-        f"scenario.voice.adapters.{BROKER_CALLERS[name]}.{name}", _with_transport
-    )
+    monkeypatch.setattr(module, name, _with_transport)
 
 
 class TestRealtimeAdapterMint:
