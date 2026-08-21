@@ -19,14 +19,16 @@ examples it guards.
 
 import ast
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-CRITERIA_NAME = "AUDIO_JUDGE_CRITERIA"
-HELPERS_MODULE = "helpers"
+CRITERIA_NAME: Final = "AUDIO_JUDGE_CRITERIA"
+HELPERS_MODULE: Final = "helpers"
+LIST_BUILTIN: Final = "list"
 
-EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-AUDIO_EXAMPLES = ["test_audio_to_text.py", "test_audio_to_audio.py"]
+EXAMPLES: Final = Path(__file__).resolve().parents[1] / "examples"
+AUDIO_EXAMPLES: Final = ["test_audio_to_text.py", "test_audio_to_audio.py"]
 
 
 def parse(example: str) -> ast.Module:
@@ -103,28 +105,71 @@ def test_imports_the_criteria_under_its_own_name(example: str) -> None:
                     )
 
 
-@pytest.mark.parametrize("example", AUDIO_EXAMPLES)
-def test_never_rebinds_the_criteria_name(example: str) -> None:
+def bindings(tree: ast.Module) -> list[tuple[str, ast.AST]]:
     """
-    A local `AUDIO_JUDGE_CRITERIA = [...]` shadows the import, and every check
-    that follows would then be reading a local list. Annotated and augmented
-    assignments count: `AUDIO_JUDGE_CRITERIA: list[str] = [...]` shadows just
-    as well as the plain form.
+    Every name this module binds, by any means, with the node that binds it.
+
+    Collected rather than scope-resolved on purpose. The checks below want to
+    say "this name is bound exactly once, by that import", and a binding that
+    is invisible to this walk is the only way to break them. `ast.Name` in a
+    Store or Del context covers assignment targets, `for` targets, walrus,
+    `with ... as` and comprehension targets alike; `ast.arg` covers function
+    and lambda parameters; `alias` covers both import forms; `ExceptHandler`
+    covers `except ... as`.
+    """
+    found: list[tuple[str, ast.AST]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            found.append((node.id, node))
+        elif isinstance(node, ast.arg):
+            found.append((node.arg, node))
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                found.append((alias.asname or alias.name.split(".")[0], alias))
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            found.append((node.name, node))
+    return found
+
+
+@pytest.mark.parametrize("example", AUDIO_EXAMPLES)
+def test_binds_the_criteria_name_only_by_importing_it(example: str) -> None:
+    """
+    The name must be bound exactly once in the file, by the `helpers` import.
+
+    A local assignment is the obvious way to shadow it, but a parameter, a
+    `for` target, a walrus, a `with ... as`, an `except ... as` or a second
+    import bind it just as well, and every one of those would leave the judge
+    reading something other than the shared constant while the call site still
+    spells `AUDIO_JUDGE_CRITERIA`. Counting bindings catches all of them without
+    resolving scopes.
     """
     tree = parse(example)
-    for node in ast.walk(tree):
-        targets: list[ast.expr] = []
-        if isinstance(node, ast.Assign):
-            targets = list(node.targets)
-        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-            targets = [node.target]
-        for target in targets:
-            assert not (
-                isinstance(target, ast.Name) and target.id == CRITERIA_NAME
-            ), (
-                f"{example} rebinds {CRITERIA_NAME} locally, shadowing the shared "
-                "constant. Import it and leave it alone."
-            )
+    bound = [node for name, node in bindings(tree) if name == CRITERIA_NAME]
+
+    assert len(bound) == 1, (
+        f"{example} binds {CRITERIA_NAME} {len(bound)} times. It must be bound "
+        "exactly once, by importing it from `helpers`."
+    )
+    assert isinstance(bound[0], ast.alias), (
+        f"{example} binds {CRITERIA_NAME} with a "
+        f"{type(bound[0]).__name__} rather than an import. Import the shared "
+        "constant and leave the name alone."
+    )
+
+
+@pytest.mark.parametrize("example", AUDIO_EXAMPLES)
+def test_never_shadows_the_list_builtin(example: str) -> None:
+    """
+    `criteria=list(AUDIO_JUDGE_CRITERIA)` only means what it looks like while
+    `list` is the builtin. Rebinding it would let the accepted form return
+    anything at all.
+    """
+    tree = parse(example)
+    shadows = [node for name, node in bindings(tree) if name == LIST_BUILTIN]
+    assert not shadows, (
+        f"{example} rebinds `{LIST_BUILTIN}`, so `list(...)` around the criteria "
+        "no longer means the builtin copy."
+    )
 
 
 @pytest.mark.parametrize("example", AUDIO_EXAMPLES)
