@@ -68,7 +68,6 @@ describe("voice kitchen-sink — one scenario, full surface + artifact proof", (
         agents: [
           scenario.elevenLabsAgent({
             agentId: ELEVENLABS_AGENT_ID!,
-            apiKey: ELEVENLABS_API_KEY!,
           }),
           realtimeUser(),
           scenario.judgeAgent({

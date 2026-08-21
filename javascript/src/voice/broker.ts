@@ -141,7 +141,10 @@ export async function mintOpenAIRealtimeSession(
     // The endpoint's own message is the useful one: it names the budget, the
     // session cap or the missing provider far more precisely than a status.
     throw new Error(
-      `realtime mint failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
+      `the mint endpoint at ${endpoint.baseUrl}${MINT_PATH} refused this ` +
+        `session with HTTP ${response.status}. A refusal is not an absent ` +
+        `route, so the vendor is not dialed around it and no session opens. ` +
+        `Response: ${text.slice(0, 500)}`,
     );
   }
 
@@ -161,6 +164,69 @@ export async function mintOpenAIRealtimeSession(
     clientSecret,
     sessionId: response.headers.get(SESSION_ID_HEADER) ?? "",
   };
+}
+
+/**
+ * A long-lived key for dialing the vendor directly, and where it came from.
+ *
+ * `source` names the variable rather than describing it, because the
+ * direct-dial warning is read by someone deciding which value to change.
+ */
+export interface DirectDialCredential {
+  apiKey: string;
+  source: string;
+}
+
+/** The bearer a media socket opens with, and the session it belongs to. */
+export interface RealtimeSocketCredential {
+  /** An ephemeral secret when a mint answered, a long-lived key otherwise. */
+  socketKey: string;
+  /** The gateway's id for this session. Empty unless a gateway minted it. */
+  sessionId: string;
+  /** Whether a mint answered at all, by the vendor or by a gateway. */
+  minted: boolean;
+}
+
+/**
+ * Decides what a realtime socket dials with. The one implementation of that
+ * rule, shared by every adapter that opens one.
+ *
+ * Three outcomes, and the difference between the last two is what keeps a
+ * gateway's decision binding:
+ *
+ * - a mint answered, so the socket carries an ephemeral secret for this call;
+ * - the mint route was absent (HTTP 404), so the endpoint is not a LangWatch
+ *   gateway and the vendor is dialed directly with a warning;
+ * - the mint was refused (401, 403, 429, 5xx and every other error status), so
+ *   {@link mintOpenAIRealtimeSession} raises and no socket opens. Dialing the
+ *   vendor around a refusal would run a call the gateway declined to bill,
+ *   which is the whole thing the broker exists to prevent.
+ */
+export async function acquireRealtimeSocketKey(
+  endpoint: RealtimeMintEndpoint | null,
+  fallback: DirectDialCredential,
+  params: {
+    model: string;
+    expiresAfterSeconds?: number;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    /** Raised when nothing is left to dial with. Names the caller. */
+    noCredentialMessage: string;
+  },
+): Promise<RealtimeSocketCredential> {
+  if (endpoint) {
+    const result = await mintOpenAIRealtimeSession(endpoint, params);
+    if (result.minted) {
+      return {
+        socketKey: result.clientSecret,
+        sessionId: result.sessionId,
+        minted: true,
+      };
+    }
+    warnDirectDialFallback(endpoint.baseUrl, fallback.source);
+  }
+  if (!fallback.apiKey) throw new Error(params.noCredentialMessage);
+  return { socketKey: fallback.apiKey, sessionId: "", minted: false };
 }
 
 /**

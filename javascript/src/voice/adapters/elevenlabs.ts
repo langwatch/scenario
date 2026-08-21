@@ -77,6 +77,10 @@ import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import {
+  resolveElevenLabsBaseUrl,
+  resolveElevenLabsConvAIApiKey,
+} from "../elevenlabs-base-url";
+import {
   type ElevenLabsAudioInterface,
   type ElevenLabsAudioInterfaceCtor,
   type ElevenLabsConversation,
@@ -283,23 +287,30 @@ function deepMerge(
 export interface ElevenLabsAgentAdapterOptions {
   /** ID of the ElevenLabs Conversational AI agent (provisioned in the EL dashboard). */
   agentId: string;
-  /** ElevenLabs API key (`xi-api-key`). */
-  apiKey: string;
+  /**
+   * The key sent as `xi-api-key`. Falls back to `ELEVENLABS_CONVAI_API_KEY`,
+   * then `ELEVENLABS_API_KEY`.
+   *
+   * Against a gateway this carries a LangWatch virtual key rather than an
+   * ElevenLabs one, which is why it has its own variable. See
+   * {@link resolveElevenLabsConvAIApiKey}.
+   */
+  apiKey?: string;
   /**
    * Base URL for the ElevenLabs REST API, passed straight to the SDK client's
-   * own `baseUrl` option.
+   * own `baseUrl` option. Falls back to `ELEVENLABS_BASE_URL`.
    *
    * Points the signed-URL handshake at a LangWatch AI Gateway, which mirrors
    * the vendor's own mint path: the gateway checks the virtual key's budget
    * and session cap, mints the signed URL, and bills the call as one spend
    * record. The websocket the URL names still belongs to ElevenLabs, so the
    * media stream runs client to vendor and nothing about latency or the wire
-   * protocol changes. `apiKey` then carries the virtual key.
+   * protocol changes.
    *
-   * There is no environment variable for this, because the ElevenLabs SDK has
-   * none: `ELEVENLABS_API_KEY` is the only variable it reads (checked against
-   * `@elevenlabs/elevenlabs-js` 2.64.0), and the base URL is a constructor
-   * option. Omitted, the SDK talks to ElevenLabs directly as it always has.
+   * Unset here and in the environment, the SDK talks to ElevenLabs directly as
+   * it always has. The variable covers this adapter only; see
+   * {@link resolveElevenLabsBaseUrl} for why the speech-to-text and
+   * text-to-speech leaves take an explicit option instead.
    */
   baseUrl?: string;
   /**
@@ -378,40 +389,6 @@ export interface ElevenLabsAgentAdapterOptions {
  * real-mic cadence, and drain agent audio the SDK pushes via `output()`.
  */
 
-/**
- * Checks a base URL at construction, where the mistake is still readable.
- *
- * The one people make is including `/v1`. `OPENAI_BASE_URL` conventionally
- * does, and the ElevenLabs SDK appends `/v1` itself, so a base URL that
- * carries it produces `/v1/v1/convai/...` and a 404 that names no cause. An
- * empty value means unset, which leaves the SDK on its own default.
- */
-export function normalizeElevenLabsBaseUrl(raw?: string): string | undefined {
-  const trimmed = raw?.trim().replace(/\/+$/, "");
-  if (!trimmed) return undefined;
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new Error(
-      `ElevenLabsAgentAdapter: baseUrl is not a URL: ${trimmed}`,
-    );
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    // `new URL` accepts schemes the SDK cannot make a REST request over, so
-    // parsing alone is not a check.
-    throw new Error(
-      `ElevenLabsAgentAdapter: baseUrl must be http or https: ${trimmed}`,
-    );
-  }
-  if (parsed.pathname.endsWith("/v1")) {
-    throw new Error(
-      `ElevenLabsAgentAdapter: baseUrl must not include /v1 (${trimmed}). ` +
-        `The SDK appends it, so this would request /v1/v1/convai/... and 404.`,
-    );
-  }
-  return trimmed;
-}
 export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   override role = AgentRole.AGENT;
 
@@ -514,8 +491,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   constructor(options: ElevenLabsAgentAdapterOptions) {
     super();
     this.agentId = options.agentId;
-    this.apiKey = options.apiKey;
-    this.baseUrl = normalizeElevenLabsBaseUrl(options.baseUrl);
+    this.apiKey = resolveElevenLabsConvAIApiKey(options.apiKey);
+    this.baseUrl = resolveElevenLabsBaseUrl(options.baseUrl);
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
     this.dynamicVariables = options.dynamicVariables;

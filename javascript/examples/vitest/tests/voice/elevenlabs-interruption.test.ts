@@ -88,7 +88,6 @@ describeFeature(
               agents: [
                 scenario.elevenLabsAgent({
                   agentId: ELEVENLABS_AGENT_ID!,
-                  apiKey: ELEVENLABS_API_KEY!,
                   // Verbose per-session prompt so the agent has audio to barge
                   // into (applied via conversation_initiation_client_data; the
                   // shared provisioned test agent stays concise).

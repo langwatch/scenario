@@ -99,17 +99,29 @@ function missingSdk(cause: unknown): Error {
   );
 }
 
-/** Builds an authenticated client, loading the SDK on first use. */
+/**
+ * Builds an authenticated client, loading the SDK on first use.
+ *
+ * `baseUrl` is the SDK's documented custom-URL option. Undefined leaves the SDK
+ * on its own default host, so an unconfigured caller sends byte-for-byte the
+ * request it sent before.
+ */
 export async function loadElevenLabsClient(
   apiKey: string,
+  baseUrl?: string,
 ): Promise<ElevenLabsClientLike> {
-  let sdk: { ElevenLabsClient: new (o: { apiKey: string }) => unknown };
+  let sdk: {
+    ElevenLabsClient: new (o: { apiKey: string; baseUrl?: string }) => unknown;
+  };
   try {
     sdk = (await import("@elevenlabs/elevenlabs-js")) as unknown as typeof sdk;
   } catch (cause) {
     throw missingSdk(cause);
   }
-  return new sdk.ElevenLabsClient({ apiKey }) as ElevenLabsClientLike;
+  return new sdk.ElevenLabsClient({
+    apiKey,
+    ...(baseUrl ? { baseUrl } : {}),
+  }) as ElevenLabsClientLike;
 }
 
 /**

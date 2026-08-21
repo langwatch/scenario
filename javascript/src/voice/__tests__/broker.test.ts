@@ -9,6 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  acquireRealtimeSocketKey,
   mintOpenAIRealtimeSession,
   reportOpenAIRealtimeUsage,
   resolveRealtimeMintEndpoint,
@@ -321,5 +322,128 @@ describe("given a usage report at the end of a session", () => {
       }),
     ).resolves.toBeUndefined();
     expect(onError).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * The mint-or-dial rule itself, in the one place it is implemented.
+ *
+ * Both realtime adapters call this, so a difference between them cannot exist
+ * without this function saying two things at once.
+ */
+describe("given a socket that needs a credential", () => {
+  const endpoint = { baseUrl: "https://gateway.example/v1", apiKey: "vk-lw" };
+  const fallback = { apiKey: "sk-direct", source: "OPENAI_REALTIME_API_KEY" };
+  const noCredentialMessage = "TestAdapter: no API key.";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("carries the ephemeral secret and the session id when a gateway mints", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ value: "ek_secret" }), {
+          status: 200,
+          headers: { "x-langwatch-session-id": "req_abc" },
+        }),
+    );
+
+    await expect(
+      acquireRealtimeSocketKey(endpoint, fallback, {
+        model: "gpt-realtime",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        noCredentialMessage,
+      }),
+    ).resolves.toEqual({
+      socketKey: "ek_secret",
+      sessionId: "req_abc",
+      minted: true,
+    });
+  });
+
+  it.each([401, 402, 403, 429, 500, 503])(
+    "raises on HTTP %i, so a refused session is never dialled around",
+    async (status) => {
+      // The endpoint answered, so it has the route and declined this call.
+      // Falling back here would spend a provider key on a call the gateway
+      // refused to bill, which is the one thing the broker exists to stop.
+      const fetchImpl = vi.fn(async () => new Response("no", { status }));
+
+      await expect(
+        acquireRealtimeSocketKey(endpoint, fallback, {
+          model: "gpt-realtime",
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+          noCredentialMessage,
+        }),
+      ).rejects.toThrow(new RegExp(`refused this session with HTTP ${status}`));
+    },
+  );
+
+  it("falls back on HTTP 404, because an absent route is not a refusal", async () => {
+    // 404 means the base URL is not a LangWatch gateway: a plain OpenAI-
+    // compatible proxy, or a gateway older than this feature. Third-party
+    // setups keep working.
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 404 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      acquireRealtimeSocketKey(endpoint, fallback, {
+        model: "gpt-realtime",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        noCredentialMessage,
+      }),
+    ).resolves.toEqual({
+      socketKey: "sk-direct",
+      sessionId: "",
+      minted: false,
+    });
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("prints the direct-dial warning with LOG_LEVEL unset, so a bypass is visible in CI", async () => {
+    // LOG_LEVEL unset resolves to INFO, which passes WARN. An unbilled run
+    // that logged nothing would read exactly like a billed one.
+    const savedLevel = process.env.LOG_LEVEL;
+    delete process.env.LOG_LEVEL;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await acquireRealtimeSocketKey(endpoint, fallback, {
+        model: "gpt-realtime",
+        fetchImpl: (async () =>
+          new Response("nope", { status: 404 })) as unknown as typeof fetch,
+        noCredentialMessage,
+      });
+    } finally {
+      if (savedLevel === undefined) delete process.env.LOG_LEVEL;
+      else process.env.LOG_LEVEL = savedLevel;
+    }
+
+    expect(warn.mock.calls.map(String).join(" ")).toMatch(/not billed/);
+  });
+
+  it("dials directly with no mint attempt when there is no endpoint", async () => {
+    await expect(
+      acquireRealtimeSocketKey(null, fallback, {
+        model: "gpt-realtime",
+        noCredentialMessage,
+      }),
+    ).resolves.toEqual({
+      socketKey: "sk-direct",
+      sessionId: "",
+      minted: false,
+    });
+  });
+
+  it("raises the caller's own message when nothing is left to dial with", async () => {
+    // The message names the adapter and its variables, so a misconfigured run
+    // says which one to set rather than which function noticed.
+    await expect(
+      acquireRealtimeSocketKey(
+        null,
+        { apiKey: "", source: "OPENAI_API_KEY" },
+        { model: "gpt-realtime", noCredentialMessage },
+      ),
+    ).rejects.toThrow(noCredentialMessage);
   });
 });

@@ -126,7 +126,6 @@ describe("repro #705 — proceed(N) drives an autonomous realtime user on hosted
           agents: [
             scenario.elevenLabsAgent({
               agentId: ELEVENLABS_AGENT_ID!,
-              apiKey: ELEVENLABS_API_KEY!,
             }),
             realtimeUser(),
           ],
@@ -211,7 +210,6 @@ describe("repro #705 — proceed(N) drives an autonomous realtime user on hosted
           agents: [
             scenario.elevenLabsAgent({
               agentId: ELEVENLABS_AGENT_ID!,
-              apiKey: ELEVENLABS_API_KEY!,
             }),
             realtimeUser(),
             scenario.judgeAgent({

@@ -36,7 +36,6 @@ const hasHostedKey = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI
 function realAudioAgent(): voice.ElevenLabsAgentAdapter {
   return scenario.elevenLabsAgent({
     agentId: ELEVENLABS_AGENT_ID!,
-    apiKey: ELEVENLABS_API_KEY!,
     // The fix: stream REAL PCM for every user turn so EL's STT/VAD/
     // turn-detector run on turns 2+, instead of text-committing them.
   });

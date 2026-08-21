@@ -2,7 +2,7 @@
  * ElevenLabs e2e demos — bind the 2 `@e2e @ts-elevenlabs` scenarios from
  * `specs/voice-agents.feature`. Real `scenario.run()`, no mocks.
  *
- * - HOSTED: `scenario.elevenLabsAgent({ agentId, apiKey })` connects to the
+ * - HOSTED: `scenario.elevenLabsAgent({ agentId })` connects to the
  *   live `wss://api.elevenlabs.io/v1/convai/conversation` socket — the hosted
  *   ConvAI agent IS the agent under test. Mirrors
  *   `python/examples/voice/elevenlabs_hosted.py` (lead with `agent()` so the
@@ -67,17 +67,12 @@ if (hasHostedKey || hasComposableKey) {
                 "The greeting plays on connect (real-voice convention), the user " +
                 "asks a question, the agent responds; judge evaluates naturalness.",
               agents: [
+                // The adapter reads ELEVENLABS_BASE_URL itself, so this demo
+                // runs against ElevenLabs or against a gateway in front of it
+                // with no change here, the way OPENAI_BASE_URL already works
+                // for the OpenAI demos.
                 scenario.elevenLabsAgent({
                   agentId: ELEVENLABS_AGENT_ID!,
-                  apiKey: ELEVENLABS_API_KEY!,
-                  // The ElevenLabs SDK reads no base URL variable, so this
-                  // demo reads one itself. It is what lets the same demo run
-                  // against ElevenLabs or against a gateway in front of it,
-                  // the way OPENAI_BASE_URL already does for the OpenAI demo.
-                  // Unset, the SDK talks to ElevenLabs directly.
-                  ...(process.env.ELEVENLABS_BASE_URL
-                    ? { baseUrl: process.env.ELEVENLABS_BASE_URL }
-                    : {}),
                 }),
                 scenario.userSimulatorAgent({ voice: "openai/nova" }),
                 scenario.judgeAgent({

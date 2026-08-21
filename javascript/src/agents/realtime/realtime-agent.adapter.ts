@@ -1,11 +1,15 @@
 /**
  * Realtime Agent Adapter for Scenario Testing
  *
- * Adapts a connected RealtimeSession to the Scenario framework interface.
- * The session must be created and connected before passing to this adapter.
+ * Adapts a RealtimeSession to the Scenario framework interface. Create the
+ * session with your own session creator, hand it to this adapter, then call
+ * `connect()`.
  *
  * This ensures we test the REAL agent, not a mock, using the same session
- * creation pattern as the browser client.
+ * creation pattern as the browser client. `connect()` mints the session
+ * credential the same way `OpenAIRealtimeAgentAdapter` does, so a run pointed
+ * at a LangWatch AI Gateway is metered there rather than dialing OpenAI with a
+ * long-lived provider key.
  */
 
 import { EventEmitter } from "events";
@@ -20,6 +24,12 @@ import { ResponseFormatter } from "./response-formatter";
 import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
 import { AgentAdapter } from "../../domain/agents";
 import { Logger } from "../../utils/logger";
+import {
+  acquireRealtimeSocketKey,
+  resolveRealtimeMintEndpoint,
+  type RealtimeMintEndpoint,
+} from "../../voice/broker";
+import { OPENAI_REALTIME_MODEL } from "../../voice/voice-models";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -31,20 +41,20 @@ export interface RealtimeAgentAdapterConfig {
   role: AgentRole;
 
   /**
-   * A connected RealtimeSession instance
+   * A RealtimeSession instance
    *
-   * The session should be created using your agent's session creator function
-   * and connected before passing to this adapter.
+   * The session should be created using your agent's session creator function.
+   * Connect it through the adapter, which mints the session credential.
    *
    * @example
    * ```typescript
    * const session = createVegetarianRecipeSession();
-   * await session.connect({ apiKey: process.env.OPENAI_API_KEY });
    * const adapter = new RealtimeAgentAdapter({
    *   session,
    *   role: AgentRole.AGENT,
    *   agentName: "Vegetarian Recipe Assistant"
    * });
+   * await adapter.connect();
    * ```
    */
   session: RealtimeSession;
@@ -59,24 +69,45 @@ export interface RealtimeAgentAdapterConfig {
    * @default 30000
    */
   responseTimeout?: number;
+
+  /**
+   * Realtime model id the session credential is minted for.
+   *
+   * Read from the session's own options when omitted, and from
+   * {@link OPENAI_REALTIME_MODEL} when the session names none. The gateway
+   * prices and budgets the session against this value, so it has to match the
+   * model the session actually opens with.
+   */
+  model?: string;
+
+  /**
+   * Where to mint the session credential, overriding `OPENAI_BASE_URL` and
+   * `OPENAI_API_KEY`. `false` skips the mint and dials the vendor directly.
+   *
+   * Same option, same meaning and same default as
+   * `OpenAIRealtimeAgentAdapterInit.mint`.
+   */
+  mint?: Partial<RealtimeMintEndpoint> | false;
 }
 
 /**
  * Adapter that connects Scenario testing framework to OpenAI Realtime API
  *
- * This adapter wraps a connected RealtimeSession to provide the Scenario
- * framework interface. The session must be created and connected externally,
- * ensuring the same session creation pattern is used in both browser and tests.
+ * This adapter wraps a RealtimeSession to provide the Scenario framework
+ * interface. The session is created by your own session creator, so the same
+ * creation pattern runs in both browser and tests. `connect()` mints the
+ * session credential at `OPENAI_BASE_URL`, which is how a run through a
+ * LangWatch AI Gateway gets metered.
  *
  * @example
  * ```typescript
  * // In beforeAll
  * const session = createVegetarianRecipeSession();
- * await session.connect({ apiKey: process.env.OPENAI_API_KEY });
  * const adapter = new RealtimeAgentAdapter({
  *   session,
  *   role: AgentRole.AGENT
  * });
+ * await adapter.connect();
  *
  * // In test
  * await scenario.run({
@@ -98,12 +129,14 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private responseFormatter = new ResponseFormatter();
   private audioEvents = new EventEmitter();
   private readonly logger = new Logger("RealtimeAgentAdapter");
+  /** The gateway's id for the current session, empty unless a gateway minted it. */
+  private brokerSessionId = "";
 
   /**
    * Creates a new RealtimeAgentAdapter instance
    *
    * The session can be either connected or unconnected.
-   * If unconnected, call connect() with an API key before use.
+   * If unconnected, call connect() before use.
    *
    * @param config - Configuration for the realtime agent adapter
    */
@@ -116,29 +149,85 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Get the connect method from the session
+   * Whether the live session was minted by a gateway rather than the vendor.
+   *
+   * Only true after `connect()`, and only when the mint answered with
+   * `X-LangWatch-Session-Id`. Configuration cannot set it, because the
+   * response is the one thing that cannot be told a lie about what answered.
+   */
+  get brokered(): boolean {
+    return this.brokerSessionId !== "";
+  }
+
+  /**
+   * Open the session, minting its credential the way every other realtime
+   * adapter does.
+   *
+   * The media websocket runs to OpenAI either way. What changes is the bearer
+   * it opens with: `POST ${OPENAI_BASE_URL}/realtime/client_secrets` is
+   * OpenAI's own mint path and a LangWatch AI Gateway mirrors it, so pointing
+   * `OPENAI_BASE_URL` at a gateway makes the same request check the virtual
+   * key's budget and session cap and open one spend record. The socket then
+   * carries the ephemeral secret the mint returned, which the `@openai/agents`
+   * websocket transport was built to take.
+   *
+   * An explicit `params.apiKey` skips the mint: the caller has already said
+   * which credential to dial with.
    */
   async connect(
     params?: Parameters<RealtimeSession["connect"]>[0] | undefined
   ): Promise<void> {
     const { apiKey, ...rest } = params ?? {};
-    // The Realtime API is a direct websocket to api.openai.com that an
-    // OpenAI-compatible gateway cannot proxy. When OPENAI_API_KEY holds a
-    // gateway credential (e.g. a LangWatch virtual key), the dedicated
-    // OPENAI_REALTIME_API_KEY must win, same as OpenAIRealtimeAdapter.
-    const resolvedApiKey =
-      apiKey ??
-      process.env.OPENAI_REALTIME_API_KEY ??
-      process.env.OPENAI_API_KEY;
-    if (!resolvedApiKey) {
-      throw new Error(
-        "RealtimeAgentAdapter.connect requires an API key: pass params.apiKey or set OPENAI_REALTIME_API_KEY / OPENAI_API_KEY.",
-      );
+    this.brokerSessionId = "";
+    if (apiKey) {
+      await this.session.connect({ apiKey, ...rest });
+      return;
     }
+
+    // `OPENAI_REALTIME_API_KEY` is the direct-dial fallback, used only when the
+    // base URL has no mint route. It is never offered to the mint, because a
+    // gateway cannot bill a provider key it did not issue.
+    const realtimeKey = process.env.OPENAI_REALTIME_API_KEY;
+    const credential = await acquireRealtimeSocketKey(
+      this.config.mint === false
+        ? null
+        : resolveRealtimeMintEndpoint(this.config.mint ?? undefined),
+      {
+        apiKey: realtimeKey ?? process.env.OPENAI_API_KEY ?? "",
+        source:
+          realtimeKey !== undefined
+            ? "OPENAI_REALTIME_API_KEY"
+            : "OPENAI_API_KEY",
+      },
+      {
+        model: this.mintModel,
+        noCredentialMessage:
+          "RealtimeAgentAdapter.connect requires an API key: pass " +
+          "params.apiKey, or set OPENAI_API_KEY so the session can be minted " +
+          "at OPENAI_BASE_URL, or set OPENAI_REALTIME_API_KEY to dial OpenAI " +
+          "directly.",
+      },
+    );
+    this.brokerSessionId = credential.sessionId;
+
     await this.session.connect({
-      apiKey: resolvedApiKey,
+      apiKey: credential.socketKey,
       ...rest,
     });
+  }
+
+  /**
+   * The model the mint is asked for.
+   *
+   * `RealtimeSession` keeps the model it was built with on its public
+   * `options`, so a session created by the caller's own factory needs no
+   * second declaration here.
+   */
+  private get mintModel(): string {
+    const sessionModel = (
+      this.session as RealtimeSession & { options?: { model?: string } }
+    ).options?.model;
+    return this.config.model ?? sessionModel ?? OPENAI_REALTIME_MODEL;
   }
 
   /**

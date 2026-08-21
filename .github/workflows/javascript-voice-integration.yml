@@ -3,12 +3,25 @@ name: javascript-voice-integration
 # All OpenAI-compatible HTTP traffic (judge and user-sim LLMs, TTS, STT)
 # rides the LangWatch AI Gateway: OPENAI_API_KEY holds a LangWatch virtual
 # key, and these base URLs point every client family (openai SDK, litellm,
-# ai-sdk) at the gateway. The OpenAI Realtime websocket connects directly
-# to OpenAI and uses OPENAI_REALTIME_API_KEY (a real provider key) instead.
+# ai-sdk) at the gateway.
+#
+# The two realtime lanes ride it as well. Their media websockets still run to
+# the vendor, because the gateway proxies HTTP only, but the credential each
+# one opens with is minted through the gateway first: OpenAI Realtime at
+# POST /v1/realtime/client_secrets, ElevenLabs ConvAI at
+# GET /v1/convai/conversation/get-signed-url. Both are the vendor's own mint
+# path, and the gateway mirrors them, so each session is checked against the
+# virtual key's budget and session cap and billed as one spend record.
+#
+# ELEVENLABS_BASE_URL carries no /v1: the ElevenLabs SDK appends it, so a base
+# URL that already has one requests /v1/v1/convai/... and 404s. It moves the
+# hosted ConvAI adapter only. The gateway does not front /v1/speech-to-text or
+# /v1/text-to-speech, so the composable ElevenLabs voices keep talking to the
+# vendor and take an explicit baseUrl if they ever need one.
 env:
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
   OPENAI_API_BASE: https://gateway.langwatch.ai/v1
-  OPENAI_REALTIME_API_KEY: ${{ secrets.OPENAI_REALTIME_API_KEY }}
+  ELEVENLABS_BASE_URL: https://gateway.langwatch.ai
 
 # On-demand workflow for the JavaScript voice e2e demos that hit live providers
 # (OpenAI Realtime, ElevenLabs, Gemini Live) and the bundled Pipecat stub bot.
@@ -24,10 +37,14 @@ env:
 #     pipecat_ws). Each self-skips when its required key/infra is absent.
 #
 # Secrets required (configure in repo settings):
-#   - OPENAI_API_KEY     — STT, TTS, Realtime API, judge LLM, user-sim TTS
-#   - LANGWATCH_API_KEY  — telemetry export
-#   - GEMINI_API_KEY     — Gemini Live adapter
-#   - ELEVENLABS_API_KEY — ElevenLabs hosted + branded adapters + STT
+#   - OPENAI_API_KEY:     the LangWatch virtual key. Judge LLM, user-sim TTS,
+#                          STT, the OpenAI Realtime mint, and the ElevenLabs
+#                          ConvAI mint all present it.
+#   - LANGWATCH_API_KEY:  telemetry export
+#   - GEMINI_API_KEY:     Gemini Live adapter
+#   - ELEVENLABS_API_KEY: the real vendor key. Agent provisioning, and the
+#                          branded and composable ElevenLabs STT and TTS demos,
+#                          which the gateway does not front.
 #
 # Twilio inbound/outbound demos stay MANUAL (real phone + ngrok tunnel +
 # TWILIO_PHONE_NUMBER_2) and are NOT run here — matching the capability matrix's
@@ -150,6 +167,14 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Two ElevenLabs credentials, because two destinations. The hosted
+          # ConvAI demos mint through the gateway, which authenticates the same
+          # virtual key OPENAI_API_KEY holds: the SDK sends it as `xi-api-key`,
+          # the gateway takes that header as a bearer and resolves the
+          # workspace's own ElevenLabs credential. The composable and branded
+          # demos call /v1/speech-to-text and /v1/text-to-speech, which the
+          # gateway does not front, so they keep the real vendor key.
+          ELEVENLABS_CONVAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           # The bundled Pipecat stub bot was brought up + readiness-polled above,
           # so the bot-gated demos (angry_customer, basic_greeting,

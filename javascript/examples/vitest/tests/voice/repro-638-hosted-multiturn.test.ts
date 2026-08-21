@@ -33,7 +33,6 @@ describe("repro #638 — hosted elevenLabsAgent 2nd scripted user turn", () => {
           agents: [
             scenario.elevenLabsAgent({
               agentId: ELEVENLABS_AGENT_ID!,
-              apiKey: ELEVENLABS_API_KEY!,
             }),
             scenario.userSimulatorAgent({ voice: "openai/nova" }),
             scenario.judgeAgent({

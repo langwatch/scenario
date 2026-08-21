@@ -8,12 +8,10 @@
  * real debugging round before this check existed.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  ElevenLabsAgentAdapter,
-  normalizeElevenLabsBaseUrl,
-} from "../elevenlabs";
+import { resolveElevenLabsBaseUrl } from "../../elevenlabs-base-url";
+import { ElevenLabsAgentAdapter } from "../elevenlabs";
 
 /** Options every `ElevenLabsClient` this file builds was constructed with. */
 const clientOptions = vi.hoisted(() => [] as Record<string, unknown>[]);
@@ -46,9 +44,17 @@ function adapterWith(baseUrl?: string): ElevenLabsAgentAdapter {
   });
 }
 
+const savedBaseUrl = process.env.ELEVENLABS_BASE_URL;
+
 describe("given a base URL for the ElevenLabs SDK", () => {
   beforeEach(() => {
     clientOptions.length = 0;
+    delete process.env.ELEVENLABS_BASE_URL;
+  });
+
+  afterEach(() => {
+    if (savedBaseUrl === undefined) delete process.env.ELEVENLABS_BASE_URL;
+    else process.env.ELEVENLABS_BASE_URL = savedBaseUrl;
   });
 
   describe("when it carries the /v1 prefix", () => {
@@ -83,7 +89,7 @@ describe("given a base URL for the ElevenLabs SDK", () => {
 
   describe("when it names a host root", () => {
     it("keeps it, with any trailing slash removed", () => {
-      expect(normalizeElevenLabsBaseUrl("https://gateway.example/")).toBe(
+      expect(resolveElevenLabsBaseUrl("https://gateway.example/")).toBe(
         "https://gateway.example",
       );
       expect(() => adapterWith("https://gateway.example/")).not.toThrow();
@@ -94,8 +100,24 @@ describe("given a base URL for the ElevenLabs SDK", () => {
     it("leaves the SDK on its own default", () => {
       // Empty is unset, not an error: it is what an unset environment
       // variable spreads into an options object as.
-      expect(normalizeElevenLabsBaseUrl(undefined)).toBeUndefined();
-      expect(normalizeElevenLabsBaseUrl("   ")).toBeUndefined();
+      expect(resolveElevenLabsBaseUrl(undefined)).toBeUndefined();
+      expect(resolveElevenLabsBaseUrl("   ")).toBeUndefined();
+    });
+  });
+
+  describe("when only the environment names one", () => {
+    it("reads ELEVENLABS_BASE_URL, so every call site does not repeat it", () => {
+      // The seven demos that build an adapter would otherwise each need the
+      // same conditional spread, and one of them would be missed.
+      process.env.ELEVENLABS_BASE_URL = "https://gateway.example/";
+      expect(resolveElevenLabsBaseUrl()).toBe("https://gateway.example");
+    });
+
+    it("lets an explicit value win over the environment", () => {
+      process.env.ELEVENLABS_BASE_URL = "https://from-env.example";
+      expect(resolveElevenLabsBaseUrl("https://explicit.example")).toBe(
+        "https://explicit.example",
+      );
     });
   });
 });
@@ -103,6 +125,12 @@ describe("given a base URL for the ElevenLabs SDK", () => {
 describe("given the adapter builds its SDK client", () => {
   beforeEach(() => {
     clientOptions.length = 0;
+    delete process.env.ELEVENLABS_BASE_URL;
+  });
+
+  afterEach(() => {
+    if (savedBaseUrl === undefined) delete process.env.ELEVENLABS_BASE_URL;
+    else process.env.ELEVENLABS_BASE_URL = savedBaseUrl;
   });
 
   it("hands a configured base URL to the client", async () => {
@@ -112,6 +140,19 @@ describe("given the adapter builds its SDK client", () => {
     ).rejects.toThrow();
 
     expect(clientOptions).toHaveLength(1);
+    expect(clientOptions[0]).toMatchObject({
+      apiKey: "key_test",
+      baseUrl: "https://gateway.example",
+    });
+  });
+
+  it("takes the base URL from the environment when the caller names none", async () => {
+    // This is what lets the ElevenLabs demos ride a gateway with no per-demo
+    // change, the way OPENAI_BASE_URL already does for the OpenAI demos.
+    process.env.ELEVENLABS_BASE_URL = "https://gateway.example";
+
+    await expect(adapterWith(undefined).connect()).rejects.toThrow();
+
     expect(clientOptions[0]).toMatchObject({
       apiKey: "key_test",
       baseUrl: "https://gateway.example",

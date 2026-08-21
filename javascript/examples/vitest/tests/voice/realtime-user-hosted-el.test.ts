@@ -48,7 +48,6 @@ describe("#705 — realtime user drives hosted EL via scenario.run()", () => {
         agents: [
           scenario.elevenLabsAgent({
             agentId: ELEVENLABS_AGENT_ID!,
-            apiKey: ELEVENLABS_API_KEY!,
           }),
           // REALTIME user — the model itself speaks, role=USER.
           scenario.openAIRealtimeAgent({

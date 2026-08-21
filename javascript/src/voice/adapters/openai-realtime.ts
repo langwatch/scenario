@@ -33,10 +33,9 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import {
-  mintOpenAIRealtimeSession,
+  acquireRealtimeSocketKey,
   reportOpenAIRealtimeUsage,
   resolveRealtimeMintEndpoint,
-  warnDirectDialFallback,
   type RealtimeMintEndpoint,
   type RealtimeUsage,
 } from "../broker";
@@ -326,31 +325,25 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     // The socket's bearer is the ephemeral secret the mint returned: a
     // credential for exactly this call, so no long-lived key reaches the
     // socket. Whether OpenAI or a gateway answers the mint is a property of
-    // OPENAI_BASE_URL, not of this adapter.
-    let socketKey = this._apiKey;
-    if (this._mint) {
-      const result = await mintOpenAIRealtimeSession(this._mint, {
+    // OPENAI_BASE_URL, not of this adapter. `acquireRealtimeSocketKey` holds
+    // the mint-or-dial rule for every adapter that opens a realtime socket.
+    const credential = await acquireRealtimeSocketKey(
+      this._mint,
+      { apiKey: this._apiKey, source: this._apiKeySource },
+      {
         model: this.model,
-      });
-      if (result.minted) {
-        socketKey = result.clientSecret;
-        this._brokerSessionId = result.sessionId;
-        setSpanAttributes(currentSpan(), {
-          "voice.realtime.brokered": this.brokered,
-          "voice.realtime.session_id": result.sessionId,
-        });
-      } else {
-        // No mint route: a gateway older than this feature, or a plain proxy.
-        // Dial the vendor directly, and say so, because an unbilled session
-        // otherwise looks identical to a billed one.
-        warnDirectDialFallback(this._mint.baseUrl, this._apiKeySource);
-      }
-    }
-    if (socketKey === this._apiKey && !this._apiKey) {
-      throw new Error(
-        "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
+        noCredentialMessage:
+          "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
           "pass `{ apiKey }` to the constructor.",
-      );
+      },
+    );
+    const socketKey = credential.socketKey;
+    if (credential.minted) {
+      this._brokerSessionId = credential.sessionId;
+      setSpanAttributes(currentSpan(), {
+        "voice.realtime.brokered": this.brokered,
+        "voice.realtime.session_id": credential.sessionId,
+      });
     }
     // No `OpenAI-Beta: realtime=v1` header — that opt-in is the deprecated
     // Beta. The GA endpoint at `/v1/realtime` rejects the header outright
