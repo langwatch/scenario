@@ -1,13 +1,13 @@
 // Repro for https://github.com/langwatch/scenario/issues/638 — a 2nd scripted user turn on a hosted elevenLabsAgent should time out with `receiveAudio timed out`. Standalone; does not modify the canonical elevenlabs-hosted.test.ts.
 
-import scenario, { type ScenarioResult } from "@langwatch/scenario";
+import scenario, { voice, type ScenarioResult } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_CONVAI_KEY = voice.resolveElevenLabsConvAIApiKey();
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-const hasHostedKey = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
+const hasHostedKey = Boolean(ELEVENLABS_CONVAI_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
 
 describe("repro #638 — hosted elevenLabsAgent 2nd scripted user turn", () => {
   it(

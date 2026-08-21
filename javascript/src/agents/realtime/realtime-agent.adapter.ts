@@ -200,7 +200,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
             : "OPENAI_API_KEY",
       },
       {
-        model: this.mintModel,
+        model: this.mintModel(params?.model),
         noCredentialMessage:
           "RealtimeAgentAdapter.connect requires an API key: pass " +
           "params.apiKey, or set OPENAI_API_KEY so the session can be minted " +
@@ -219,15 +219,22 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   /**
    * The model the mint is asked for.
    *
-   * `RealtimeSession` keeps the model it was built with on its public
-   * `options`, so a session created by the caller's own factory needs no
-   * second declaration here.
+   * `connectModel` is `connect({ model })`, which `session.connect` uses for the
+   * socket, so the mint has to use it too. A gateway prices and budgets the
+   * session against what it was told, and a mint for one model that opens as
+   * another bills the wrong thing.
+   *
+   * Otherwise `RealtimeSession` keeps the model it was built with on its public
+   * `options`, so a session created by the caller's own factory needs no second
+   * declaration here.
    */
-  private get mintModel(): string {
+  private mintModel(connectModel?: string): string {
     const sessionModel = (
       this.session as RealtimeSession & { options?: { model?: string } }
     ).options?.model;
-    return this.config.model ?? sessionModel ?? OPENAI_REALTIME_MODEL;
+    return (
+      connectModel ?? this.config.model ?? sessionModel ?? OPENAI_REALTIME_MODEL
+    );
   }
 
   /**

@@ -11,7 +11,9 @@
  *   ElevenLabs rachel TTS in-process (no socket). Mirrors
  *   `python/examples/voice/elevenlabs_branded.py`.
  *
- * Env-gated on `ELEVENLABS_API_KEY` (+ `ELEVENLABS_AGENT_ID` for hosted) and
+ * Env-gated on `ELEVENLABS_CONVAI_API_KEY` or `ELEVENLABS_API_KEY` (+
+ * `ELEVENLABS_AGENT_ID` for hosted; the branded lane always needs the vendor
+ * key) and
  * `OPENAI_API_KEY` (judge LLM + user-sim TTS). Recordings land in
  * `javascript/examples/vitest/outputs/recordings/elevenlabs_hosted/` and `…/elevenlabs_branded/`.
  */
@@ -30,10 +32,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "..", "specs", "voice-agents.feature");
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_CONVAI_KEY = voice.resolveElevenLabsConvAIApiKey();
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
 
-const hasHostedKey = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && hasOpenAI);
+const hasHostedKey = Boolean(ELEVENLABS_CONVAI_KEY && ELEVENLABS_AGENT_ID && hasOpenAI);
 const hasComposableKey = Boolean(ELEVENLABS_API_KEY && hasOpenAI);
 
 if (hasHostedKey || hasComposableKey) {
@@ -271,7 +274,7 @@ if (hasHostedKey || hasComposableKey) {
   );
 } else {
   describe.skip("ElevenLabs e2e demos (env-gated)", () => {
-    it("requires ELEVENLABS_API_KEY (+ ELEVENLABS_AGENT_ID for hosted) and OPENAI_API_KEY", () => {
+    it("requires an ElevenLabs key (+ ELEVENLABS_AGENT_ID for hosted) and OPENAI_API_KEY", () => {
       expect(true).toBe(true);
     });
   });

@@ -29,6 +29,7 @@
 // conclusion (memory: voice-e2e-hollow-green — `| tee` swallows the exit code).
 
 import scenario, {
+  voice,
   type ScenarioResult,
 } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
@@ -37,12 +38,12 @@ import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
 import { realtimeUser } from "./helpers/realtime-user";
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_CONVAI_KEY = voice.resolveElevenLabsConvAIApiKey();
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const hasHostedKey = Boolean(
-  ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY,
+  ELEVENLABS_CONVAI_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY,
 );
 
 function countSpeakers(result: ScenarioResult): { user: number; agent: number } {

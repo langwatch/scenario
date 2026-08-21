@@ -34,8 +34,11 @@ export const ELEVENLABS_CONVAI_API_KEY_ENV = "ELEVENLABS_CONVAI_API_KEY";
  * `ELEVENLABS_BASE_URL`.
  */
 export function resolveElevenLabsBaseUrl(explicit?: string): string | undefined {
+  // Blank is unset, not a choice: it is what an absent variable spreads into an
+  // options object as, so it falls through to the environment rather than
+  // suppressing it.
   return normalizeElevenLabsBaseUrl(
-    explicit ?? process.env[ELEVENLABS_BASE_URL_ENV],
+    explicit?.trim() || process.env[ELEVENLABS_BASE_URL_ENV],
   );
 }
 
@@ -52,10 +55,12 @@ export function resolveElevenLabsBaseUrl(explicit?: string): string | undefined 
  * the adapter falls back to `ELEVENLABS_API_KEY` and behaves exactly as before.
  */
 export function resolveElevenLabsConvAIApiKey(explicit?: string): string {
+  // Blank is unset at every step, for the same reason as the base URL: a demo
+  // that spreads an absent variable must reach the next candidate, not stop.
   return (
-    explicit ??
-    process.env[ELEVENLABS_CONVAI_API_KEY_ENV] ??
-    process.env.ELEVENLABS_API_KEY ??
+    explicit ||
+    process.env[ELEVENLABS_CONVAI_API_KEY_ENV] ||
+    process.env.ELEVENLABS_API_KEY ||
     ""
   );
 }

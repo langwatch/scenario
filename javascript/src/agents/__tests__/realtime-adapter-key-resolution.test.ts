@@ -15,8 +15,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
 import { AgentRole } from "../../domain";
+import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
 
 type ConnectParams = { apiKey?: string };
 
@@ -115,6 +115,24 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
         String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body),
       );
       expect(body.session.model).toBe("gpt-realtime");
+    });
+
+    it("mints for the model connect() was given, which is the one the socket opens with", async () => {
+      // `session.connect({ model })` overrides the session's own model, so a
+      // mint for the session's model would bill something the call never used.
+      process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
+      process.env.OPENAI_API_KEY = "vk-lw-test";
+      const fetchSpy = vi.fn(async () => mintResponse(200, "req_abc"));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await makeAdapter([], {}, "gpt-realtime").connect({
+        model: "gpt-realtime-mini",
+      } as Parameters<RealtimeAgentAdapter["connect"]>[0]);
+
+      const body = JSON.parse(
+        String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body),
+      );
+      expect(body.session.model).toBe("gpt-realtime-mini");
     });
   });
 
