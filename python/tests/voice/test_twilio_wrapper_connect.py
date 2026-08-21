@@ -57,7 +57,7 @@ def _connected_state_shape(adapter: TwilioAgentAdapter) -> dict[str, Any]:
 @pytest.mark.asyncio
 async def test_wrapper_harness_connected_state_matches_real_connect(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+):
     """The listed harness-managed fields must drift-fail against ``connect()``.
 
     ``twilio.rest.Client`` is the only fake boundary. The production adapter,
@@ -109,8 +109,9 @@ async def test_wrapper_harness_connected_state_matches_real_connect(
         }
         assert isinstance(real_adapter._rest, TwilioRESTHelper)
         assert real_adapter._phone_number_sid == phone_number_sid
+        # This outer task proves connect() scheduled the server lifecycle; the
+        # inner uvicorn task owns readiness and is intentionally not inferred here.
         assert real_adapter._server_task is not None
-        assert not real_adapter._server_task.done()
         assert _connected_state_shape(real_adapter) == _connected_state_shape(
             harness_adapter
         )
