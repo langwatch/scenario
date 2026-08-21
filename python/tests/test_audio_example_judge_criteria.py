@@ -14,8 +14,9 @@ shadows the import, or an import that no longer comes from `helpers`. Every
 
 The one drift no reading of the example can catch is a mutation of the shared
 object itself, which binds no name and leaves the helper file pristine. That
-one is not checked for, it is made impossible: the criteria are a tuple, and
-the last test here holds them that way.
+one is not checked for, it is made impossible: the criteria are a tuple. The
+last two tests here import what the examples import, facade included, and hold
+it that way.
 
 Deterministic: it parses files. No API keys, no network, no model. Runs in
 `python-ci`'s unit step alongside the rest of `tests/`, unlike the live
@@ -23,8 +24,9 @@ examples it guards.
 """
 
 import ast
-import importlib.util
+import importlib
 import symtable
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Final, NamedTuple
@@ -36,7 +38,7 @@ HELPERS_MODULE: Final = "helpers"
 LIST_BUILTIN: Final = "list"
 
 EXAMPLES: Final = Path(__file__).resolve().parents[1] / "examples"
-CRITERIA_MODULE: Final = EXAMPLES / "helpers" / "audio_judge_criteria.py"
+CRITERIA_SUBMODULE: Final = "audio_judge_criteria"
 AUDIO_EXAMPLES: Final = ["test_audio_to_text.py", "test_audio_to_audio.py"]
 
 
@@ -231,40 +233,71 @@ def test_every_judge_uses_the_shared_criteria(example: str) -> None:
         )
 
 
-def load_criteria_module() -> ModuleType:
+def import_helpers(monkeypatch: pytest.MonkeyPatch) -> tuple[ModuleType, ModuleType]:
     """
-    The shared module as the examples get it, loaded from its own path.
+    The `helpers` package and its criteria submodule, imported the way the
+    examples import them.
 
-    `python/examples` is on `sys.path` when pytest collects the examples, not
-    when it collects this file, so the import goes through the loader directly
-    rather than through a path the test would have to arrange.
+    `python/examples` is on `sys.path` when pytest collects the examples and
+    not when it collects this file, so the path is arranged here rather than
+    assumed. It goes through `monkeypatch`, which puts it back.
+
+    Both are returned because the question these tests ask is about the pair:
+    what the package exports has to be what the submodule defines.
     """
-    spec = importlib.util.spec_from_file_location(
-        "audio_judge_criteria_under_guard", CRITERIA_MODULE
-    )
-    assert spec is not None and spec.loader is not None, (
-        f"{CRITERIA_MODULE} is not importable. Did the shared criteria move?"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    monkeypatch.syspath_prepend(str(EXAMPLES))
+    for name in (HELPERS_MODULE, f"{HELPERS_MODULE}.{CRITERIA_SUBMODULE}"):
+        sys.modules.pop(name, None)
+    package = importlib.import_module(HELPERS_MODULE)
+    submodule = importlib.import_module(f"{HELPERS_MODULE}.{CRITERIA_SUBMODULE}")
+    return package, submodule
 
 
-def test_the_shared_criteria_cannot_be_mutated_in_place() -> None:
+def test_the_helpers_facade_re_exports_the_criteria_object_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    The examples import from `helpers`, not from `helpers.audio_judge_criteria`,
+    so the package `__init__` is on the path between them and the criteria and
+    is free to export something else.
+
+    Nothing else here would notice. `helpers/__init__.py` can import the tuple
+    under a private name and then export a stale list beside it: the example
+    sources are unchanged, the symbol-table guard sees a plain import, the
+    criteria file stays pristine so the cross-language parity test agrees, and
+    pyright infers the list happily. Verified, `11 passed` and `pyright` clean
+    with the criterion #680 removed exported from the facade.
+
+    Identity, not equality: a facade exporting an equal copy is a second copy,
+    which is the thing this whole set of guards exists to prevent.
+    """
+    package, submodule = import_helpers(monkeypatch)
+
+    assert getattr(package, CRITERIA_NAME) is getattr(submodule, CRITERIA_NAME), (
+        f"`{HELPERS_MODULE}` exports a different object as {CRITERIA_NAME} than "
+        f"`{HELPERS_MODULE}.{CRITERIA_SUBMODULE}` defines, so the examples judge "
+        "against the facade's copy. Re-export the constant, do not rebuild it."
+    )
+
+
+def test_the_shared_criteria_cannot_be_mutated_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     Rebinding the name is the loud way to drift. Mutating the object behind it
-    is the quiet one, and every other guard here is blind to it: an
+    is the quiet one, and every source-reading guard here is blind to it: an
     `AUDIO_JUDGE_CRITERIA.append("...")` in an example binds no name, so the
     symbol table reports nothing, and the cross-language parity test reads the
-    helper file rather than the live object, so it reports nothing either. The
-    judge would then be handed a drifted criterion with CI fully green.
+    criteria file rather than the live object, so it reports nothing either.
+    The judge would then be handed a drifted criterion with CI fully green.
 
     So the criteria are a tuple. That removes the move instead of adding a
     check for it, and unlike a name-based check it holds through an alias
     (`stale = AUDIO_JUDGE_CRITERIA` buys the aliaser nothing). pyright rejects
     the mutation in CI and the interpreter rejects it at runtime.
     """
-    criteria = load_criteria_module().AUDIO_JUDGE_CRITERIA
+    package, _ = import_helpers(monkeypatch)
+    criteria = getattr(package, CRITERIA_NAME)
 
     assert isinstance(criteria, tuple), (
         f"{CRITERIA_NAME} is a {type(criteria).__name__}, which an importer can "
