@@ -29,12 +29,11 @@ const JS_SIBLINGS = [
   "multimodal-audio-to-text.test.ts",
 ];
 
-/**
- * Python siblings, relative to `python/examples/`. They import the shared
- * constant rather than declaring one, so the drift they can suffer is the same
- * one the JS pair can: importing it and then passing something else.
- */
-const PYTHON_SIBLINGS = ["test_audio_to_text.py", "test_audio_to_audio.py"];
+// Whether the Python siblings actually USE their constant is checked where it
+// can be checked properly: python/tests/test_audio_example_judge_criteria.py
+// walks each example's AST and inspects every JudgeAgent call. Text matching
+// from here could not see a second judge with an inline list, a local rebinding
+// that shadows the import, or an import that stopped coming from `helpers`.
 
 /**
  * Extract the `AUDIO_JUDGE_CRITERIA = [...]` literal from the Python module.
@@ -94,43 +93,6 @@ describe("audio example judge criteria — cross-language parity", () => {
       `${sibling} inlines a judge criterion again — import AUDIO_JUDGE_CRITERIA instead`,
     ).not.toContain("The agent's response demonstrates");
   });
-
-  // The Python pair can drift the same way: import the constant and then hand
-  // the judge something else. #682 is the case this catches: audio-to-audio
-  // sat outside the shared set for a year with its own two criteria, one of
-  // them ("identifies or guesses the voice is male") non-deterministic and not
-  // the capability under test.
-  it.each(PYTHON_SIBLINGS)(
-    "keeps %s on the shared constant, not an inline copy",
-    (sibling) => {
-      const source = readFileSync(
-        fileURLToPath(
-          new URL(`../../../../python/examples/${sibling}`, import.meta.url),
-        ),
-        "utf8",
-      );
-      expect(
-        source,
-        `${sibling} must pass AUDIO_JUDGE_CRITERIA to the judge, not an inline list`,
-      ).toMatch(
-        // Same shape as the JS check: assert on what reaches the judge. The
-        // \b stops a drifted `criteria=list(AUDIO_JUDGE_CRITERIA_STALE)` from
-        // satisfying the match.
-        /\bcriteria\s*=\s*(?:list\(\s*AUDIO_JUDGE_CRITERIA\s*\)|AUDIO_JUDGE_CRITERIA\b)/,
-      );
-      expect(
-        source,
-        `${sibling} declares its own criteria list again. Import AUDIO_JUDGE_CRITERIA instead`,
-      ).not.toContain("AUDIO_JUDGE_CRITERIA = [");
-      // A file can hand one judge the constant and another an inline list, so
-      // the match above is not enough on its own. Same second assertion the JS
-      // siblings carry.
-      expect(
-        source,
-        `${sibling} inlines a judge criterion again. Import AUDIO_JUDGE_CRITERIA instead`,
-      ).not.toContain("The agent's response demonstrates");
-    },
-  );
 
   it("still carries the #680 tightenings the siblings were fixed for", () => {
     const [contentSpecific, coherent] = AUDIO_JUDGE_CRITERIA;
