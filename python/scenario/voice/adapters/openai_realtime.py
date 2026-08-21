@@ -41,11 +41,11 @@ from ..broker import (
     REALTIME_MINT_PATH,
     RealtimeMintEndpoint,
     accumulate_realtime_usage,
-    close_unused_realtime_session,
     mint_openai_realtime_session,
     report_openai_realtime_usage,
     resolve_realtime_mint_endpoint,
     warn_direct_dial_fallback,
+    zero_realtime_usage,
 )
 from ..capabilities import AdapterCapabilities
 
@@ -397,6 +397,14 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             if result.minted:
                 socket_key = result.credential
                 self._broker_session_id = result.session_id
+                # Start the session's total at zero rather than at nothing.
+                # A session that never completes a response captures no usage,
+                # and a total of None means disconnect() reports nothing at
+                # all, which leaves the record open and holding one of the
+                # key's slots until the gateway's grace expires. Zero is also
+                # the truth for a session that did no work.
+                if self._broker_session_id:
+                    self._session_usage = zero_realtime_usage()
             else:
                 # No mint route: a plain proxy, or a gateway older than this
                 # feature. Dial the vendor directly, and say so, because an
@@ -425,7 +433,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             # Leaving it open would hold one of the key's session slots until
             # the gateway's own window expires, and book a call that never
             # happened.
-            await self._close_unused_session()
+            await self._report_usage()
             raise
         logger.debug("OpenAIRealtimeAgentAdapter: connected to %s", self.url)
 
@@ -501,26 +509,13 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 self._session_usage, usage
             )
 
-    async def _close_unused_session(self) -> None:
-        """Close a session whose socket never opened.
-
-        The mint booked it, so only a report can close it; there is no
-        cancel. Zero is the correct number, not a placeholder: an ephemeral
-        credential that opened no socket consumed nothing at the vendor.
-        """
-        if self._mint is None or not self._broker_session_id:
-            return
-        session_id = self._broker_session_id
-        self._broker_session_id = ""
-        error = await close_unused_realtime_session(self._mint, session_id)
-        if error is not None:
-            logger.debug(
-                "OpenAIRealtimeAgentAdapter: unused-session close failed: %r",
-                error,
-            )
-
     async def _report_usage(self) -> None:
         """Close the session's spend record with what the socket measured.
+
+        Also the failure path for a mint that succeeded and a socket that
+        never opened, because the total starts at zero: the report is the same
+        request either way, so there is one method rather than two that
+        disagree.
 
         Clearing the captured usage first is what makes a second disconnect a
         no-op, so a session cannot be reported twice.

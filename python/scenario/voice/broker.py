@@ -352,6 +352,21 @@ async def report_openai_realtime_usage(
     return None
 
 
+def zero_realtime_usage() -> Dict[str, Any]:
+    """The usage of a session that consumed nothing.
+
+    The counts are stated rather than left out. A gateway reads a usage report
+    by looking for ``input_tokens`` or ``output_tokens``, and refuses a body
+    that carries neither, so an empty object is rejected with HTTP 400 and the
+    session stays open until the gateway's own grace expires. Measured against
+    the live gateway on 2026-08-21.
+
+    A fresh dict each call, because it is used as the starting total a session
+    accumulates into.
+    """
+    return {"input_tokens": 0, "output_tokens": 0}
+
+
 def accumulate_realtime_usage(
     total: Optional[Dict[str, Any]], usage: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -398,19 +413,14 @@ async def close_unused_realtime_session(
 ) -> Optional[Exception]:
     """Close a session whose socket never opened, at zero.
 
-    The counts are stated rather than left out. A gateway reads a usage report
-    by looking for ``input_tokens`` or ``output_tokens``, and refuses a body
-    that carries neither, so an empty object is rejected with HTTP 400 and the
-    session stays open until the gateway's own grace expires. Measured against
-    the live gateway on 2026-08-21.
-
     Zero is the truth rather than a placeholder: an ephemeral credential that
-    opened no socket consumed nothing at the vendor.
+    opened no socket consumed nothing at the vendor. See
+    :func:`zero_realtime_usage` for why the counts are stated.
     """
     return await report_openai_realtime_usage(
         endpoint,
         session_id,
-        {"input_tokens": 0, "output_tokens": 0},
+        zero_realtime_usage(),
         transport=transport,
         timeout_s=timeout_s,
     )

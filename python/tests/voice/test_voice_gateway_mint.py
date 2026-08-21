@@ -98,7 +98,6 @@ def mint_transport(
 BROKER_CALLERS = {
     "mint_openai_realtime_session": "openai_realtime",
     "report_openai_realtime_usage": "openai_realtime",
-    "close_unused_realtime_session": "openai_realtime",
     "mint_elevenlabs_signed_url": "elevenlabs",
 }
 
@@ -237,7 +236,7 @@ class TestRealtimeAdapterMint:
 
         transport = mint_transport(handle)
         patch_mint(monkeypatch, "mint_openai_realtime_session", transport)
-        patch_mint(monkeypatch, "close_unused_realtime_session", transport)
+        patch_mint(monkeypatch, "report_openai_realtime_usage", transport)
 
         import websockets
 
@@ -364,6 +363,40 @@ class TestRealtimeAdapterMint:
                 },
                 "output_token_details": {"audio_tokens": 6, "text_tokens": 2},
             }
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_never_responded_is_still_closed(
+        self, monkeypatch: pytest.MonkeyPatch, fake_ws
+    ):
+        # Connect and disconnect with no response.done in between. Without a
+        # total that starts at zero there is nothing to report, so the record
+        # stays open and holds one of the key's slots until its grace expires.
+        posted: List[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            posted.append(request)
+            if request.url.path.endswith("/usage"):
+                return httpx.Response(202)
+            return httpx.Response(
+                200,
+                json={"value": "ek_ephemeral"},
+                headers={"x-langwatch-session-id": "req_quiet"},
+            )
+
+        transport = mint_transport(handle)
+        patch_mint(monkeypatch, "mint_openai_realtime_session", transport)
+        patch_mint(monkeypatch, "report_openai_realtime_usage", transport)
+        adapter = OpenAIRealtimeAgentAdapter(api_key="sk-provider", mint=GATEWAY)
+
+        await adapter.connect()
+        await adapter.disconnect()
+
+        usage_posts = [r for r in posted if r.url.path.endswith("/usage")]
+        assert len(usage_posts) == 1
+        assert usage_posts[0].url.path == "/v1/realtime/sessions/req_quiet/usage"
+        assert json.loads(usage_posts[0].content) == {
+            "usage": {"input_tokens": 0, "output_tokens": 0}
         }
 
     @pytest.mark.asyncio
