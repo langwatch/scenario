@@ -36,18 +36,21 @@ const JS_SIBLINGS = [
 // that shadows the import, or an import that stopped coming from `helpers`.
 
 /**
- * Extract the `AUDIO_JUDGE_CRITERIA = [...]` literal from the Python module.
+ * Extract the `AUDIO_JUDGE_CRITERIA = (...)` literal from the Python module.
  *
- * The Python list is written as double-quoted string literals precisely so it
- * parses as JSON once the trailing comma is dropped. See the warning in that
- * module's docstring.
+ * The Python tuple is written as double-quoted string literals precisely so it
+ * parses as JSON once the parentheses are swapped for brackets and the trailing
+ * comma is dropped. See the warning in that module's docstring. The annotation
+ * between the name and the `=` is deliberately not pinned here: what this guard
+ * is about is the criteria, and a stricter pattern would fail as a rename of the
+ * type rather than as the drift it exists to catch.
  */
 function readPythonCriteria(): string[] {
   const source = readFileSync(PYTHON_CRITERIA_MODULE, "utf8");
-  const match = /^AUDIO_JUDGE_CRITERIA = \[\n(.*?)^\]$/ms.exec(source);
+  const match = /^AUDIO_JUDGE_CRITERIA[^=\n]*= \(\n(.*?)^\)$/ms.exec(source);
   expect(
     match,
-    `could not find an 'AUDIO_JUDGE_CRITERIA = [' list literal in ${PYTHON_CRITERIA_MODULE}. ` +
+    `could not find an 'AUDIO_JUDGE_CRITERIA = (' tuple literal in ${PYTHON_CRITERIA_MODULE}. ` +
       "if it was renamed or reformatted, update this parity guard rather than deleting it",
   ).not.toBeNull();
 

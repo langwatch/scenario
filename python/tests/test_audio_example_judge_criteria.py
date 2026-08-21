@@ -12,14 +12,21 @@ ways a sibling drifts are precisely the ones text matching misses: a second
 shadows the import, or an import that no longer comes from `helpers`. Every
 `JudgeAgent(...)` call in the file has to be checked, not merely one of them.
 
+The one drift no reading of the example can catch is a mutation of the shared
+object itself, which binds no name and leaves the helper file pristine. That
+one is not checked for, it is made impossible: the criteria are a tuple, and
+the last test here holds them that way.
+
 Deterministic: it parses files. No API keys, no network, no model. Runs in
 `python-ci`'s unit step alongside the rest of `tests/`, unlike the live
 examples it guards.
 """
 
 import ast
+import importlib.util
 import symtable
 from pathlib import Path
+from types import ModuleType
 from typing import Final, NamedTuple
 
 import pytest
@@ -29,6 +36,7 @@ HELPERS_MODULE: Final = "helpers"
 LIST_BUILTIN: Final = "list"
 
 EXAMPLES: Final = Path(__file__).resolve().parents[1] / "examples"
+CRITERIA_MODULE: Final = EXAMPLES / "helpers" / "audio_judge_criteria.py"
 AUDIO_EXAMPLES: Final = ["test_audio_to_text.py", "test_audio_to_audio.py"]
 
 
@@ -65,7 +73,7 @@ def criteria_argument(call: ast.Call) -> ast.expr | None:
 def resolves_to_shared_constant(value: ast.expr) -> bool:
     """
     True for `AUDIO_JUDGE_CRITERIA` and for the `list(...)` copy of it, which
-    is the form both examples use so the judge cannot mutate the shared list.
+    is the form both examples use because `JudgeAgent` wants a `List[str]`.
     """
     if isinstance(value, ast.Name):
         return value.id == CRITERIA_NAME
@@ -221,3 +229,51 @@ def test_every_judge_uses_the_shared_criteria(example: str) -> None:
             f"{ast.dump(value)[:120]} rather than {CRITERIA_NAME}. Import the shared "
             "constant instead of writing criteria inline."
         )
+
+
+def load_criteria_module() -> ModuleType:
+    """
+    The shared module as the examples get it, loaded from its own path.
+
+    `python/examples` is on `sys.path` when pytest collects the examples, not
+    when it collects this file, so the import goes through the loader directly
+    rather than through a path the test would have to arrange.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "audio_judge_criteria_under_guard", CRITERIA_MODULE
+    )
+    assert spec is not None and spec.loader is not None, (
+        f"{CRITERIA_MODULE} is not importable. Did the shared criteria move?"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_shared_criteria_cannot_be_mutated_in_place() -> None:
+    """
+    Rebinding the name is the loud way to drift. Mutating the object behind it
+    is the quiet one, and every other guard here is blind to it: an
+    `AUDIO_JUDGE_CRITERIA.append("...")` in an example binds no name, so the
+    symbol table reports nothing, and the cross-language parity test reads the
+    helper file rather than the live object, so it reports nothing either. The
+    judge would then be handed a drifted criterion with CI fully green.
+
+    So the criteria are a tuple. That removes the move instead of adding a
+    check for it, and unlike a name-based check it holds through an alias
+    (`stale = AUDIO_JUDGE_CRITERIA` buys the aliaser nothing). pyright rejects
+    the mutation in CI and the interpreter rejects it at runtime.
+    """
+    criteria = load_criteria_module().AUDIO_JUDGE_CRITERIA
+
+    assert isinstance(criteria, tuple), (
+        f"{CRITERIA_NAME} is a {type(criteria).__name__}, which an importer can "
+        "mutate in place without binding the name, so nothing here would see the "
+        "drift. Keep it a tuple; the examples already copy it with `list(...)` for "
+        "the judge."
+    )
+
+    # `getattr` rather than `criteria.append`, so this stays a runtime assertion
+    # about the object and not a line pyright has to be told to ignore.
+    with pytest.raises(AttributeError):
+        getattr(criteria, "append")("The agent acknowledges what it heard")
