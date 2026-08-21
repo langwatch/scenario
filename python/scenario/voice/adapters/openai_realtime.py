@@ -29,7 +29,7 @@ import base64
 import json
 import logging
 import os
-from typing import Any, ClassVar, List, Optional, cast
+from typing import Any, ClassVar, Dict, List, Optional, Union, cast
 
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -37,6 +37,14 @@ from ...config.voice_models import OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL
 from ...types import AgentInput, AgentReturnTypes, AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
+from ..broker import (
+    REALTIME_MINT_PATH,
+    RealtimeMintEndpoint,
+    mint_openai_realtime_session,
+    report_openai_realtime_usage,
+    resolve_realtime_mint_endpoint,
+    warn_direct_dial_fallback,
+)
 from ..capabilities import AdapterCapabilities
 
 
@@ -93,6 +101,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         api_key: Optional[str] = None,
         role: AgentRole = AgentRole.AGENT,
         speaks_first: bool = False,
+        mint: Union[RealtimeMintEndpoint, bool, None] = None,
     ):
         super().__init__()
         self.model = model
@@ -100,16 +109,55 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         self.instructions = instructions
         self.tools = tools or []
         self.role = role  # type: ignore[misc]
-        # Resolve API key: explicit param, then OPENAI_REALTIME_API_KEY, then
-        # OPENAI_API_KEY. The Realtime API connects DIRECTLY to OpenAI's
-        # websocket (gateways that proxy the HTTP audio endpoints do not
-        # proxy realtime), so when OPENAI_API_KEY holds a gateway virtual
-        # key, OPENAI_REALTIME_API_KEY carries the real provider key.
+        # The fallback key for dialling the vendor directly: explicit param,
+        # then OPENAI_REALTIME_API_KEY, then OPENAI_API_KEY.
+        # OPENAI_REALTIME_API_KEY exists so a deployment whose OPENAI_API_KEY
+        # is a virtual key can still hold a real provider key for this socket.
+        #
+        # A minted session uses none of these on the socket. It dials with the
+        # ephemeral secret the mint returned, so a long-lived key never
+        # reaches the socket. See ``mint``.
         self._api_key: str = (
             api_key
             or os.environ.get("OPENAI_REALTIME_API_KEY")
             or os.environ.get("OPENAI_API_KEY", "")
         )
+        # Which of the three the key came from. Only used to name it in the
+        # direct-dial warning, where naming the wrong one sends the reader to
+        # a variable that is not set.
+        self._api_key_source: str = (
+            "the api_key passed to the adapter"
+            if api_key is not None
+            else (
+                "OPENAI_REALTIME_API_KEY"
+                if os.environ.get("OPENAI_REALTIME_API_KEY")
+                else "OPENAI_API_KEY"
+            )
+        )
+        # Where to mint the session credential. ``False`` skips the mint and
+        # dials the vendor directly; an explicit endpoint overrides
+        # OPENAI_BASE_URL and OPENAI_API_KEY; ``None`` resolves from those two.
+        #
+        # ``POST /v1/realtime/client_secrets`` is OpenAI's own path, and a
+        # LangWatch AI Gateway mirrors it, so the same request works against
+        # either. Against OpenAI it returns an ephemeral client secret.
+        # Against a gateway it also checks the virtual key's budget and
+        # open-session cap and opens one spend record, naming the session on
+        # the ``X-LangWatch-Session-Id`` response header. Usage is reported
+        # back only when that header is present.
+        self._mint: Optional[RealtimeMintEndpoint]
+        if mint is False:
+            self._mint = None
+        elif isinstance(mint, RealtimeMintEndpoint):
+            self._mint = mint
+        else:
+            self._mint = resolve_realtime_mint_endpoint()
+        #: The gateway's id for the current session, empty unless a gateway
+        #: minted it.
+        self._broker_session_id: str = ""
+        #: The last usage object the socket reported, sent when the session
+        #: ends.
+        self._last_usage: Optional[Dict[str, Any]] = None
         self._ws: Any = None
 
         # Transcript observability — updated on incoming transcript events.
@@ -180,6 +228,17 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
     @property
     def url(self) -> str:
         return REALTIME_URL_TEMPLATE.format(model=self.model)
+
+    @property
+    def brokered(self) -> bool:
+        """Whether the live session was minted by a gateway, not the vendor.
+
+        Only true after ``connect()``, and only when the mint answered with
+        ``X-LangWatch-Session-Id``. Configuration cannot set it, because the
+        response is the one thing that cannot be told a lie about what
+        answered.
+        """
+        return self._broker_session_id != ""
 
     def __repr__(self) -> str:  # redact credentials
         return (
@@ -323,12 +382,49 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         self._response_active = False
         self._deferred_response_create = False
 
-        self._ws = await websockets.connect(
-            self.url,
-            additional_headers={
-                "Authorization": f"Bearer {self._api_key}",
-            },
-        )
+        self._broker_session_id = ""
+        self._last_usage = None
+
+        # The socket's bearer is the ephemeral secret the mint returned: a
+        # credential for exactly this call, so no long-lived key reaches the
+        # socket. Whether OpenAI or a gateway answers the mint is a property
+        # of OPENAI_BASE_URL, not of this adapter.
+        socket_key = self._api_key
+        if self._mint is not None:
+            result = await mint_openai_realtime_session(self._mint, self.model)
+            if result.minted:
+                socket_key = result.credential
+                self._broker_session_id = result.session_id
+            else:
+                # No mint route: a plain proxy, or a gateway older than this
+                # feature. Dial the vendor directly, and say so, because an
+                # unbilled session otherwise looks identical to a billed one.
+                # A refusal never reaches here: it raises inside the mint.
+                warn_direct_dial_fallback(
+                    self._mint.base_url, REALTIME_MINT_PATH, self._api_key_source
+                )
+        if socket_key == self._api_key and not self._api_key:
+            raise RuntimeError(
+                "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or "
+                "pass `api_key=` to the constructor."
+            )
+
+        try:
+            self._ws = await websockets.connect(
+                self.url,
+                additional_headers={
+                    "Authorization": f"Bearer {socket_key}",
+                },
+            )
+        except BaseException:
+            # The mint booked a session and the socket never opened, so
+            # nothing will ever report against it. Closing it at zero is the
+            # truth: an ephemeral secret that opened no socket used nothing.
+            # Leaving it open would hold one of the key's session slots until
+            # the gateway's own window expires, and book a call that never
+            # happened.
+            await self._close_unused_session()
+            raise
         logger.debug("OpenAIRealtimeAgentAdapter: connected to %s", self.url)
 
         # Configure session: audio formats, voice, instructions, tools.
@@ -373,11 +469,70 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 "voice.realtime.voice": self.voice,
                 "voice.realtime.session_type": "realtime",
                 "voice.realtime.tool_count": len(self.tools),
+                "voice.realtime.brokered": self.brokered,
+                "voice.realtime.session_id": self._broker_session_id or None,
             },
         )
 
+    def _capture_usage(self, event: dict[str, Any]) -> None:
+        """Keep the usage OpenAI reports on ``response.done``.
+
+        Read from every inbound event rather than from the audio branch,
+        because a drain that ends on tail silence never reaches the terminal
+        event and a session whose usage was never captured bills as
+        cost-unknown. The last response of a session carries that session's
+        cumulative totals, so keeping the most recent one is the number to
+        report.
+        """
+        if not self._broker_session_id:
+            return
+        if event.get("type") != "response.done":
+            return
+        response = event.get("response")
+        if not isinstance(response, dict):
+            return
+        usage = response.get("usage")
+        if isinstance(usage, dict):
+            self._last_usage = usage
+
+    async def _close_unused_session(self) -> None:
+        """Close a session whose socket never opened.
+
+        The mint booked it, so only a report can close it; there is no
+        cancel. Zero is the correct number, not a placeholder: an ephemeral
+        credential that opened no socket consumed nothing at the vendor.
+        """
+        if self._mint is None or not self._broker_session_id:
+            return
+        session_id = self._broker_session_id
+        self._broker_session_id = ""
+        error = await report_openai_realtime_usage(self._mint, session_id, {})
+        if error is not None:
+            logger.debug(
+                "OpenAIRealtimeAgentAdapter: unused-session close failed: %r",
+                error,
+            )
+
+    async def _report_usage(self) -> None:
+        """Close the session's spend record with what the socket measured.
+
+        Clearing the captured usage first is what makes a second disconnect a
+        no-op, so a session cannot be reported twice.
+        """
+        if self._mint is None or not self._broker_session_id or not self._last_usage:
+            return
+        usage = self._last_usage
+        session_id = self._broker_session_id
+        self._last_usage = None
+        error = await report_openai_realtime_usage(self._mint, session_id, usage)
+        if error is not None:
+            logger.debug(
+                "OpenAIRealtimeAgentAdapter: usage report failed: %r", error
+            )
+
     async def disconnect(self) -> None:
-        """Close the WebSocket if open."""
+        """Close the WebSocket if open, then close the session's spend record."""
+        await self._report_usage()
         if self._ws is not None:
             try:
                 await self._ws.close()
@@ -519,6 +674,9 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 continue
 
             etype = event.get("type", "")
+            # Every inbound event passes here, which is why the usage capture
+            # lives here and not in the terminal branch below.
+            self._capture_usage(event)
 
             if etype in ("response.output_audio.delta", "response.audio.delta"):
                 # Accept both the GA event name and its retired beta alias —
