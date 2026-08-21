@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import importlib
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 import pytest
@@ -63,7 +63,11 @@ def fake_ws(monkeypatch: pytest.MonkeyPatch):
     calls: List[Dict[str, Any]] = []
     socket = FakeSocket()
 
-    async def _connect(url: str, additional_headers=None, **_kwargs):
+    async def _connect(
+        url: str,
+        additional_headers: Optional[Dict[str, str]] = None,
+        **_kwargs: Any,
+    ) -> FakeSocket:
         calls.append({"url": url, "headers": dict(additional_headers or {})})
         return socket
 
@@ -83,7 +87,9 @@ def clean_env(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv(key, raising=False)
 
 
-def mint_transport(response_for) -> httpx.MockTransport:
+def mint_transport(
+    response_for: Callable[[httpx.Request], httpx.Response],
+) -> httpx.MockTransport:
     return httpx.MockTransport(response_for)
 
 
@@ -97,7 +103,11 @@ BROKER_CALLERS = {
 }
 
 
-def patch_mint(monkeypatch: pytest.MonkeyPatch, name: str, transport) -> None:
+def patch_mint(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    transport: httpx.AsyncBaseTransport,
+) -> None:
     """Give the adapter's broker call a transport, leaving its behaviour whole.
 
     The real function still runs; only the socket underneath it is replaced.
@@ -111,7 +121,7 @@ def patch_mint(monkeypatch: pytest.MonkeyPatch, name: str, transport) -> None:
     )
     original = getattr(module, name)
 
-    async def _with_transport(*args, **kwargs):
+    async def _with_transport(*args: Any, **kwargs: Any) -> Any:
         kwargs.setdefault("transport", transport)
         return await original(*args, **kwargs)
 
@@ -231,7 +241,7 @@ class TestRealtimeAdapterMint:
 
         import websockets
 
-        async def _refuse(*_args, **_kwargs):
+        async def _refuse(*_args: Any, **_kwargs: Any) -> FakeSocket:
             raise ConnectionRefusedError("socket refused")
 
         monkeypatch.setattr(websockets, "connect", _refuse)

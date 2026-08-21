@@ -19,6 +19,7 @@ which is the truth for a credential that opened no socket.
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 import pytest
 
@@ -55,22 +56,35 @@ async def test_the_realtime_mint_is_answered_by_a_gateway(requires_llm):
         f"the mint route at {endpoint.base_url} answered 404, so this base URL "
         "is not a LangWatch gateway and voice is not being metered"
     )
-    assert result.credential.startswith("ek_"), (
-        "the mint returned something that is not an OpenAI ephemeral client "
-        "secret, so the socket would not authenticate"
-    )
-    assert result.session_id, (
-        "the mint succeeded but carried no X-LangWatch-Session-Id, so OpenAI "
-        "answered it directly and no spend record was opened"
-    )
-    # Printed on purpose: this id is the spend record the mint opened, so a run
-    # can be matched to a row in the ledger from its own log.
-    print(f"\ngateway spend record for this mint: {result.session_id}\n")
 
-    # Close it at zero. The mint booked the session and only a report can
-    # close it; leaving it open would hold one of the key's session slots
-    # until the gateway's own grace expires. A gateway that had not opened a
-    # spend record would refuse this with 404, so the report landing is also
-    # evidence that the record exists.
-    error = await close_unused_realtime_session(endpoint, result.session_id)
-    assert error is None, f"the gateway refused the closing usage report: {error}"
+    # Every assertion about the response runs inside the try so the session
+    # this mint booked is closed even when one of them fails. Without that, a
+    # failing check leaves the record open and holding one of the key's slots
+    # until the gateway's grace expires.
+    close_error: Optional[Exception] = None
+    try:
+        assert result.credential.startswith("ek_"), (
+            "the mint returned something that is not an OpenAI ephemeral "
+            "client secret, so the socket would not authenticate"
+        )
+        assert result.session_id, (
+            "the mint succeeded but carried no X-LangWatch-Session-Id, so "
+            "OpenAI answered it directly and no spend record was opened"
+        )
+        # Printed on purpose: this id is the spend record the mint opened, so
+        # a run can be matched to a row in the ledger from its own log.
+        print(f"\ngateway spend record for this mint: {result.session_id}\n")
+    finally:
+        if result.session_id:
+            # Close it at zero. Only a report can close a booked session, and
+            # a gateway that had not opened a spend record would refuse this
+            # with 404, so the report landing is also evidence of the record.
+            close_error = await close_unused_realtime_session(
+                endpoint, result.session_id
+            )
+
+    # Asserted after the finally so a cleanup failure never hides the primary
+    # assertion that got us here.
+    assert close_error is None, (
+        f"the gateway refused the closing usage report: {close_error}"
+    )
