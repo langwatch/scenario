@@ -92,6 +92,7 @@ def mint_transport(response_for) -> httpx.MockTransport:
 BROKER_CALLERS = {
     "mint_openai_realtime_session": "openai_realtime",
     "report_openai_realtime_usage": "openai_realtime",
+    "close_unused_realtime_session": "openai_realtime",
     "mint_elevenlabs_signed_url": "elevenlabs",
 }
 
@@ -226,7 +227,7 @@ class TestRealtimeAdapterMint:
 
         transport = mint_transport(handle)
         patch_mint(monkeypatch, "mint_openai_realtime_session", transport)
-        patch_mint(monkeypatch, "report_openai_realtime_usage", transport)
+        patch_mint(monkeypatch, "close_unused_realtime_session", transport)
 
         import websockets
 
@@ -242,7 +243,13 @@ class TestRealtimeAdapterMint:
         usage_posts = [r for r in posted if r.url.path.endswith("/usage")]
         assert len(usage_posts) == 1
         assert usage_posts[0].url.path == "/v1/realtime/sessions/req_dead/usage"
-        assert json.loads(usage_posts[0].content) == {"usage": {}}
+        # The zeros are stated, not left out. A gateway reads a usage report
+        # by looking for input_tokens or output_tokens and refuses a body
+        # carrying neither, so an empty object is answered with HTTP 400 and
+        # the session stays open until its grace expires.
+        assert json.loads(usage_posts[0].content) == {
+            "usage": {"input_tokens": 0, "output_tokens": 0}
+        }
 
     @pytest.mark.asyncio
     async def test_disconnect_reports_what_the_socket_measured(

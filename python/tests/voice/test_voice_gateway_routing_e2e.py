@@ -25,8 +25,8 @@ import pytest
 from scenario.config.voice_models import OPENAI_REALTIME_MODEL
 from scenario.voice.broker import (
     OPENAI_DEFAULT_BASE_URL,
+    close_unused_realtime_session,
     mint_openai_realtime_session,
-    report_openai_realtime_usage,
     resolve_realtime_mint_endpoint,
 )
 
@@ -69,6 +69,8 @@ async def test_the_realtime_mint_is_answered_by_a_gateway(requires_llm):
 
     # Close it at zero. The mint booked the session and only a report can
     # close it; leaving it open would hold one of the key's session slots
-    # until the gateway's own grace expires.
-    error = await report_openai_realtime_usage(endpoint, result.session_id, {})
+    # until the gateway's own grace expires. A gateway that had not opened a
+    # spend record would refuse this with 404, so the report landing is also
+    # evidence that the record exists.
+    error = await close_unused_realtime_session(endpoint, result.session_id)
     assert error is None, f"the gateway refused the closing usage report: {error}"

@@ -40,6 +40,7 @@ from ..audio_chunk import AudioChunk
 from ..broker import (
     REALTIME_MINT_PATH,
     RealtimeMintEndpoint,
+    close_unused_realtime_session,
     mint_openai_realtime_session,
     report_openai_realtime_usage,
     resolve_realtime_mint_endpoint,
@@ -506,7 +507,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             return
         session_id = self._broker_session_id
         self._broker_session_id = ""
-        error = await report_openai_realtime_usage(self._mint, session_id, {})
+        error = await close_unused_realtime_session(self._mint, session_id)
         if error is not None:
             logger.debug(
                 "OpenAIRealtimeAgentAdapter: unused-session close failed: %r",

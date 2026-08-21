@@ -27,6 +27,7 @@ from scenario.voice.broker import (
     RealtimeMintEndpoint,
     VoiceGatewayFallbackWarning,
     VoiceGatewayMintError,
+    close_unused_realtime_session,
     mint_elevenlabs_signed_url,
     mint_openai_realtime_session,
     normalize_elevenlabs_base_url,
@@ -499,6 +500,24 @@ class TestReportOpenAIRealtimeUsage:
         )
 
         assert isinstance(error, httpx.TimeoutException)
+
+    @pytest.mark.asyncio
+    async def test_closing_an_unused_session_states_its_zeros(self):
+        # A gateway reads a usage report by looking for input_tokens or
+        # output_tokens and refuses a body that carries neither, so posting an
+        # empty object is answered with HTTP 400 and the session stays open,
+        # holding one of the key's slots until its grace expires. Measured
+        # against the live gateway on 2026-08-21.
+        transport, seen = recording_transport(lambda _r: httpx.Response(202))
+
+        error = await close_unused_realtime_session(
+            ENDPOINT, "req_dead", transport=transport
+        )
+
+        assert error is None
+        assert json.loads(seen[0].content) == {
+            "usage": {"input_tokens": 0, "output_tokens": 0}
+        }
 
     def test_the_usage_report_bound_is_short(self):
         # It is awaited inside disconnect(), so a generous bound would show up

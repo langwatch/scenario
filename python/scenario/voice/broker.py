@@ -352,6 +352,33 @@ async def report_openai_realtime_usage(
     return None
 
 
+async def close_unused_realtime_session(
+    endpoint: RealtimeMintEndpoint,
+    session_id: str,
+    *,
+    transport: Optional[httpx.AsyncBaseTransport] = None,
+    timeout_s: Optional[float] = None,
+) -> Optional[Exception]:
+    """Close a session whose socket never opened, at zero.
+
+    The counts are stated rather than left out. A gateway reads a usage report
+    by looking for ``input_tokens`` or ``output_tokens``, and refuses a body
+    that carries neither, so an empty object is rejected with HTTP 400 and the
+    session stays open until the gateway's own grace expires. Measured against
+    the live gateway on 2026-08-21.
+
+    Zero is the truth rather than a placeholder: an ephemeral credential that
+    opened no socket consumed nothing at the vendor.
+    """
+    return await report_openai_realtime_usage(
+        endpoint,
+        session_id,
+        {"input_tokens": 0, "output_tokens": 0},
+        transport=transport,
+        timeout_s=timeout_s,
+    )
+
+
 def warn_direct_dial_fallback(
     base_url: str,
     mint_path: str,
