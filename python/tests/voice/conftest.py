@@ -59,7 +59,9 @@ if os.getenv("OPENAI_API_KEY"):
 
 
 @pytest.fixture(autouse=True)
-def _no_gateway_mint_in_unit_tests(request: pytest.FixtureRequest, monkeypatch):
+def _no_gateway_mint_in_unit_tests(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Keep the voice unit suite off the network.
 
     Both realtime adapters now mint a session credential over HTTP before

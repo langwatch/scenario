@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 import pytest
 
+import scenario.voice.broker as broker
 from scenario.voice.adapters.elevenlabs import ElevenLabsAgentAdapter
 from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
 from scenario.voice.broker import (
@@ -101,8 +102,6 @@ def patch_mint(monkeypatch: pytest.MonkeyPatch, name: str, transport) -> None:
     The real function still runs; only the socket underneath it is replaced.
     Stubbing the function instead would test the stub.
     """
-    import scenario.voice.broker as broker
-
     original = getattr(broker, name)
 
     async def _with_transport(*args, **kwargs):

@@ -10,7 +10,9 @@ from __future__ import annotations
 import pytest
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     """Refuse ``flaky`` on a test that ``asyncio_concurrent`` owns.
 
     pytest-asyncio-concurrent takes grouped async tests out of the normal
@@ -26,7 +28,7 @@ def pytest_collection_modifyitems(config, items):
     ``reruns=4``, failed on its first attempt, and was reported as a hard
     failure. Failing collection is the cheapest place to say so.
     """
-    offenders = []
+    offenders: list[str] = []
     for item in items:
         if item.get_closest_marker("flaky") and item.get_closest_marker(
             "asyncio_concurrent"
