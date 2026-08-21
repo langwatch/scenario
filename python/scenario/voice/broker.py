@@ -352,6 +352,43 @@ async def report_openai_realtime_usage(
     return None
 
 
+def accumulate_realtime_usage(
+    total: Optional[Dict[str, Any]], usage: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Add one response's usage into a session total.
+
+    OpenAI reports usage per response, not per session: measured against the
+    live API on 2026-08-21, two turns on one socket reported
+    ``output_tokens`` 4 and 4 rather than 4 and 8. So a session that keeps
+    only the last ``response.done`` bills for its last turn and nothing else.
+
+    Every numeric leaf is summed, and nested detail objects are summed
+    key by key, so the audio, text and cached breakdowns a gateway prices
+    separately add up alongside the totals. Keys are not listed here: a count
+    the vendor adds later then accumulates on its own rather than being
+    silently dropped.
+    """
+    merged: Dict[str, Any] = dict(total or {})
+    for key, value in usage.items():
+        if isinstance(value, bool):
+            # A flag is not a count, and adding two of them would produce a
+            # number that means nothing.
+            merged[key] = value
+        elif isinstance(value, (int, float)):
+            running = merged.get(key)
+            merged[key] = value + (
+                running
+                if isinstance(running, (int, float)) and not isinstance(running, bool)
+                else 0
+            )
+        elif isinstance(value, dict):
+            running = merged.get(key)
+            merged[key] = accumulate_realtime_usage(
+                running if isinstance(running, dict) else None, value
+            )
+    return merged
+
+
 async def close_unused_realtime_session(
     endpoint: RealtimeMintEndpoint,
     session_id: str,

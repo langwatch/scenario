@@ -33,7 +33,9 @@ from scenario.voice.broker import (
 
 
 @pytest.mark.asyncio
-async def test_the_realtime_mint_is_answered_by_a_gateway(requires_llm):
+async def test_the_realtime_mint_is_answered_by_a_gateway(
+    requires_llm: None,
+) -> None:
     base_url = os.environ.get("OPENAI_BASE_URL", "")
     if not base_url or base_url.rstrip("/") == OPENAI_DEFAULT_BASE_URL:
         pytest.fail(

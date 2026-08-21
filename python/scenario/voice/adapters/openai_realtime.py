@@ -40,6 +40,7 @@ from ..audio_chunk import AudioChunk
 from ..broker import (
     REALTIME_MINT_PATH,
     RealtimeMintEndpoint,
+    accumulate_realtime_usage,
     close_unused_realtime_session,
     mint_openai_realtime_session,
     report_openai_realtime_usage,
@@ -156,9 +157,9 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         #: The gateway's id for the current session, empty unless a gateway
         #: minted it.
         self._broker_session_id: str = ""
-        #: The last usage object the socket reported, sent when the session
-        #: ends.
-        self._last_usage: Optional[Dict[str, Any]] = None
+        #: What the socket has reported so far this session, summed across
+        #: responses and sent when the session ends.
+        self._session_usage: Optional[Dict[str, Any]] = None
         self._ws: Any = None
 
         # Transcript observability — updated on incoming transcript events.
@@ -384,7 +385,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         self._deferred_response_create = False
 
         self._broker_session_id = ""
-        self._last_usage = None
+        self._session_usage = None
 
         # The socket's bearer is the ephemeral secret the mint returned: a
         # credential for exactly this call, so no long-lived key reaches the
@@ -476,14 +477,16 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         )
 
     def _capture_usage(self, event: dict[str, Any]) -> None:
-        """Keep the usage OpenAI reports on ``response.done``.
+        """Add the usage OpenAI reports on ``response.done`` to the session.
 
         Read from every inbound event rather than from the audio branch,
         because a drain that ends on tail silence never reaches the terminal
         event and a session whose usage was never captured bills as
-        cost-unknown. The last response of a session carries that session's
-        cumulative totals, so keeping the most recent one is the number to
-        report.
+        cost-unknown.
+
+        Summed rather than replaced. OpenAI reports usage per response, so a
+        session that kept only the last ``response.done`` would bill for its
+        last turn and nothing else.
         """
         if not self._broker_session_id:
             return
@@ -494,7 +497,9 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             return
         usage = response.get("usage")
         if isinstance(usage, dict):
-            self._last_usage = usage
+            self._session_usage = accumulate_realtime_usage(
+                self._session_usage, usage
+            )
 
     async def _close_unused_session(self) -> None:
         """Close a session whose socket never opened.
@@ -520,11 +525,15 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         Clearing the captured usage first is what makes a second disconnect a
         no-op, so a session cannot be reported twice.
         """
-        if self._mint is None or not self._broker_session_id or not self._last_usage:
+        if (
+            self._mint is None
+            or not self._broker_session_id
+            or not self._session_usage
+        ):
             return
-        usage = self._last_usage
+        usage = self._session_usage
         session_id = self._broker_session_id
-        self._last_usage = None
+        self._session_usage = None
         error = await report_openai_realtime_usage(self._mint, session_id, usage)
         if error is not None:
             logger.debug(

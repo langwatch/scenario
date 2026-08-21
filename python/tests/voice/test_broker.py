@@ -13,7 +13,7 @@ Mirrors ``javascript/src/voice/__tests__/broker.test.ts``.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 import httpx
 import pytest
@@ -55,10 +55,10 @@ def clean_env(monkeypatch: pytest.MonkeyPatch):
 
 
 def recording_transport(
-    handler,
-) -> tuple[httpx.MockTransport, List[httpx.Request]]:
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> tuple[httpx.MockTransport, list[httpx.Request]]:
     """A transport that answers with ``handler`` and keeps every request."""
-    seen: List[httpx.Request] = []
+    seen: list[httpx.Request] = []
 
     def _handle(request: httpx.Request) -> httpx.Response:
         seen.append(request)

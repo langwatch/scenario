@@ -301,6 +301,72 @@ class TestRealtimeAdapterMint:
         }
 
     @pytest.mark.asyncio
+    async def test_every_response_counts_toward_the_session_total(
+        self, monkeypatch: pytest.MonkeyPatch, fake_ws
+    ):
+        # OpenAI reports usage per response, not per session: two turns on one
+        # socket report output_tokens 4 and 4, never 4 and 8 (measured against
+        # the live API on 2026-08-21). A session that kept only the last
+        # response.done would bill for its last turn and nothing else.
+        posted: List[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            posted.append(request)
+            if request.url.path.endswith("/usage"):
+                return httpx.Response(202)
+            return httpx.Response(
+                200,
+                json={"value": "ek_ephemeral"},
+                headers={"x-langwatch-session-id": "req_123"},
+            )
+
+        transport = mint_transport(handle)
+        patch_mint(monkeypatch, "mint_openai_realtime_session", transport)
+        patch_mint(monkeypatch, "report_openai_realtime_usage", transport)
+        adapter = OpenAIRealtimeAgentAdapter(api_key="sk-provider", mint=GATEWAY)
+        await adapter.connect()
+
+        for _ in range(2):
+            adapter._capture_usage(
+                {
+                    "type": "response.done",
+                    "response": {
+                        "usage": {
+                            "input_tokens": 120,
+                            "output_tokens": 4,
+                            "input_token_details": {
+                                "audio_tokens": 100,
+                                "text_tokens": 20,
+                                "cached_tokens": 8,
+                            },
+                            "output_token_details": {
+                                "audio_tokens": 3,
+                                "text_tokens": 1,
+                            },
+                        }
+                    },
+                }
+            )
+        await adapter.disconnect()
+
+        usage_posts = [r for r in posted if r.url.path.endswith("/usage")]
+        assert json.loads(usage_posts[0].content) == {
+            "usage": {
+                "input_tokens": 240,
+                "output_tokens": 8,
+                # The breakdowns are priced separately by a gateway, so they
+                # have to add up alongside the totals rather than keep one
+                # response's numbers.
+                "input_token_details": {
+                    "audio_tokens": 200,
+                    "text_tokens": 40,
+                    "cached_tokens": 16,
+                },
+                "output_token_details": {"audio_tokens": 6, "text_tokens": 2},
+            }
+        }
+
+    @pytest.mark.asyncio
     async def test_a_second_disconnect_does_not_report_the_session_twice(
         self, monkeypatch: pytest.MonkeyPatch, fake_ws
     ):
