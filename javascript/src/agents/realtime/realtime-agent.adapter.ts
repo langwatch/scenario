@@ -233,10 +233,20 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       this.attachUsageTap();
     }
 
-    await this.session.connect({
-      apiKey: credential.socketKey,
-      ...rest,
-    });
+    try {
+      await this.session.connect({
+        apiKey: credential.socketKey,
+        ...rest,
+      });
+    } catch (error) {
+      // The mint booked a session and the socket never opened, so nothing will
+      // ever report against it. The total is still the zeros seeded above,
+      // which is the truth: an ephemeral credential that opened no socket
+      // consumed nothing. Leaving it would hold one of the key's slots until
+      // the gateway's grace expires, and book a call that never happened.
+      await this.reportUsage();
+      throw error;
+    }
   }
 
   /**

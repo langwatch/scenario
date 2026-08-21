@@ -542,9 +542,13 @@ describe("given the usage a realtime socket reports", () => {
   });
 
   it("hands out a fresh zero each call, so one session cannot bill another", () => {
+    // A shared object would carry one session's counts into the next. The
+    // first is mutated directly, because the accumulator returns a new object
+    // and would leave a shared starting value untouched either way.
     const first = zeroRealtimeUsage();
-    accumulateRealtimeUsage(first, { input_tokens: 99 });
+    const second = zeroRealtimeUsage();
+    first.input_tokens = 99;
 
-    expect(zeroRealtimeUsage()).toEqual({ input_tokens: 0, output_tokens: 0 });
+    expect(second).toEqual({ input_tokens: 0, output_tokens: 0 });
   });
 });

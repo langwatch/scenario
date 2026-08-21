@@ -30,7 +30,7 @@ let reported: Array<Record<string, unknown>> = [];
 /** The raw-event handlers the adapter attached to the transport. */
 let taps: Array<(event: unknown) => void> = [];
 
-function makeAdapter(): RealtimeAgentAdapter {
+function makeAdapter(connectFails = false): RealtimeAgentAdapter {
   const session = {
     transport: {
       on: (event: string, handler: (e: unknown) => void) => {
@@ -39,7 +39,9 @@ function makeAdapter(): RealtimeAgentAdapter {
       sendEvent: () => undefined,
     },
     options: { model: "gpt-realtime" },
-    connect: async () => undefined,
+    connect: async () => {
+      if (connectFails) throw new Error("socket refused");
+    },
     close: () => undefined,
     sendMessage: () => undefined,
   } as unknown as ConstructorParameters<
@@ -177,6 +179,19 @@ describe("given a brokered RealtimeAgentAdapter session that ends", () => {
     expect(reported[1]).toEqual({
       usage: { input_tokens: 10, output_tokens: 2 },
     });
+  });
+
+  it("closes the session it minted when the socket never opens", async () => {
+    // The mint booked a session and only a report closes it. Left open it
+    // holds one of the key's slots until the gateway's grace expires, and
+    // books a call that never happened.
+    const adapter = makeAdapter(true);
+
+    await expect(adapter.connect()).rejects.toThrow(/socket refused/);
+
+    expect(reported).toEqual([
+      { usage: { input_tokens: 0, output_tokens: 0 } },
+    ]);
   });
 
   it("reports nothing when no gateway minted the session", async () => {
