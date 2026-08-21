@@ -33,9 +33,11 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import {
+  accumulateRealtimeUsage,
   acquireRealtimeSocketKey,
   reportOpenAIRealtimeUsage,
   resolveRealtimeMintEndpoint,
+  zeroRealtimeUsage,
   type RealtimeMintEndpoint,
   type RealtimeUsage,
 } from "../broker";
@@ -200,8 +202,8 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   private readonly _mint: RealtimeMintEndpoint | null;
   /** The gateway's id for the current session, empty unless a gateway minted it. */
   private _brokerSessionId = "";
-  /** The last usage object the socket reported, sent when the session ends. */
-  private _lastUsage: RealtimeUsage | null = null;
+  /** Running usage total for the session, sent when it ends. */
+  private _sessionUsage: RealtimeUsage | null = null;
   private readonly _wsFactory:
     | ((url: string, authHeader: string) => WebSocket)
     | null;
@@ -320,7 +322,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this._closeReason = null;
 
     this._brokerSessionId = "";
-    this._lastUsage = null;
+    this._sessionUsage = null;
 
     // The socket's bearer is the ephemeral secret the mint returned: a
     // credential for exactly this call, so no long-lived key reaches the
@@ -340,6 +342,12 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     const socketKey = credential.socketKey;
     if (credential.minted) {
       this._brokerSessionId = credential.sessionId;
+      // Start the session's total at zero rather than at nothing. A session
+      // that never completes a response captures no usage, and a total of null
+      // means disconnect() reports nothing at all, which leaves the record open
+      // and holding one of the key's slots until the gateway's grace expires.
+      // Zero is also the truth for a session that did no work.
+      if (this._brokerSessionId) this._sessionUsage = zeroRealtimeUsage();
       setSpanAttributes(currentSpan(), {
         "voice.realtime.brokered": this.brokered,
         "voice.realtime.session_id": credential.sessionId,
@@ -374,7 +382,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       // ephemeral secret that opened no socket used nothing. Leaving it open
       // would hold one of the key's session slots until the gateway's own
       // window expires, and book a call that never happened.
-      await this._closeUnusedSession();
+      await this._reportUsage();
       throw error;
     }
 
@@ -1284,37 +1292,22 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   }
 
   /**
-   * Closes a session whose socket never opened, at no cost.
-   *
-   * The mint booked it, so only a report can close it; there is no cancel.
-   * Zero is the correct number, not a placeholder: an ephemeral credential
-   * that opened no socket consumed nothing at the vendor. Doing nothing would
-   * leave the session holding a slot against the key's open-session cap until
-   * the gateway's own window expires.
-   */
-  private async _closeUnusedSession(): Promise<void> {
-    if (!this._mint || !this._brokerSessionId) return;
-    const sessionId = this._brokerSessionId;
-    this._brokerSessionId = "";
-    await reportOpenAIRealtimeUsage(this._mint, {
-      sessionId,
-      usage: {},
-      onError: (error) =>
-        logger.debug("voice broker unused-session close failed", { error }),
-    });
-  }
-
-  /**
    * Closes the session's spend record with what the socket measured.
+   *
+   * Also the failure path for a mint that succeeded and a socket that never
+   * opened, because the total starts at zero: the report is the same request
+   * either way, so there is one method rather than two that disagree. Zero is
+   * the truth there, not a placeholder, since an ephemeral credential that
+   * opened no socket consumed nothing at the vendor.
    *
    * Clearing the captured usage first is what makes a second disconnect a
    * no-op, so a session cannot be reported twice.
    */
   private async _reportUsage(): Promise<void> {
-    if (!this._mint || !this._brokerSessionId || !this._lastUsage) return;
-    const usage = this._lastUsage;
+    if (!this._mint || !this._brokerSessionId || !this._sessionUsage) return;
+    const usage = this._sessionUsage;
     const sessionId = this._brokerSessionId;
-    this._lastUsage = null;
+    this._sessionUsage = null;
     await reportOpenAIRealtimeUsage(this._mint, {
       sessionId,
       usage,
@@ -1324,13 +1317,13 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   }
 
   /**
-   * Keeps the usage OpenAI reports on `response.done`.
+   * Adds the usage OpenAI reports on `response.done` into the session total.
    *
    * Read from the raw message rather than the receive loop because a drain
    * that ends on tail silence never reads the terminal event, and a session
-   * whose usage was never captured bills as cost-unknown. The last response of
-   * a session carries that session's cumulative totals, so keeping the most
-   * recent one is the number to report.
+   * whose usage was never captured bills as cost-unknown. Summed rather than
+   * replaced because the vendor reports per response: see
+   * {@link accumulateRealtimeUsage}.
    */
   private _captureUsage(event: unknown): void {
     if (!this._brokerSessionId || !event || typeof event !== "object") return;
@@ -1340,7 +1333,10 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (!response || typeof response !== "object") return;
     const usage = (response as Record<string, unknown>).usage;
     if (usage && typeof usage === "object") {
-      this._lastUsage = usage as RealtimeUsage;
+      this._sessionUsage = accumulateRealtimeUsage(
+        this._sessionUsage,
+        usage as RealtimeUsage,
+      );
     }
   }
 

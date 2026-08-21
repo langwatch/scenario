@@ -25,9 +25,13 @@ import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
 import { AgentAdapter } from "../../domain/agents";
 import { Logger } from "../../utils/logger";
 import {
+  accumulateRealtimeUsage,
   acquireRealtimeSocketKey,
+  reportOpenAIRealtimeUsage,
   resolveRealtimeMintEndpoint,
+  zeroRealtimeUsage,
   type RealtimeMintEndpoint,
+  type RealtimeUsage,
 } from "../../voice/broker";
 import { OPENAI_REALTIME_MODEL } from "../../voice/voice-models";
 
@@ -131,6 +135,12 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private readonly logger = new Logger("RealtimeAgentAdapter");
   /** The gateway's id for the current session, empty unless a gateway minted it. */
   private brokerSessionId = "";
+  /** Where to report the session's usage, set when a gateway minted it. */
+  private mintEndpoint: RealtimeMintEndpoint | null = null;
+  /** Running usage total for the session, sent when it ends. */
+  private sessionUsage: RealtimeUsage | null = null;
+  /** Whether the raw transport tap that accumulates usage is attached. */
+  private usageTapAttached = false;
 
   /**
    * Creates a new RealtimeAgentAdapter instance
@@ -179,6 +189,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   ): Promise<void> {
     const { apiKey, ...rest } = params ?? {};
     this.brokerSessionId = "";
+    this.mintEndpoint = null;
+    this.sessionUsage = null;
     if (apiKey) {
       await this.session.connect({ apiKey, ...rest });
       return;
@@ -188,10 +200,12 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     // base URL has no mint route. It is never offered to the mint, because a
     // gateway cannot bill a provider key it did not issue.
     const realtimeKey = process.env.OPENAI_REALTIME_API_KEY;
-    const credential = await acquireRealtimeSocketKey(
+    const endpoint =
       this.config.mint === false
         ? null
-        : resolveRealtimeMintEndpoint(this.config.mint ?? undefined),
+        : resolveRealtimeMintEndpoint(this.config.mint ?? undefined);
+    const credential = await acquireRealtimeSocketKey(
+      endpoint,
       {
         apiKey: realtimeKey ?? process.env.OPENAI_API_KEY ?? "",
         source:
@@ -209,10 +223,73 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       },
     );
     this.brokerSessionId = credential.sessionId;
+    if (this.brokerSessionId) {
+      // A gateway opened a spend record, so this session has to be closed by a
+      // report. The total starts at zero so a session that never completes a
+      // response still closes, instead of holding one of the key's slots until
+      // the gateway's grace expires.
+      this.mintEndpoint = endpoint;
+      this.sessionUsage = zeroRealtimeUsage();
+      this.attachUsageTap();
+    }
 
     await this.session.connect({
       apiKey: credential.socketKey,
       ...rest,
+    });
+  }
+
+  /**
+   * Accumulates what each response reports, through the SDK's raw event tap.
+   *
+   * The vendor reports usage per response rather than per session, so the
+   * numbers are summed: see {@link accumulateRealtimeUsage}. Attached once,
+   * because the transport outlives a single connect and a second listener
+   * would count every response twice.
+   */
+  private attachUsageTap(): void {
+    if (this.usageTapAttached) return;
+    const transport = (
+      this.session as RealtimeSession & {
+        transport?: { on?: (event: string, handler: (e: unknown) => void) => void };
+      }
+    ).transport;
+    if (typeof transport?.on !== "function") return;
+    this.usageTapAttached = true;
+    transport.on("*", (event: unknown) => {
+      if (!this.brokerSessionId || !event || typeof event !== "object") return;
+      const record = event as Record<string, unknown>;
+      if (record.type !== "response.done") return;
+      const response = record.response;
+      if (!response || typeof response !== "object") return;
+      const usage = (response as Record<string, unknown>).usage;
+      if (usage && typeof usage === "object") {
+        this.sessionUsage = accumulateRealtimeUsage(
+          this.sessionUsage,
+          usage as RealtimeUsage,
+        );
+      }
+    });
+  }
+
+  /**
+   * Closes the session's spend record with what the socket measured.
+   *
+   * Clearing the total first is what makes a second disconnect a no-op, so a
+   * session cannot be reported twice.
+   */
+  private async reportUsage(): Promise<void> {
+    if (!this.mintEndpoint || !this.brokerSessionId || !this.sessionUsage) {
+      return;
+    }
+    const usage = this.sessionUsage;
+    const sessionId = this.brokerSessionId;
+    this.sessionUsage = null;
+    await reportOpenAIRealtimeUsage(this.mintEndpoint, {
+      sessionId,
+      usage,
+      onError: (error) =>
+        this.logger.debug("voice broker usage report failed", { error }),
     });
   }
 
@@ -241,6 +318,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * Closes the session connection
    */
   async disconnect(): Promise<void> {
+    await this.reportUsage();
     this.session.close();
   }
 

@@ -209,7 +209,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
 
         const recorded: ConnectParams[] = [];
         await expect(makeAdapter(recorded).connect()).rejects.toThrow(
-          new RegExp(`refused this session with HTTP ${status}`),
+          new RegExp(`refused with HTTP ${status}`),
         );
         expect(recorded).toHaveLength(0);
       },

@@ -9,10 +9,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  accumulateRealtimeUsage,
   acquireRealtimeSocketKey,
   mintOpenAIRealtimeSession,
   reportOpenAIRealtimeUsage,
   resolveRealtimeMintEndpoint,
+  zeroRealtimeUsage,
 } from "../broker";
 
 const ENV_KEYS = [
@@ -376,7 +378,7 @@ describe("given a socket that needs a credential", () => {
           fetchImpl: fetchImpl as unknown as typeof fetch,
           noCredentialMessage,
         }),
-      ).rejects.toThrow(new RegExp(`refused this session with HTTP ${status}`));
+      ).rejects.toThrow(new RegExp(`refused with HTTP ${status}`));
     },
   );
 
@@ -445,5 +447,104 @@ describe("given a socket that needs a credential", () => {
         { model: "gpt-realtime", noCredentialMessage },
       ),
     ).rejects.toThrow(noCredentialMessage);
+  });
+});
+
+/**
+ * What a session reports, given what the vendor actually sends.
+ *
+ * OpenAI reports usage per response, not per session. Measured against the
+ * live Realtime API on 2026-08-21, two turns on one socket reported
+ * `input=120 output=4` then `input=135 output=4`. Cumulative would have been
+ * `output=8`. So keeping only the last `response.done` bills a ten-turn call
+ * for its last turn, and that is worse than reporting nothing: an unreported
+ * session settles as cost-unknown at the gateway's grace, while a wrong report
+ * arrives looking authoritative.
+ */
+describe("given the usage a realtime socket reports", () => {
+  it("sums the turns the live API actually sent, rather than keeping the last", () => {
+    const turn0 = { input_tokens: 120, output_tokens: 4, total_tokens: 124 };
+    const turn1 = { input_tokens: 135, output_tokens: 4, total_tokens: 139 };
+
+    const total = accumulateRealtimeUsage(
+      accumulateRealtimeUsage(zeroRealtimeUsage(), turn0),
+      turn1,
+    );
+
+    expect(total).toEqual({
+      input_tokens: 255,
+      output_tokens: 8,
+      total_tokens: 263,
+    });
+  });
+
+  it("sums the nested detail objects a gateway prices separately", () => {
+    // Audio, text and cached splits are priced at different rates, so dropping
+    // them bills the right token count at the wrong price.
+    const first = {
+      input_tokens: 10,
+      input_token_details: {
+        text_tokens: 6,
+        audio_tokens: 4,
+        cached_tokens: 2,
+        cached_tokens_details: { audio_tokens: 1 },
+      },
+      output_token_details: { audio_tokens: 3 },
+    };
+    const second = {
+      input_tokens: 5,
+      input_token_details: {
+        text_tokens: 1,
+        audio_tokens: 4,
+        cached_tokens: 0,
+        cached_tokens_details: { audio_tokens: 1 },
+      },
+      output_token_details: { audio_tokens: 2 },
+    };
+
+    expect(accumulateRealtimeUsage(first, second)).toEqual({
+      input_tokens: 15,
+      input_token_details: {
+        text_tokens: 7,
+        audio_tokens: 8,
+        cached_tokens: 2,
+        cached_tokens_details: { audio_tokens: 2 },
+      },
+      output_token_details: { audio_tokens: 5 },
+    });
+  });
+
+  it("accumulates a count the vendor adds later without being told about it", () => {
+    // No key list, so a new counter adds up on its own instead of being
+    // silently dropped from the record.
+    const total = accumulateRealtimeUsage(
+      { input_tokens: 1, reasoning_tokens: 7 },
+      { input_tokens: 1, reasoning_tokens: 5 },
+    );
+
+    expect(total.reasoning_tokens).toBe(12);
+  });
+
+  it("carries a flag rather than adding it, because a flag is not a count", () => {
+    const total = accumulateRealtimeUsage(
+      { input_tokens: 1, truncated: false },
+      { input_tokens: 1, truncated: true },
+    );
+
+    expect(total.truncated).toBe(true);
+  });
+
+  it("starts a session at stated zeros, because an empty body is refused", () => {
+    // The gateway reads a report by looking for input_tokens or output_tokens
+    // and answers HTTP 400 to a body carrying neither, which leaves the
+    // session open holding one of the key's slots.
+    expect(zeroRealtimeUsage()).toEqual({ input_tokens: 0, output_tokens: 0 });
+  });
+
+  it("hands out a fresh zero each call, so one session cannot bill another", () => {
+    const first = zeroRealtimeUsage();
+    accumulateRealtimeUsage(first, { input_tokens: 99 });
+
+    expect(zeroRealtimeUsage()).toEqual({ input_tokens: 0, output_tokens: 0 });
   });
 });

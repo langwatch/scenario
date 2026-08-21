@@ -77,6 +77,65 @@ export type RealtimeMintResult =
 export type RealtimeUsage = Record<string, unknown>;
 
 /**
+ * The usage of a session that consumed nothing.
+ *
+ * The counts are stated rather than left out. A gateway reads a usage report by
+ * looking for `input_tokens` or `output_tokens` and refuses a body carrying
+ * neither, so `{}` comes back HTTP 400 and the session stays open until the
+ * gateway's own grace expires. Measured against the live gateway on 2026-08-21.
+ *
+ * A fresh object each call, because it is the running total a session
+ * accumulates into.
+ */
+export function zeroRealtimeUsage(): RealtimeUsage {
+  return { input_tokens: 0, output_tokens: 0 };
+}
+
+/**
+ * Adds one response's usage into a session total.
+ *
+ * OpenAI reports usage per response, not per session. Measured against the live
+ * Realtime API on 2026-08-21, two turns on one socket reported `output_tokens`
+ * 4 and 4 rather than 4 and 8. So a session that keeps only the last
+ * `response.done` bills for its last turn and nothing else, and a wrong report
+ * is worse than none: the gateway settles an unreported session as cost-unknown
+ * at its grace, while a report that arrives looks authoritative.
+ *
+ * Every numeric leaf is summed and nested detail objects are summed key by key,
+ * so the audio, text and cached breakdowns a gateway prices separately add up
+ * alongside the totals. Keys are not listed here: a count the vendor adds later
+ * then accumulates on its own rather than being silently dropped.
+ */
+export function accumulateRealtimeUsage(
+  total: RealtimeUsage | null,
+  usage: RealtimeUsage,
+): RealtimeUsage {
+  const merged: RealtimeUsage = { ...(total ?? {}) };
+  for (const [key, value] of Object.entries(usage)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const running = merged[key];
+      merged[key] = value + (typeof running === "number" ? running : 0);
+    } else if (typeof value === "boolean") {
+      // A flag is not a count, and adding two of them would produce a number
+      // that means nothing.
+      merged[key] = value;
+    } else if (isUsageObject(value)) {
+      const running = merged[key];
+      merged[key] = accumulateRealtimeUsage(
+        isUsageObject(running) ? running : null,
+        value,
+      );
+    }
+  }
+  return merged;
+}
+
+/** A nested detail object, as opposed to an array or null. */
+function isUsageObject(value: unknown): value is RealtimeUsage {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * Resolves where to mint, or null when there is no key to mint with.
  *
  * `OPENAI_REALTIME_API_KEY` is deliberately not consulted here. That variable
@@ -141,10 +200,9 @@ export async function mintOpenAIRealtimeSession(
     // The endpoint's own message is the useful one: it names the budget, the
     // session cap or the missing provider far more precisely than a status.
     throw new Error(
-      `the mint endpoint at ${endpoint.baseUrl}${MINT_PATH} refused this ` +
-        `session with HTTP ${response.status}. A refusal is not an absent ` +
-        `route, so the vendor is not dialed around it and no session opens. ` +
-        `Response: ${text.slice(0, 500)}`,
+      `realtime mint refused with HTTP ${response.status}: the gateway at ` +
+        `${endpoint.baseUrl} refused the mint, so this session must not fall ` +
+        `back to a direct provider key. ${text.slice(0, 500)}`,
     );
   }
 
