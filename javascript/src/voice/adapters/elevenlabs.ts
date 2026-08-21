@@ -286,6 +286,23 @@ export interface ElevenLabsAgentAdapterOptions {
   /** ElevenLabs API key (`xi-api-key`). */
   apiKey: string;
   /**
+   * Base URL for the ElevenLabs REST API, passed straight to the SDK client's
+   * own `baseUrl` option.
+   *
+   * Points the signed-URL handshake at a LangWatch AI Gateway, which mirrors
+   * the vendor's own mint path: the gateway checks the virtual key's budget
+   * and session cap, mints the signed URL, and bills the call as one spend
+   * record. The websocket the URL names still belongs to ElevenLabs, so the
+   * media stream runs client to vendor and nothing about latency or the wire
+   * protocol changes. `apiKey` then carries the virtual key.
+   *
+   * There is no environment variable for this, because the ElevenLabs SDK has
+   * none: `ELEVENLABS_API_KEY` is the only variable it reads (checked against
+   * `@elevenlabs/elevenlabs-js` 2.64.0), and the base URL is a constructor
+   * option. Omitted, the SDK talks to ElevenLabs directly as it always has.
+   */
+  baseUrl?: string;
+  /**
    * Per-session system prompt override applied via the SDK's
    * `conversationConfigOverride.agent.prompt.prompt`. Lets demos use a different
    * prompt shape without mutating the shared test agent.
@@ -360,6 +377,41 @@ export interface ElevenLabsAgentAdapterOptions {
  * {@link AudioInterface} and start the session), stream PCM16 audio chunks at
  * real-mic cadence, and drain agent audio the SDK pushes via `output()`.
  */
+
+/**
+ * Checks a base URL at construction, where the mistake is still readable.
+ *
+ * The one people make is including `/v1`. `OPENAI_BASE_URL` conventionally
+ * does, and the ElevenLabs SDK appends `/v1` itself, so a base URL that
+ * carries it produces `/v1/v1/convai/...` and a 404 that names no cause. An
+ * empty value means unset, which leaves the SDK on its own default.
+ */
+export function normalizeElevenLabsBaseUrl(raw?: string): string | undefined {
+  const trimmed = raw?.trim().replace(/\/+$/, "");
+  if (!trimmed) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(
+      `ElevenLabsAgentAdapter: baseUrl is not a URL: ${trimmed}`,
+    );
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    // `new URL` accepts schemes the SDK cannot make a REST request over, so
+    // parsing alone is not a check.
+    throw new Error(
+      `ElevenLabsAgentAdapter: baseUrl must be http or https: ${trimmed}`,
+    );
+  }
+  if (parsed.pathname.endsWith("/v1")) {
+    throw new Error(
+      `ElevenLabsAgentAdapter: baseUrl must not include /v1 (${trimmed}). ` +
+        `The SDK appends it, so this would request /v1/v1/convai/... and 404.`,
+    );
+  }
+  return trimmed;
+}
 export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   override role = AgentRole.AGENT;
 
@@ -373,6 +425,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   readonly agentId: string;
   private readonly apiKey: string;
+  private readonly baseUrl?: string;
   private readonly systemPromptOverride?: string;
   private readonly firstMessageOverride?: string;
   private readonly dynamicVariables?: Record<string, string | number | boolean>;
@@ -462,6 +515,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     super();
     this.agentId = options.agentId;
     this.apiKey = options.apiKey;
+    this.baseUrl = normalizeElevenLabsBaseUrl(options.baseUrl);
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
     this.dynamicVariables = options.dynamicVariables;
@@ -487,7 +541,13 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     });
     const { AudioInterface, Conversation, ElevenLabsClient } =
       await loadElevenLabsConversationRuntime();
-    const client = new ElevenLabsClient({ apiKey: this.apiKey });
+    // `baseUrl` is the SDK's documented custom-URL option. Undefined leaves
+    // the SDK on its own default host, so an unconfigured adapter is
+    // byte-for-byte the request it sent before.
+    const client = new ElevenLabsClient({
+      apiKey: this.apiKey,
+      ...(this.baseUrl ? { baseUrl: this.baseUrl } : {}),
+    });
 
     // The adapter's NARROW prompt/first-message knobs build an `agent` override
     // that is always sent (an empty `agent` object is a no-op) so the handshake

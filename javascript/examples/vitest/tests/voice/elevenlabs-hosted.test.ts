@@ -70,6 +70,14 @@ if (hasHostedKey || hasComposableKey) {
                 scenario.elevenLabsAgent({
                   agentId: ELEVENLABS_AGENT_ID!,
                   apiKey: ELEVENLABS_API_KEY!,
+                  // The ElevenLabs SDK reads no base URL variable, so this
+                  // demo reads one itself. It is what lets the same demo run
+                  // against ElevenLabs or against a gateway in front of it,
+                  // the way OPENAI_BASE_URL already does for the OpenAI demo.
+                  // Unset, the SDK talks to ElevenLabs directly.
+                  ...(process.env.ELEVENLABS_BASE_URL
+                    ? { baseUrl: process.env.ELEVENLABS_BASE_URL }
+                    : {}),
                 }),
                 scenario.userSimulatorAgent({ voice: "openai/nova" }),
                 scenario.judgeAgent({
