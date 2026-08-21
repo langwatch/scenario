@@ -18,8 +18,9 @@ examples it guards.
 """
 
 import ast
+import symtable
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 import pytest
 
@@ -105,55 +106,79 @@ def test_imports_the_criteria_under_its_own_name(example: str) -> None:
                     )
 
 
-def bindings(tree: ast.Module) -> list[tuple[str, ast.AST]]:
-    """
-    Every name this module binds, by any means, with the node that binds it.
+class Binding(NamedTuple):
+    """One scope's binding of a name, as CPython's symbol table sees it."""
 
-    Collected rather than scope-resolved on purpose. The checks below want to
-    say "this name is bound exactly once, by that import", and a binding that
-    is invisible to this walk is the only way to break them. `ast.Name` in a
-    Store or Del context covers assignment targets, `for` targets, walrus,
-    `with ... as` and comprehension targets alike; `ast.arg` covers function
-    and lambda parameters; `alias` covers both import forms; `ExceptHandler`
-    covers `except ... as`.
+    scope: str
+    imported: bool
+    assigned: bool
+    parameter: bool
+
+
+def bindings(example: str, name: str) -> list[Binding]:
     """
-    found: list[tuple[str, ast.AST]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            found.append((node.id, node))
-        elif isinstance(node, ast.arg):
-            found.append((node.arg, node))
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                found.append((alias.asname or alias.name.split(".")[0], alias))
-        elif isinstance(node, ast.ExceptHandler) and node.name:
-            found.append((node.name, node))
+    Every scope in the file that binds `name`, according to CPython's own
+    symbol table.
+
+    Walking the AST for binding forms means enumerating them, and the
+    enumeration is what keeps turning out to be incomplete: assignment, then
+    parameters and `for` targets and walrus and `with ... as` and
+    `except ... as`, then `def` and `class`, then `match` patterns. `symtable`
+    is the binder the interpreter itself uses, so it has no such list to get
+    wrong, and it reports nested scopes (functions, lambdas, comprehensions,
+    classes) rather than only the module.
+
+    `assigned` is the discriminator that matters here: a name bound purely by
+    an import reports `imported` and not `assigned`, and anything else binding
+    it as well, including a `def` or `class` of the same name, turns
+    `assigned` on.
+    """
+    table = symtable.symtable((EXAMPLES / example).read_text(), example, "exec")
+    found: list[Binding] = []
+
+    def visit(scope: symtable.SymbolTable, path: str) -> None:
+        for symbol in scope.get_symbols():
+            if symbol.get_name() != name:
+                continue
+            binding = Binding(
+                scope=path,
+                imported=symbol.is_imported(),
+                assigned=symbol.is_assigned(),
+                parameter=symbol.is_parameter(),
+            )
+            if binding.imported or binding.assigned or binding.parameter:
+                found.append(binding)
+        for child in scope.get_children():
+            visit(child, f"{path}.{child.get_name()}")
+
+    visit(table, "<module>")
     return found
 
 
 @pytest.mark.parametrize("example", AUDIO_EXAMPLES)
 def test_binds_the_criteria_name_only_by_importing_it(example: str) -> None:
     """
-    The name must be bound exactly once in the file, by the `helpers` import.
+    The name must be bound in exactly one scope, the module's, and there by an
+    import and nothing else.
 
     A local assignment is the obvious way to shadow it, but a parameter, a
-    `for` target, a walrus, a `with ... as`, an `except ... as` or a second
-    import bind it just as well, and every one of those would leave the judge
-    reading something other than the shared constant while the call site still
-    spells `AUDIO_JUDGE_CRITERIA`. Counting bindings catches all of them without
-    resolving scopes.
+    `for` target, a walrus, a `with ... as`, an `except ... as`, a `def`, a
+    `class`, a `match` pattern or a second import all bind it just as well, and
+    every one of those leaves the judge reading something other than the shared
+    constant while the call site still spells AUDIO_JUDGE_CRITERIA.
     """
-    tree = parse(example)
-    bound = [node for name, node in bindings(tree) if name == CRITERIA_NAME]
+    found = bindings(example, CRITERIA_NAME)
 
-    assert len(bound) == 1, (
-        f"{example} binds {CRITERIA_NAME} {len(bound)} times. It must be bound "
-        "exactly once, by importing it from `helpers`."
+    assert [binding.scope for binding in found] == ["<module>"], (
+        f"{example} binds {CRITERIA_NAME} in "
+        f"{[binding.scope for binding in found] or 'no scope at all'}. It must be "
+        "bound once, at module level, by importing it from `helpers`."
     )
-    assert isinstance(bound[0], ast.alias), (
-        f"{example} binds {CRITERIA_NAME} with a "
-        f"{type(bound[0]).__name__} rather than an import. Import the shared "
-        "constant and leave the name alone."
+    assert found[0].imported and not found[0].assigned, (
+        f"{example} binds {CRITERIA_NAME} at module level by something other than "
+        f"an import ({found[0]}). Import the shared constant and leave the name "
+        "alone: a `def` or `class` of that name shadows it just as an assignment "
+        "would."
     )
 
 
@@ -161,14 +186,13 @@ def test_binds_the_criteria_name_only_by_importing_it(example: str) -> None:
 def test_never_shadows_the_list_builtin(example: str) -> None:
     """
     `criteria=list(AUDIO_JUDGE_CRITERIA)` only means what it looks like while
-    `list` is the builtin. Rebinding it would let the accepted form return
-    anything at all.
+    `list` is the builtin. Rebinding it, in any scope and by any means, would
+    let the accepted form return anything at all.
     """
-    tree = parse(example)
-    shadows = [node for name, node in bindings(tree) if name == LIST_BUILTIN]
-    assert not shadows, (
-        f"{example} rebinds `{LIST_BUILTIN}`, so `list(...)` around the criteria "
-        "no longer means the builtin copy."
+    found = bindings(example, LIST_BUILTIN)
+    assert not found, (
+        f"{example} rebinds `{LIST_BUILTIN}` ({found}), so `list(...)` around the "
+        "criteria no longer means the builtin copy."
     )
 
 
