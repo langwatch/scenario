@@ -57,12 +57,14 @@ export function resolveElevenLabsBaseUrl(explicit?: string): string | undefined 
 export function resolveElevenLabsConvAIApiKey(explicit?: string): string {
   // Blank is unset at every step, for the same reason as the base URL: a demo
   // that spreads an absent variable must reach the next candidate, not stop.
-  return (
-    explicit ||
-    process.env[ELEVENLABS_CONVAI_API_KEY_ENV] ||
-    process.env.ELEVENLABS_API_KEY ||
-    ""
-  );
+  // Whitespace counts as blank, because a variable set to a stray space is
+  // truthy and would otherwise shadow a real key with a 401.
+  const candidates = [
+    explicit,
+    process.env[ELEVENLABS_CONVAI_API_KEY_ENV],
+    process.env.ELEVENLABS_API_KEY,
+  ];
+  return candidates.map((c) => c?.trim()).find(Boolean) ?? "";
 }
 
 /**

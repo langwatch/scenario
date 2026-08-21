@@ -130,4 +130,19 @@ describe("given a key for the hosted ConvAI adapter", () => {
 
     expect(resolveElevenLabsConvAIApiKey("sk_explicit")).toBe("sk_explicit");
   });
+
+  it("skips a blank candidate rather than shadowing a real key with a 401", () => {
+    // A variable set to a stray space is truthy. Stopping there would present
+    // whitespace as the credential and fail the mint for no visible reason.
+    process.env[ELEVENLABS_CONVAI_API_KEY_ENV] = "  ";
+    process.env.ELEVENLABS_API_KEY = "sk_vendor";
+
+    expect(resolveElevenLabsConvAIApiKey("")).toBe("sk_vendor");
+  });
+
+  it("reports no key when every candidate is blank", () => {
+    process.env[ELEVENLABS_CONVAI_API_KEY_ENV] = " ";
+
+    expect(resolveElevenLabsConvAIApiKey()).toBe("");
+  });
 });
