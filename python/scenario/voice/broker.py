@@ -304,7 +304,7 @@ async def report_openai_realtime_usage(
     *,
     transport: Optional[httpx.AsyncBaseTransport] = None,
     timeout_s: Optional[float] = None,
-) -> Optional[BaseException]:
+) -> Optional[Exception]:
     """Report what the socket measured, closing the session's spend record.
 
     OpenAI reports usage over the socket, in ``response.done``, and that
@@ -336,7 +336,10 @@ async def report_openai_realtime_usage(
                 timeout_s if timeout_s is not None else USAGE_REPORT_TIMEOUT_S
             ),
         )
-    except BaseException as error:  # noqa: BLE001 - reported, never raised
+    except Exception as error:  # noqa: BLE001 - reported, never raised
+        # Deliberately not BaseException: asyncio.CancelledError is one, and
+        # returning it here instead of letting it through would swallow the
+        # cancellation of whatever task owns this disconnect.
         return error
     # A refused report is a failure that answers. Reading only the raised case
     # would treat a 404 for an unknown session, or a 401 for a rotated key, as

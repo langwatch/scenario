@@ -425,7 +425,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 warn_direct_dial_fallback(
                     self._mint.base_url,
                     ELEVENLABS_SIGNED_URL_PATH,
-                    "ELEVENLABS_API_KEY",
+                    "the api_key passed to the adapter",
                 )
 
         self._ws = await websockets.connect(
