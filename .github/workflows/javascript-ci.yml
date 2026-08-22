@@ -17,8 +17,12 @@ name: javascript-ci
 # The same key, and how to rotate, revoke and cap it, are described at the
 # top of python-ci.yml. Kept in one place so the two do not drift.
 #
-# One exception rides direct, at the examples step below: OpenAI Realtime
-# opens a websocket to api.openai.com, and the gateway proxies HTTP only.
+# The Realtime examples ride it too. Their media websocket still runs to
+# api.openai.com, because the gateway proxies HTTP only, but the credential it
+# opens with is minted first at POST /v1/realtime/client_secrets, which is
+# OpenAI's own path and one the gateway mirrors. So the session is checked
+# against the virtual key's budget and billed there, and no provider key exists
+# in this repository's secrets for it to fall back to.
 env:
   CI: true
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
@@ -126,10 +130,6 @@ jobs:
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # Realtime examples open a websocket straight to api.openai.com,
-          # which the gateway cannot proxy, so they need a real OpenAI key
-          # instead of the virtual key held by OPENAI_API_KEY.
-          OPENAI_REALTIME_API_KEY: ${{ secrets.OPENAI_REALTIME_API_KEY }}
         working-directory: javascript
 
   # One required check for the whole workflow. Reports success if every

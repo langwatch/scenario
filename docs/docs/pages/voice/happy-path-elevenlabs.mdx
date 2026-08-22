@@ -18,6 +18,10 @@ description: Step-by-step guide to test a deployed ElevenLabs Conversational AI 
 
 > **Why an OpenAI key?** Scenario's judge is an LLM, and the user simulator's default TTS is OpenAI. Both are separate from your ElevenLabs agent. A judge is what turns "did the agent sound warm?" into an automated pass/fail.
 
+> **Routing through a LangWatch AI Gateway? (TypeScript)** Set `ELEVENLABS_BASE_URL` to the gateway host with no `/v1` on the end, and `ELEVENLABS_CONVAI_API_KEY` to your virtual key. The adapter then asks the gateway for the signed URL instead of ElevenLabs, so the call is checked against the key's budget and session cap and billed as one spend record. The conversation websocket the signed URL names still belongs to ElevenLabs, so nothing about latency or the wire protocol changes.
+>
+> The gateway fronts the ConvAI mint route only. ElevenLabs speech-to-text and text-to-speech keep talking to ElevenLabs with `ELEVENLABS_API_KEY`, which is why the ConvAI key has a variable of its own. Leave both new variables unset and every request goes to ElevenLabs as before.
+
 ---
 
 ## Step 1 — Install

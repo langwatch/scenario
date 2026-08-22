@@ -13,6 +13,7 @@
  * the branded preset import this leaf.
  */
 import { AudioChunk } from "../audio-chunk";
+import { normalizeElevenLabsBaseUrl } from "../elevenlabs-base-url";
 import {
   type ElevenLabsClientLike,
   loadElevenLabsClient,
@@ -29,6 +30,16 @@ export const ELEVENLABS_STT_ENDPOINT =
 export interface ElevenLabsSTTProviderOptions {
   /** API key; falls back to `process.env.ELEVENLABS_API_KEY`. */
   apiKey?: string;
+  /**
+   * Base URL for the ElevenLabs REST API, passed to the SDK client.
+   *
+   * Explicit only. `ELEVENLABS_BASE_URL` is deliberately not read here: a
+   * LangWatch gateway fronts the ConvAI mint route and not
+   * `/v1/speech-to-text`, so a variable set for the hosted demos would point
+   * transcription at a route that answers 404. See
+   * {@link normalizeElevenLabsBaseUrl}.
+   */
+  baseUrl?: string;
   /** Test seam — override the SDK client constructor. */
   clientFactory?: (apiKey: string) => ElevenLabsClientLike;
 }
@@ -38,10 +49,12 @@ export interface ElevenLabsSTTProviderOptions {
  */
 export class ElevenLabsSTTProvider implements STTProvider {
   private readonly apiKey: string;
+  private readonly baseUrl?: string;
   private readonly clientFactory?: (apiKey: string) => ElevenLabsClientLike;
 
   constructor(options: ElevenLabsSTTProviderOptions = {}) {
     this.apiKey = options.apiKey ?? process.env.ELEVENLABS_API_KEY ?? "";
+    this.baseUrl = normalizeElevenLabsBaseUrl(options.baseUrl);
     this.clientFactory = options.clientFactory;
   }
 
@@ -54,7 +67,7 @@ export class ElevenLabsSTTProvider implements STTProvider {
     // only a run that actually transcribes should pay for them.
     const client = this.clientFactory
       ? this.clientFactory(this.apiKey)
-      : await loadElevenLabsClient(this.apiKey);
+      : await loadElevenLabsClient(this.apiKey, this.baseUrl);
     const wav = pcm16ToWav(audio.data);
     // The SDK accepts Blob/File/ReadStream. Node 20+ supplies Blob globally so
     // we don't need a polyfill.

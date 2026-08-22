@@ -27,13 +27,21 @@ name: python-ci
 #               pod caches a key's config for 60 seconds
 #               (LW_GATEWAY_AUTH_CACHE_CONFIG_TTL_SECONDS). Restarting the
 #               gateway deployment clears it at once.
-#   - Cap:      the key carries its own spending budget, currently $10 per
+#   - Cap:      the key carries its own spending budget, currently $15 per
 #               day at virtual-key scope. On a hard breach the gateway
 #               answers HTTP 402 `budget_exceeded` with the scope in
 #               `error.meta.budget_scope`, and every test in this job fails
 #               until the window resets. Size the cap well above a busy
 #               day's spend: one full run costs about $0.09, and the
-#               busiest day seen so far was 31 runs.
+#               busiest day seen so far was 31 runs. `javascript-ci.yml` and
+#               `javascript-voice-integration.yml` share this key and cost
+#               far more per run, because they mint the OpenAI Realtime
+#               session through the gateway, and the second mints the
+#               ElevenLabs ConvAI session there too. `voice-integration.yml`,
+#               the Python voice workflow, still dials both vendors directly
+#               with OPENAI_REALTIME_API_KEY and ELEVENLABS_API_KEY, so its
+#               voice traffic does not land on this budget. $4 was breached
+#               mid-suite on 2026-08-21.
 #   - Fall back: to call the providers directly again, clear the two base
 #               URLs below and GEMINI_API_BASE on the examples step, and put
 #               provider keys back in OPENAI_API_KEY and GEMINI_API_KEY.
