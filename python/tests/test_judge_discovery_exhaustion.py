@@ -818,7 +818,11 @@ class TestDiscoveryToolUsagePatterns:
                 resp = _mock_discovery_response("expand_trace", {"span_ids": ["04130000"]}, f"c{call_count}")
                 discovery_log[-1]["tool"] = "expand_trace(create_or_update_task)"
                 return resp
-            # Step 6: judge decides to finish
+            # Step 6: judge decides it has enough information
+            if call_count == 6:
+                discovery_log[-1]["tool"] = "make_verdict"
+                return _mock_discovery_response("make_verdict", {}, f"c{call_count}")
+            # Step 7: the verdict call
             discovery_log[-1]["tool"] = "finish_test"
             return _mock_finish_response(
                 criteria_verdicts={
@@ -840,11 +844,11 @@ class TestDiscoveryToolUsagePatterns:
         for entry in discovery_log:
             print(f"  Step {entry['step']}: {entry['tool']}  (tool_choice={entry['tool_choice']})")
         print(f"  Result: success={result.success}")
-        print(f"  Steps used: {call_count} / 6 max")
+        print(f"  Steps used: {call_count} / 6 max + verdict")
         assert result.success is True
-        # Judge finished in 6 steps — didn't need exhaustion
-        assert call_count == 6
-        # Intermediate steps should use "required", not forced finish_test
+        # The judge decided in 6 steps (no exhaustion), then one verdict call
+        assert call_count == 7
+        # Every decision-loop step uses "required", never a forced finish_test
         for entry in discovery_log[:-1]:
             assert entry["tool_choice"] == "required"
 
@@ -1020,7 +1024,11 @@ def _capture_first_content_for_judge() -> tuple[list, "object"]:
             # digest envelope); a later forcing message may also be user-role,
             # so take the FIRST.
             captured.append(user_msgs[0]["content"] if user_msgs else "")
-        # Minimal valid finishing verdict. One criterion -> one verdict key.
+        # Honor the offered tool set: the decision call moves to the verdict
+        # (make_verdict), the verdict call finishes. One criterion -> one key.
+        offered = [tool["function"]["name"] for tool in kwargs.get("tools", [])]
+        if "finish_test" not in offered:
+            return _mock_discovery_response("make_verdict", {}, "decision_1")
         return _mock_finish_response(
             criteria_verdicts={"agent_uses_the_tool": "true"},
             reasoning="Captured transcript; finishing.",
@@ -1395,7 +1403,7 @@ class TestInconclusiveVerdictOnDiscoveryPaths:
     exhaustion forced it."""
 
     @pytest.mark.asyncio
-    async def test_unforced_inconclusive_finish_in_discovery_continues(self):
+    async def test_voluntary_inconclusive_verdict_after_make_verdict_continues(self):
         spans = create_nance_agent_trace()
         collector = _create_collector(spans)
         judge = JudgeAgent(
@@ -1406,8 +1414,12 @@ class TestInconclusiveVerdictOnDiscoveryPaths:
         )
 
         def mock_completion(**kwargs):
-            # First step already answers finish_test with "can't tell yet" —
-            # continue_test was freely available, so this must continue.
+            # The decision call volunteers make_verdict; the verdict call then
+            # answers "can't tell yet". The verdict was voluntary, so this
+            # must continue the conversation.
+            offered = [tool["function"]["name"] for tool in kwargs.get("tools", [])]
+            if "finish_test" not in offered:
+                return _mock_discovery_response("make_verdict", {}, "decision_1")
             return _mock_finish_response(
                 criteria_verdicts={
                     "agent_creates_a_task_plan_for_the_workflow": "inconclusive",
@@ -1425,6 +1437,7 @@ class TestInconclusiveVerdictOnDiscoveryPaths:
 
     @pytest.mark.asyncio
     async def test_exhaustion_forced_inconclusive_verdict_stays_terminal(self):
+        """@scenario Decision discovery exhaustion forces a terminal verdict"""
         spans = create_nance_agent_trace()
         collector = _create_collector(spans)
         judge = JudgeAgent(
@@ -1463,10 +1476,11 @@ class TestInconclusiveVerdictOnDiscoveryPaths:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_required_large_trace_judgment_cannot_continue(self):
-        """Large-trace last-turn/checkpoint escape (#886): if a required
-        judgment answers continue_test during discovery, the run must force a
-        terminal verdict rather than fall through to the max-turns failure."""
+    async def test_required_large_trace_judgment_offers_no_continue_escape(self):
+        """The verdict phase has no continue escape (#886 by construction):
+        even on the large-trace path, where the discovery loop relaxes the
+        tool choice to "required", the tool set never contains continue_test,
+        so a required judgment cannot dodge into the max-turns failure."""
         spans = create_nance_agent_trace()
         collector = _create_collector(spans)
         judge = JudgeAgent(
@@ -1476,30 +1490,24 @@ class TestInconclusiveVerdictOnDiscoveryPaths:
             token_threshold=100,
         )
 
-        tool_choices = []
+        offered_per_call = []
         call_count = 0
 
         def mock_completion(**kwargs):
             nonlocal call_count
             call_count += 1
-            tool_choices.append(kwargs.get("tool_choice"))
+            offered_per_call.append(
+                [tool["function"]["name"] for tool in kwargs.get("tools", [])]
+            )
             if call_count == 1:
-                # A required judgment tries to dodge via continue_test.
-                resp = MagicMock()
-                resp.choices = [MagicMock()]
-                tc = MagicMock()
-                tc.id = "call_1"
-                tc.function.name = "continue_test"
-                tc.function.arguments = "{}"
-                resp.choices[0].message.tool_calls = [tc]
-                resp.choices[0].message.content = None
-                return resp
-            # Forced verdict call.
+                return _mock_discovery_response(
+                    "grep_trace", {"pattern": "task"}, "call_1"
+                )
             return _mock_finish_response(
                 criteria_verdicts={
                     "agent_creates_a_task_plan_for_the_workflow": "inconclusive",
                 },
-                reasoning="Forced final verdict.",
+                reasoning="Final verdict.",
                 verdict="inconclusive",
             )
 
@@ -1509,7 +1517,9 @@ class TestInconclusiveVerdictOnDiscoveryPaths:
         ):
             result = await judge.call(_create_input(judgment_request=JudgmentRequest()))
 
-        assert call_count == 2  # continue_test dodge + forced verdict
-        assert tool_choices[-1] == {"type": "function", "function": {"name": "finish_test"}}
+        assert call_count == 2  # one discovery step + the verdict
+        for offered in offered_per_call:
+            assert "continue_test" not in offered
+            assert "finish_test" in offered
         assert isinstance(result, ScenarioResult)
         assert result.success is False

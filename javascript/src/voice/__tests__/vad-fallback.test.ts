@@ -13,30 +13,18 @@
  * Loaded via @amiceli/vitest-cucumber which reads the feature file and fails
  * the suite if any bound scenario is missing a step binding.
  */
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { beforeEach, expect, vi, type MockInstance } from "vitest";
 
-import { agent, succeed, user } from "../../script";
 import { ScenarioExecution } from "../../execution/scenario-execution";
+import { agent, succeed, user } from "../../script";
 import { AudioChunk } from "../audio-chunk";
 import type { VoiceEvent } from "../recording.types";
 import { WebRTCVadFallback } from "../vad";
 import { AudioUserSimulator } from "./fixtures/audio-user-simulator";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature",
-);
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
 
 function speechChunk(durationSeconds: number): AudioChunk {
   // Loud sine-ish shape: alternate ±20000 samples — RMS ≈ 20000, comfortably
@@ -60,7 +48,7 @@ beforeEach(() => {
   WebRTCVadFallback.resetWarnings();
 });
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

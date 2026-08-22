@@ -15,29 +15,17 @@
  * it() below — it is an implementation-level guarantee, not a named feature
  * scenario. Option (a) chosen: no spec scenario exists for this behavior.
  */
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, it } from "vitest";
 
-import { agent, succeed, user } from "../../script";
 import { ScenarioExecution } from "../../execution/scenario-execution";
+import { agent, succeed, user } from "../../script";
 import { AudioChunk, silentChunk } from "../audio-chunk";
 import type { VoiceEvent } from "../recording.types";
 import { AudioUserSimulator } from "./fixtures/audio-user-simulator";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature",
-);
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
 
 /**
  * Build a synthetic-but-non-silent PCM16 chunk so the recorder treats it
@@ -85,7 +73,7 @@ it("throwing on_voice_event hook does not break the scenario", async () => {
   expect(voiceEventCalls).toBeGreaterThan(0);
 });
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

@@ -8,9 +8,43 @@
 # that branch protection requires.
 name: python-ci
 
-# All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
-# AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
-# URLs point every client family (openai SDK, litellm, ai-sdk) at it.
+# All model traffic rides the LangWatch AI Gateway. One virtual key replaces
+# every provider key: it is metered, capped, and revocable on its own, and no
+# raw provider key sits in this repository's secrets for the examples job.
+#
+# The key lives in the OPENAI_API_KEY secret and is copied into whichever
+# variable each client family reads. The base URLs below point those clients
+# at the gateway: the openai SDK and litellm's openai lane read
+# OPENAI_BASE_URL / OPENAI_API_BASE, and litellm's gemini lane reads
+# GEMINI_API_BASE, set on the examples step.
+#
+# Operating notes:
+#   - Rotate:   `langwatch virtual-keys rotate <id>` mints a new secret and
+#               keeps the old one working for 24 hours. Put the new secret in
+#               the OPENAI_API_KEY repository secret inside that window.
+#   - Revoke:   `langwatch virtual-keys revoke <id>`. Allow up to a minute
+#               before the old secret stops working everywhere: each gateway
+#               pod caches a key's config for 60 seconds
+#               (LW_GATEWAY_AUTH_CACHE_CONFIG_TTL_SECONDS). Restarting the
+#               gateway deployment clears it at once.
+#   - Cap:      the key carries its own spending budget, currently $15 per
+#               day at virtual-key scope. On a hard breach the gateway
+#               answers HTTP 402 `budget_exceeded` with the scope in
+#               `error.meta.budget_scope`, and every test in this job fails
+#               until the window resets. Size the cap well above a busy
+#               day's spend: one full run costs about $0.09, and the
+#               busiest day seen so far was 31 runs. `javascript-ci.yml` and
+#               `javascript-voice-integration.yml` share this key and cost
+#               far more per run, because they mint the OpenAI Realtime
+#               session through the gateway, and the second mints the
+#               ElevenLabs ConvAI session there too. `voice-integration.yml`,
+#               the Python voice workflow, still dials both vendors directly
+#               with OPENAI_REALTIME_API_KEY and ELEVENLABS_API_KEY, so its
+#               voice traffic does not land on this budget. $4 was breached
+#               mid-suite on 2026-08-21.
+#   - Fall back: to call the providers directly again, clear the two base
+#               URLs below and GEMINI_API_BASE on the examples step, and put
+#               provider keys back in OPENAI_API_KEY and GEMINI_API_KEY.
 env:
   CI: true
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
@@ -33,7 +67,7 @@ jobs:
     outputs:
       relevant: ${{ steps.detect.outputs.relevant }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: ./.github/actions/detect-changes
         id: detect
         with:
@@ -51,10 +85,10 @@ jobs:
         python-version: ["3.12"] # Focus on primary version for performance
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -64,7 +98,7 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Cache dependencies
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .venv
@@ -95,9 +129,27 @@ jobs:
         run: uv run pyright .
         working-directory: python
 
-      # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
+      # One definition of "this run can read repo secrets", so the live suite
+      # below and its secret-free fallback cannot drift into both running or
+      # neither. Dependabot PRs and fork PRs run without secrets.
+      - name: Resolve secret availability
+        id: secrets
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ "$ACTOR" = "dependabot[bot]" ] \
+            || { [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$THIS_REPO" ]; }; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Examples: the live suite, for runs that can read repo secrets.
       - name: Test (Examples)
-        if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: steps.secrets.outputs.available == 'true'
         # Examples hit real LLMs over the network; they can legitimately take
         # well over the 60s per-test timeout that pytest.ini sets for the unit
         # suite. Override to 300s here so slow-but-correct runs don't get
@@ -106,7 +158,39 @@ jobs:
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # The Gemini examples still call Google directly. The mechanism to
+          # route them is ready and measured: litellm builds
+          # `{GEMINI_API_BASE}/models/{model}:generateContent` and sends the
+          # key as x-goog-api-key, so setting GEMINI_API_BASE to the
+          # gateway's /v1beta surface and GEMINI_API_KEY to the same virtual
+          # key moves them over with no change to any example. The whole
+          # suite passes that way against a gateway that has a Google
+          # credential.
+          #
+          # What is missing is the credential, and it takes two steps rather
+          # than one. Add a Gemini provider to the LangWatch organization,
+          # then add that provider to the routing policy this virtual key
+          # is pinned to: a key with a policy reaches only the providers
+          # listed in the policy's modelProviderIds, so an enabled provider
+          # left off the list never joins the chain. Confirm with
+          # `GET /v1/models` on the key, which lists what it can actually
+          # dispatch to, before swapping in these two lines:
+          #
+          #   GEMINI_API_BASE: https://gateway.langwatch.ai/v1beta
+          #   GEMINI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        working-directory: python
+
+      # The same examples, imported rather than run, for the runs the step
+      # above cannot cover. Without this an examples-only change from an
+      # external contributor reaches a green required check with nothing
+      # having read the file it changed: `pytest tests/` never imports
+      # `examples/`, and `pyright` sets `reportMissingImports: false`, so a
+      # module that does not exist type-checks clean. Collection imports every
+      # example module and makes no provider call, so it needs no secrets.
+      - name: Collect (Examples)
+        if: steps.secrets.outputs.available != 'true'
+        run: uv run pytest examples/ --collect-only -q
         working-directory: python
 
   # One required check for the whole workflow. Reports success if every

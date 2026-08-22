@@ -14,18 +14,17 @@
  * uses `includeTags: ["ts-bound"]`. Per-subject tagging matches the
  * established per-subject tag-convention decision.
  */
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
-import type { LanguageModel } from "ai";
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
+import type { LanguageModel } from "ai";
 import { afterEach, describe, it, expect, vi } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 import { AgentRole } from "../../../domain/agents";
-import { AudioChunk, silentChunk } from "../../audio-chunk";
 import { VoiceAgentAdapter } from "../../adapter";
-import { ELEVENLABS_DEFAULT_VOICE_ID } from "../../voice-models";
+import { AudioChunk, silentChunk } from "../../audio-chunk";
 import { elevenLabsAgent } from "../../factories";
+import { ELEVENLABS_DEFAULT_VOICE_ID } from "../../voice-models";
 import {
   ComposableVoiceAgent,
   ElevenLabsAgentAdapter,
@@ -35,18 +34,6 @@ import {
   type STTProvider,
 } from "../index";
 import { FakeWebSocket, makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature",
-);
 
 /** Feed one inbound EL ConvAI frame to the SDK over the fake socket. */
 function emit(socket: FakeWebSocket, event: Record<string, unknown>): void {
@@ -97,7 +84,7 @@ function makeFakeLanguageModel(text: string): {
   return { model, calls };
 }
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

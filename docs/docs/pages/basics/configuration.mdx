@@ -54,6 +54,10 @@ export default defineConfig({
     maxTokens: 1000, // Optional
   },
   headless: false,
+  // Judge on remote traces (see /advanced/remote-traces)
+  fetchRemoteTraces: false, // Optional, defaults to false
+  traceWaitTimeoutMs: 30_000, // Optional, defaults to 30000
+  traceWaitExtensionMs: 30_000, // Optional, defaults to traceWaitTimeoutMs
 });
 ```
 
@@ -100,6 +104,9 @@ result = await scenario.run(
 | `verbose`       | bool or int        | True    | Show detailed output during execution                         |
 | `cache_key`     | str                | None    | Key for caching scenario results (for deterministic behavior) |
 | `debug`         | bool               | False   | Enable debug mode for step-by-step execution                  |
+| `fetch_remote_traces` | bool         | False   | Judge fetches the agent's remote traces from LangWatch before the verdict ([details](/advanced/remote-traces)) |
+| `trace_wait_timeout`  | float        | 30.0    | Maximum seconds the judge waits at verdict time for remote traces to complete |
+| `trace_wait_extension` | float       | `trace_wait_timeout` | Seconds of the judge's one extra wait when it calls `wait_for_traces` on incomplete traces |
 
 ### Advanced: Using ModelConfig
 

@@ -31,6 +31,20 @@ class ScenarioConfig(BaseModel):
         verbose: Whether to show detailed output during execution (True/False or verbosity level)
         cache_key: Key for caching scenario results to ensure deterministic behavior
         debug: Whether to enable debug mode with step-by-step interaction
+        fetch_remote_traces: Whether the judge fetches the traces the agent
+            under test reported to LangWatch for this conversation's trace ids
+            and evaluates them alongside locally collected spans. Requires the
+            agent adapter to forward ``AgentInput.propagation_headers`` to the
+            remote agent. Off by default.
+        trace_wait_timeout: Maximum seconds the judge waits at verdict time
+            for remote traces to arrive and stabilize, shared across all trace
+            ids. Defaults to 30 seconds. Only used when ``fetch_remote_traces``
+            is enabled.
+        trace_wait_extension: Seconds for the judge's one extra wait. When
+            the traces are still incomplete after the settle-wait, the
+            verdict call offers a ``wait_for_traces`` tool: calling it waits
+            this budget once more, then the tool is withdrawn and the judge
+            must decide. Defaults to the resolved ``trace_wait_timeout``.
         observability: OpenTelemetry tracing configuration (span_filter, instrumentors, etc.)
 
     Example:
@@ -63,6 +77,15 @@ class ScenarioConfig(BaseModel):
         "0",
         "",
     ]
+    fetch_remote_traces: Optional[bool] = None
+    # allow_inf_nan=False on both: gt=0 alone accepts positive infinity, and
+    # an infinite budget becomes a deadline the settle loop can never reach.
+    trace_wait_timeout: Optional[float] = Field(
+        default=None, gt=0, allow_inf_nan=False
+    )
+    trace_wait_extension: Optional[float] = Field(
+        default=None, gt=0, allow_inf_nan=False
+    )
     observability: Optional[Dict[str, Any]] = None
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None
@@ -77,6 +100,9 @@ class ScenarioConfig(BaseModel):
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
         headless: Optional[bool] = None,
+        fetch_remote_traces: Optional[bool] = None,
+        trace_wait_timeout: Optional[float] = None,
+        trace_wait_extension: Optional[float] = None,
         observability: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -94,6 +120,16 @@ class ScenarioConfig(BaseModel):
             verbose: Enable verbose output during scenario execution
             cache_key: Cache key for deterministic scenario behavior across runs
             debug: Enable debug mode for step-by-step execution with user intervention
+            fetch_remote_traces: Have the judge fetch the traces the agent
+                under test reported to LangWatch for this conversation and
+                evaluate them alongside locally collected spans (default: False).
+                Requires the agent adapter to forward
+                ``AgentInput.propagation_headers`` to the remote agent.
+            trace_wait_timeout: Maximum seconds the judge waits at verdict
+                time for remote traces to arrive and stabilize (default: 30)
+            trace_wait_extension: Seconds for the judge's one extra wait via
+                the ``wait_for_traces`` tool (default: the resolved
+                ``trace_wait_timeout``)
             observability: OpenTelemetry tracing configuration. Accepts:
                 - span_filter: Callable filter (use scenario_only or with_custom_scopes())
                 - span_processors: List of additional SpanProcessors
@@ -132,6 +168,9 @@ class ScenarioConfig(BaseModel):
                 cache_key=cache_key,
                 debug=debug,
                 headless=headless,
+                fetch_remote_traces=fetch_remote_traces,
+                trace_wait_timeout=trace_wait_timeout,
+                trace_wait_extension=trace_wait_extension,
                 observability=observability,
             )
         )

@@ -502,6 +502,10 @@ export default defineConfig({
           link: "/advanced/how-judging-works",
         },
         {
+          text: "Remote Traces",
+          link: "/advanced/remote-traces",
+        },
+        {
           text: "Custom Judge",
           link: "/advanced/custom-judge",
         },
@@ -550,6 +554,10 @@ export default defineConfig({
         {
           text: "The Vibe-Eval Loop",
           link: "/best-practices/the-vibe-eval-loop",
+        },
+        {
+          text: "Improving Your Agent",
+          link: "/best-practices/improving-your-agent",
         },
         {
           text: "Domain-Driven TDD",

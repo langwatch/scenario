@@ -8,19 +8,15 @@
  * Loaded via @amiceli/vitest-cucumber which reads the feature file and fails
  * the suite if any bound scenario is missing a step binding.
  */
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, vi } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
 import type { AudioChunk } from "../audio-chunk";
+import type { AudioSegment, VoiceRecording } from "../recording.types";
 import { type STTProvider } from "../stt";
 import { transcribeSegments } from "../transcribe";
-import type { AudioSegment, VoiceRecording } from "../recording.types";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");
 
 const PCM_BYTES = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -40,7 +36,7 @@ function makeRecording(
   };
 }
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

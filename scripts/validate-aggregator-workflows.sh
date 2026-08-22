@@ -106,11 +106,43 @@ EOF
   then pass "$name: cancel-in-progress: true"; else fail "$name: cancel-in-progress not set to true"; fi
 
   echo "--- path filters in changes job ---"
-  if grep -q "$filter1" "$wf" && grep -q "$filter2" "$wf"; then
-    pass "$name: path filters ($filter1, $filter2) present"
-  else
-    fail "$name: path filters missing (expected $filter1 and $filter2)"
-  fi
+  # Membership of the `relevant` list the detect-changes step actually
+  # declares, not a substring of the file. An unscoped grep passed on any line
+  # that happened to contain the needle: `docs/` is satisfied by the sibling
+  # entry '.github/workflows/docs-ci.yml' AND by the build job's
+  # cache-dependency-path, so deleting the real filter left this check saying
+  # PASS. python-ci escaped only because `python/**` happens to appear nowhere
+  # else in its file, which is luck rather than a check. This parses the YAML
+  # the way every other check in this script already does.
+  if python3 - "$wf" "$filter1" "$filter2" <<'EOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+wanted = sys.argv[2:]
+changes = d.get('jobs', {}).get('changes', {})
+declared = None
+for step in changes.get('steps', []) or []:
+    # Exact reference, not a substring: any action whose name merely contains
+    # "detect-changes" could supply a matching `filters` input and satisfy this
+    # while the job never uses the local one. That is the same shape of hole
+    # this check was written to close, one level up.
+    if step.get('uses') == './.github/actions/detect-changes':
+        declared = (step.get('with') or {}).get('filters')
+        break
+if declared is None:
+    print("changes job declares no detect-changes step with filters")
+    sys.exit(1)
+# `filters` is a block scalar carrying its own YAML document.
+patterns = (yaml.safe_load(declared) or {}).get('relevant')
+if not isinstance(patterns, list):
+    print(f"the relevant filter is not a list: {patterns!r}")
+    sys.exit(1)
+missing = [w for w in wanted if w not in patterns]
+if missing:
+    print(f"missing from the relevant filter: {missing}; declared: {patterns}")
+    sys.exit(1)
+EOF
+  then pass "$name: path filters ($filter1, $filter2) present"; else fail "$name: path filters missing (expected $filter1 and $filter2)"; fi
 
   echo "--- $inner_job needs changes ---"
   if python3 - "$wf" "$inner_job" <<'EOF'
@@ -168,24 +200,159 @@ check_workflow \
   "python-ci" \
   "test" \
   "python-complete" \
-  "python/" \
-  "python-ci.yml"
+  "python/**" \
+  ".github/workflows/python-ci.yml"
 
 check_workflow \
   "$REPO_ROOT/.github/workflows/javascript-ci.yml" \
   "javascript-ci" \
   "ci-checks" \
   "javascript-complete" \
-  "javascript/" \
-  "javascript-ci.yml"
+  "javascript/**" \
+  ".github/workflows/javascript-ci.yml"
 
 check_workflow \
   "$REPO_ROOT/.github/workflows/docs-ci.yml" \
   "docs-ci" \
   "build" \
   "docs-complete" \
-  "docs/" \
-  "docs-ci.yml"
+  "docs/**" \
+  ".github/workflows/docs-ci.yml"
+
+# ---------------------------------------------------------------------------
+# Examples coverage on runs without secrets (see #893)
+#
+# The examples suite needs repo secrets, so it cannot run on a fork PR or a
+# Dependabot PR. Skipping it there is right; leaving nothing in its place is
+# not, because the aggregator counts a skipped step's job as success and an
+# examples-only change from an external contributor then reaches a green
+# required check with nothing having read the file it changed.
+#
+# The invariant is that exactly one of the two examples steps runs on any
+# given run: the live suite when secrets are readable, the secret-free
+# collection when they are not. Both must therefore be gated on the same
+# resolver output, with opposite senses. Complementary conditions written out
+# by hand in two places drift; this is what notices when they do.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Validating examples coverage without secrets ==="
+if python3 - "$REPO_ROOT/.github/workflows/python-ci.yml" <<'EOF'
+import yaml, sys
+
+with open(sys.argv[1]) as f:
+    workflow = yaml.safe_load(f)
+
+steps = workflow.get("jobs", {}).get("test", {}).get("steps", [])
+if not steps:
+    print("python-ci: test job has no steps")
+    sys.exit(1)
+
+resolver = [s for s in steps if s.get("id") == "secrets"]
+if len(resolver) != 1:
+    print(f"expected exactly one step with id: secrets, found {len(resolver)}")
+    sys.exit(1)
+# What the resolver WRITES is checked by running it, in the section below.
+# Reading the shell for it does not work: a substring matches a commented-out
+# line, and whether two writes are mutually exclusive is a control-flow
+# question no amount of string matching answers.
+
+GATE = "steps.secrets.outputs.available"
+examples = [s for s in steps if "examples/" in s.get("run", "")]
+if len(examples) != 2:
+    print(f"expected two steps running examples/, found {len(examples)}")
+    sys.exit(1)
+
+with_secrets = [s for s in examples if s.get("if", "") == f"{GATE} == 'true'"]
+without_secrets = [s for s in examples if s.get("if", "") == f"{GATE} != 'true'"]
+if len(with_secrets) != 1 or len(without_secrets) != 1:
+    print("the two examples steps are not complementary on " + GATE)
+    for s in examples:
+        print(f"  {s.get('name', '<unnamed>')!r}: if: {s.get('if', '<none>')!r}")
+    sys.exit(1)
+
+# Which step does what, not just that two exist. The failure worth catching is
+# the live suite quietly becoming a second collection: both steps would still
+# be present and complementary, and nothing would run the examples again.
+#
+# Matched as a command rather than a substring, on the executable lines only.
+# `pytest examples/voice/` contains "pytest examples/" while covering a
+# fraction of the tree, and a commented-out command contains it while running
+# nothing at all.
+import re
+
+
+def commands(run: str) -> str:
+    return "\n".join(
+        line for line in run.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+WHOLE_EXAMPLES_TREE = re.compile(r"pytest\s+examples/(?:\s|$)")
+
+live_run = commands(with_secrets[0].get("run", ""))
+collect_run = commands(without_secrets[0].get("run", ""))
+if not WHOLE_EXAMPLES_TREE.search(live_run) or "--collect-only" in live_run:
+    print("the secret-enabled step does not run the live suite: " + live_run)
+    sys.exit(1)
+if (
+    not WHOLE_EXAMPLES_TREE.search(collect_run)
+    or "--collect-only" not in collect_run
+):
+    print("the secret-free step does not collect: " + collect_run)
+    sys.exit(1)
+EOF
+then pass "python-ci: examples are covered on runs without secrets"
+else fail "python-ci: examples are not covered on runs without secrets"; fi
+
+# The resolver's own decision, by running it rather than reading it. Executing
+# it is no wider a trust boundary than the workflow already is: this is the
+# same script python-ci runs, from the same commit. Every case below is a real
+# event shape, and GitHub takes the LAST write for a key, which is what makes
+# an unconditional pair of writes visible here.
+echo "--- the resolver's decision, over every event shape ---"
+RESOLVER_SH="$(mktemp)"
+trap 'rm -f "$RESOLVER_SH"' EXIT
+if python3 - "$REPO_ROOT/.github/workflows/python-ci.yml" > "$RESOLVER_SH" <<'EOF'
+import yaml, sys
+
+with open(sys.argv[1]) as f:
+    workflow = yaml.safe_load(f)
+
+steps = workflow.get("jobs", {}).get("test", {}).get("steps", [])
+resolver = [s for s in steps if s.get("id") == "secrets"]
+if len(resolver) != 1:
+    sys.exit(1)
+print(resolver[0].get("run", ""))
+EOF
+then
+  BAD=0
+  # <actor> <event> <head repo> <this repo> <expected>
+  check_resolver() {
+    local out
+    out="$(mktemp)"
+    ACTOR="$1" EVENT_NAME="$2" HEAD_REPO="$3" THIS_REPO="$4" GITHUB_OUTPUT="$out" \
+      bash "$RESOLVER_SH" >/dev/null 2>&1 || true
+    local got
+    got="$(grep -o 'available=[a-z]*' "$out" 2>/dev/null | tail -1)"
+    if [ "$got" != "available=$5" ]; then
+      echo "    $2 actor=$1 head=$3 -> ${got:-<nothing written>}, expected available=$5"
+      BAD=1
+    fi
+    rm -f "$out"
+  }
+  check_resolver "dependabot[bot]" pull_request langwatch/scenario langwatch/scenario false
+  check_resolver outsider pull_request outsider/scenario langwatch/scenario false
+  check_resolver maintainer pull_request langwatch/scenario langwatch/scenario true
+  check_resolver maintainer push "" langwatch/scenario true
+  check_resolver maintainer workflow_dispatch "" langwatch/scenario true
+  if [ "$BAD" -eq 0 ]; then
+    pass "python-ci: the resolver answers correctly for every event shape"
+  else
+    fail "python-ci: the resolver answers wrongly for some event shape"
+  fi
+else
+  fail "python-ci: could not extract the secrets resolver to run it"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

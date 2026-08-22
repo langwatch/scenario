@@ -75,6 +75,32 @@ await scenario.run(
 
 Compare with [mocked testing](/testing-guides/mocks) where you might mock tool functions or bypass HTTP entirely. Blackbox tests the complete stack.
 
+## Judging Internal Behavior via Remote Traces
+
+The endpoint returns final text only, so a plain blackbox judge can only grade the words: a criterion like "the agent looked the order up before answering" is unverifiable from the response. [Remote traces](/advanced/remote-traces) close that gap. The adapter forwards the scenario's trace context to your endpoint, your agent reports its spans to LangWatch under the same trace, and the judge fetches those spans and verifies internal behavior against them, so blackbox tests keep the production stack and still judge tool calls, writes, and retrievals on real evidence.
+
+Enable it on the scenario, and forward `input.propagation_headers` (Python) / `input.propagationHeaders` (TypeScript) in your adapter:
+
+:::code-group
+
+```typescript [typescript]
+await scenario.run({
+  // ...
+  fetchRemoteTraces: true,
+});
+```
+
+```python [python]
+await scenario.run(
+    # ...
+    fetch_remote_traces=True,
+)
+```
+
+:::
+
+See [Remote Traces](/advanced/remote-traces) for the full setup, including the server-side trace context adoption.
+
 ## Use Cases
 
 - **Production validation**: Verify deployed agent works correctly

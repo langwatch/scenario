@@ -22,6 +22,7 @@ import {
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
+import { remoteTraceFetcher } from "../tracing/remote-trace-fetcher";
 import { ensureTracingInitialized } from "../tracing/setup";
 import { generateThreadId, getBatchRunId } from "../utils/ids";
 import type { VoiceConfig } from "../voice/config";
@@ -203,6 +204,7 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
     subscription?.unsubscribe();
     if (cfg.threadId) {
       judgeSpanCollector.clearSpansForThread(cfg.threadId);
+      remoteTraceFetcher.clearForThread(cfg.threadId);
     }
   }
 }

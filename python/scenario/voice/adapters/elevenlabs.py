@@ -46,10 +46,17 @@ import base64
 import json
 import logging
 from collections import deque
-from typing import Any, ClassVar, Deque, Final, Literal, Optional
+from typing import Any, ClassVar, Deque, Final, Literal, Optional, Union
 
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
+from ..broker import (
+    ELEVENLABS_SIGNED_URL_PATH,
+    ElevenLabsMintEndpoint,
+    mint_elevenlabs_signed_url,
+    resolve_elevenlabs_mint_endpoint,
+    warn_direct_dial_fallback,
+)
 from ..capabilities import AdapterCapabilities
 
 
@@ -260,6 +267,8 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         agent_id: str,
         api_key: str,
         *,
+        base_url: Optional[str] = None,
+        mint: Union[ElevenLabsMintEndpoint, bool, None] = None,
         system_prompt_override: Optional[str] = None,
         first_message_override: Optional[str] = None,
         dynamic_variables: Optional[dict[str, Any]] = None,
@@ -270,6 +279,28 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         super().__init__()
         self.agent_id = agent_id
         self._api_key = api_key
+        # Where to mint the session's signed URL. ``False`` skips the mint and
+        # dials the vendor's own websocket directly with ``xi-api-key``, which
+        # is what an unconfigured adapter has always done. An explicit
+        # endpoint, ``base_url=``, or ELEVENLABS_BASE_URL points the mint at a
+        # LangWatch AI Gateway, which mirrors the vendor's signed-URL path:
+        # the gateway checks the virtual key's budget and session cap, mints
+        # the signed URL, and bills the call as one spend record. The
+        # websocket that URL names still belongs to ElevenLabs, so the media
+        # stream runs client to vendor and nothing about latency or the wire
+        # protocol changes. ``api_key`` then carries the virtual key.
+        self._mint: Optional[ElevenLabsMintEndpoint]
+        if mint is False:
+            self._mint = None
+        elif isinstance(mint, ElevenLabsMintEndpoint):
+            self._mint = mint
+        else:
+            self._mint = resolve_elevenlabs_mint_endpoint(
+                base_url=base_url, api_key=api_key
+            )
+        #: The gateway's id for the current session, empty unless a gateway
+        #: minted it.
+        self._broker_session_id: str = ""
         # Per-session overrides applied via conversation_initiation_client_data
         # at the start of every WS connect. Used by demos that need a
         # different prompt shape (e.g. verbose for interrupt demos) without
@@ -343,6 +374,17 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     def url(self) -> str:
         return CONVAI_URL_TEMPLATE.format(agent_id=self.agent_id)
 
+    @property
+    def brokered(self) -> bool:
+        """Whether the live session was minted by a gateway, not the vendor.
+
+        Only true after ``connect()``, and only when the mint answered with
+        ``X-LangWatch-Session-Id``. Configuration cannot set it, because the
+        response is the one thing that cannot be told a lie about what
+        answered.
+        """
+        return self._broker_session_id != ""
+
     def __repr__(self) -> str:  # redact credentials
         return f"ElevenLabsAgentAdapter(agent_id={self.agent_id!r}, api_key='***')"  # noqa: S105
 
@@ -361,11 +403,36 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         """
         import websockets
 
+        self._broker_session_id = ""
+
+        # A minted signed URL already carries the session's authentication in
+        # its query string, so no key travels on the socket. Without a mint
+        # endpoint the adapter dials the vendor's own websocket with
+        # ``xi-api-key``, exactly as it always has.
+        target_url = self.url
+        headers = {"xi-api-key": self._api_key}
+        if self._mint is not None:
+            result = await mint_elevenlabs_signed_url(self._mint, self.agent_id)
+            if result.minted:
+                target_url = result.credential
+                headers = {}
+                self._broker_session_id = result.session_id
+            else:
+                # No mint route: a plain proxy, or a gateway older than this
+                # feature. Dial the vendor directly, and say so, because an
+                # unbilled session otherwise looks identical to a billed one.
+                # A refusal never reaches here: it raises inside the mint.
+                warn_direct_dial_fallback(
+                    self._mint.base_url,
+                    ELEVENLABS_SIGNED_URL_PATH,
+                    "the api_key passed to the adapter",
+                )
+
         self._ws = await websockets.connect(
-            self.url,
-            additional_headers={"xi-api-key": self._api_key},
+            target_url,
+            additional_headers=headers,
         )
-        logger.debug("ElevenLabsAgentAdapter: connected to %s", self.url)
+        logger.debug("ElevenLabsAgentAdapter: connected (brokered=%s)", self.brokered)
 
         # Stamp EL-specific attrs onto the active ``voice.adapter.connect`` span
         # (opened by the executor connect loop). Base spans are name-owned; the
@@ -375,7 +442,11 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
 
         set_span_attributes(
             _otel_trace.get_current_span(),
-            {"voice.elevenlabs.agent_id": self.agent_id},
+            {
+                "voice.elevenlabs.agent_id": self.agent_id,
+                "voice.elevenlabs.brokered": self.brokered,
+                "voice.elevenlabs.session_id": self._broker_session_id or None,
+            },
         )
 
         # The NARROW prompt/first-message knobs build an `agent` override that is
