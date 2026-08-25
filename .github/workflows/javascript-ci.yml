@@ -44,6 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.detect.outputs.relevant }}
+      # Whether this PR changes anything the examples suite covers. The gate
+      # in front of that suite needs it to decide whether a gateway budget
+      # outage is collateral or a genuine loss of coverage.
+      examples: ${{ steps.detect.outputs.examples }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v3
       - uses: ./.github/actions/detect-changes
@@ -53,6 +57,8 @@ jobs:
             relevant:
               - 'javascript/**'
               - '.github/workflows/javascript-ci.yml'
+            examples:
+              - 'javascript/examples/**'
 
   ci-checks:
     needs: changes
@@ -126,8 +132,11 @@ jobs:
       # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
       - name: Test (Examples)
         if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        run: pnpm -F vitest-examples test
+        # Wrapped so a shared-budget outage is told apart from a broken
+        # example. See scripts/ci/examples-suite-gate.sh.
+        run: ../scripts/ci/examples-suite-gate.sh pnpm -F vitest-examples test
         env:
+          EXAMPLES_TOUCHED: ${{ needs.changes.outputs.examples }}
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: javascript
