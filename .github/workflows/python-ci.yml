@@ -165,9 +165,13 @@ jobs:
         # spend cap; when that cap is hit every test fails at once and blocks
         # unrelated PRs from merging. See scripts/ci/examples-suite-gate.sh
         # for what is tolerated and, more to the point, what is not.
-        run: ../scripts/ci/examples-suite-gate.sh uv run pytest examples/ -v --tb=short --timeout=300
+        # --junitxml is what lets the gate decide per failed test rather than
+        # by grepping the log: a budget outage and a genuinely broken example
+        # can land in the same run, and only a per-test report separates them.
+        run: ../scripts/ci/examples-suite-gate.sh uv run pytest examples/ -v --tb=short --timeout=300 --junitxml="$EXAMPLES_REPORT"
         env:
           EXAMPLES_TOUCHED: ${{ needs.changes.outputs.examples }}
+          EXAMPLES_REPORT: ${{ runner.temp }}/examples-junit.xml
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # The Gemini examples still call Google directly. The mechanism to

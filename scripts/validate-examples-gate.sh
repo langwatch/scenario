@@ -69,7 +69,7 @@ fi
 while IFS='|' read -r wf verdict detail; do
   [ -z "$wf" ] && continue
   case "$verdict" in
-    ok) pass "$wf runs its examples suite through the gate and passes EXAMPLES_TOUCHED" ;;
+    ok) pass "$wf runs its examples suite through the gate, and writes the report the gate classifies" ;;
     *) fail "$wf: $detail" ;;
   esac
 done < <(python3 - "$REPO_ROOT" <<'PY'
@@ -92,6 +92,10 @@ for name in ("python-ci.yml", "javascript-ci.yml"):
             print(f"{name}|raw|'{step.get('name')}' runs the suite directly, so a shared-budget outage blocks every unrelated PR")
         elif "EXAMPLES_TOUCHED" not in env:
             print(f"{name}|noenv|'{step.get('name')}' calls the gate without EXAMPLES_TOUCHED, and the gate refuses to guess")
+        elif "EXAMPLES_REPORT" not in env:
+            print(f"{name}|noreport|'{step.get('name')}' calls the gate without EXAMPLES_REPORT, so it cannot classify failures per test")
+        elif "$EXAMPLES_REPORT" not in run:
+            print(f"{name}|nowrite|'{step.get('name')}' never tells the suite to write $EXAMPLES_REPORT, so the report the gate reads would never exist")
         else:
             print(f"{name}|ok|")
 PY

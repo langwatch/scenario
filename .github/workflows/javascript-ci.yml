@@ -134,9 +134,12 @@ jobs:
         if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         # Wrapped so a shared-budget outage is told apart from a broken
         # example. See scripts/ci/examples-suite-gate.sh.
-        run: ../scripts/ci/examples-suite-gate.sh pnpm -F vitest-examples test
+        # The junit reporter is what lets the gate decide per failed test
+        # rather than by grepping the log. See the python-ci counterpart.
+        run: ../scripts/ci/examples-suite-gate.sh pnpm -F vitest-examples test --reporter=junit --outputFile="$EXAMPLES_REPORT"
         env:
           EXAMPLES_TOUCHED: ${{ needs.changes.outputs.examples }}
+          EXAMPLES_REPORT: ${{ runner.temp }}/examples-junit.xml
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: javascript
