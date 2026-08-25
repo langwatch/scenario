@@ -77,6 +77,65 @@ export type RealtimeMintResult =
 export type RealtimeUsage = Record<string, unknown>;
 
 /**
+ * The usage of a session that consumed nothing.
+ *
+ * The counts are stated rather than left out. A gateway reads a usage report by
+ * looking for `input_tokens` or `output_tokens` and refuses a body carrying
+ * neither, so `{}` comes back HTTP 400 and the session stays open until the
+ * gateway's own grace expires. Measured against the live gateway on 2026-08-21.
+ *
+ * A fresh object each call, because it is the running total a session
+ * accumulates into.
+ */
+export function zeroRealtimeUsage(): RealtimeUsage {
+  return { input_tokens: 0, output_tokens: 0 };
+}
+
+/**
+ * Adds one response's usage into a session total.
+ *
+ * OpenAI reports usage per response, not per session. Measured against the live
+ * Realtime API on 2026-08-21, two turns on one socket reported `output_tokens`
+ * 4 and 4 rather than 4 and 8. So a session that keeps only the last
+ * `response.done` bills for its last turn and nothing else, and a wrong report
+ * is worse than none: the gateway settles an unreported session as cost-unknown
+ * at its grace, while a report that arrives looks authoritative.
+ *
+ * Every numeric leaf is summed and nested detail objects are summed key by key,
+ * so the audio, text and cached breakdowns a gateway prices separately add up
+ * alongside the totals. Keys are not listed here: a count the vendor adds later
+ * then accumulates on its own rather than being silently dropped.
+ */
+export function accumulateRealtimeUsage(
+  total: RealtimeUsage | null,
+  usage: RealtimeUsage,
+): RealtimeUsage {
+  const merged: RealtimeUsage = { ...(total ?? {}) };
+  for (const [key, value] of Object.entries(usage)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const running = merged[key];
+      merged[key] = value + (typeof running === "number" ? running : 0);
+    } else if (typeof value === "boolean") {
+      // A flag is not a count, and adding two of them would produce a number
+      // that means nothing.
+      merged[key] = value;
+    } else if (isUsageObject(value)) {
+      const running = merged[key];
+      merged[key] = accumulateRealtimeUsage(
+        isUsageObject(running) ? running : null,
+        value,
+      );
+    }
+  }
+  return merged;
+}
+
+/** A nested detail object, as opposed to an array or null. */
+function isUsageObject(value: unknown): value is RealtimeUsage {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * Resolves where to mint, or null when there is no key to mint with.
  *
  * `OPENAI_REALTIME_API_KEY` is deliberately not consulted here. That variable
@@ -141,7 +200,9 @@ export async function mintOpenAIRealtimeSession(
     // The endpoint's own message is the useful one: it names the budget, the
     // session cap or the missing provider far more precisely than a status.
     throw new Error(
-      `realtime mint failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
+      `realtime mint refused with HTTP ${response.status}: the gateway at ` +
+        `${endpoint.baseUrl} refused the mint, so this session must not fall ` +
+        `back to a direct provider key. ${text.slice(0, 500)}`,
     );
   }
 
@@ -161,6 +222,69 @@ export async function mintOpenAIRealtimeSession(
     clientSecret,
     sessionId: response.headers.get(SESSION_ID_HEADER) ?? "",
   };
+}
+
+/**
+ * A long-lived key for dialing the vendor directly, and where it came from.
+ *
+ * `source` names the variable rather than describing it, because the
+ * direct-dial warning is read by someone deciding which value to change.
+ */
+export interface DirectDialCredential {
+  apiKey: string;
+  source: string;
+}
+
+/** The bearer a media socket opens with, and the session it belongs to. */
+export interface RealtimeSocketCredential {
+  /** An ephemeral secret when a mint answered, a long-lived key otherwise. */
+  socketKey: string;
+  /** The gateway's id for this session. Empty unless a gateway minted it. */
+  sessionId: string;
+  /** Whether a mint answered at all, by the vendor or by a gateway. */
+  minted: boolean;
+}
+
+/**
+ * Decides what a realtime socket dials with. The one implementation of that
+ * rule, shared by every adapter that opens one.
+ *
+ * Three outcomes, and the difference between the last two is what keeps a
+ * gateway's decision binding:
+ *
+ * - a mint answered, so the socket carries an ephemeral secret for this call;
+ * - the mint route was absent (HTTP 404), so the endpoint is not a LangWatch
+ *   gateway and the vendor is dialed directly with a warning;
+ * - the mint was refused (401, 403, 429, 5xx and every other error status), so
+ *   {@link mintOpenAIRealtimeSession} raises and no socket opens. Dialing the
+ *   vendor around a refusal would run a call the gateway declined to bill,
+ *   which is the whole thing the broker exists to prevent.
+ */
+export async function acquireRealtimeSocketKey(
+  endpoint: RealtimeMintEndpoint | null,
+  fallback: DirectDialCredential,
+  params: {
+    model: string;
+    expiresAfterSeconds?: number;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    /** Raised when nothing is left to dial with. Names the caller. */
+    noCredentialMessage: string;
+  },
+): Promise<RealtimeSocketCredential> {
+  if (endpoint) {
+    const result = await mintOpenAIRealtimeSession(endpoint, params);
+    if (result.minted) {
+      return {
+        socketKey: result.clientSecret,
+        sessionId: result.sessionId,
+        minted: true,
+      };
+    }
+    warnDirectDialFallback(endpoint.baseUrl, fallback.source);
+  }
+  if (!fallback.apiKey) throw new Error(params.noCredentialMessage);
+  return { socketKey: fallback.apiKey, sessionId: "", minted: false };
 }
 
 /**

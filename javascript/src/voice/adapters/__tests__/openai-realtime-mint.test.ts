@@ -90,10 +90,13 @@ describe("given an adapter connecting to a realtime session", () => {
       await adapter.connect();
       await adapter.disconnect();
 
-      expect(fetchSpy).toHaveBeenCalledOnce();
-      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      // Two requests, and the second one is the point: a gateway session is
+      // opened by the mint and only a report closes it, so a session that ran
+      // no response still has to be closed at zero.
+      expect(fetchSpy.mock.calls.map((call) => String(call[0]))).toEqual([
         "https://gateway.example/v1/realtime/client_secrets",
-      );
+        "https://gateway.example/v1/realtime/sessions/req_abc/usage",
+      ]);
       // The long-lived keys stay off the socket: neither the virtual key nor
       // the direct provider key is what the websocket carries.
       expect(dialledWith).toEqual(["Bearer ek_minted_secret"]);
@@ -189,8 +192,13 @@ describe("given an adapter connecting to a realtime session", () => {
         "https://gateway.example/v1/realtime/sessions/req_abc/usage",
       ]);
       // Zero is the truth here, not a placeholder: an ephemeral credential
-      // that opened no socket consumed nothing at the vendor.
-      expect(calls[1]?.body).toEqual({ usage: {} });
+      // that opened no socket consumed nothing at the vendor. The counts are
+      // stated rather than left out, because the gateway reads a report by
+      // looking for input_tokens or output_tokens and answers 400 to a body
+      // carrying neither, which would leave the session open.
+      expect(calls[1]?.body).toEqual({
+        usage: { input_tokens: 0, output_tokens: 0 },
+      });
     });
   });
 
@@ -206,8 +214,123 @@ describe("given an adapter connecting to a realtime session", () => {
 
       const adapter = adapterAt(server.port());
 
-      await expect(adapter.connect()).rejects.toThrow(/HTTP 402/);
+      await expect(adapter.connect()).rejects.toThrow(/refused with HTTP 402/);
       expect(dialledWith).toEqual([]);
     });
+  });
+});
+
+/**
+ * What the adapter reports when the session ends.
+ *
+ * The vendor reports usage per response, so the number that closes a spend
+ * record has to be the sum of every turn. These tests drive the real
+ * `response.done` frames through the real socket and assert on the body that
+ * reaches the gateway, because the defect lives in the arithmetic between the
+ * frames and the report.
+ */
+describe("given a brokered session that ends", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
+  /** Every usage body the adapter posted to the gateway, newest last. */
+  let reported: unknown[] = [];
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
+    process.env.OPENAI_API_KEY = "vk-lw-test";
+    reported = [];
+    dialledWith = [];
+    server.arm();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (String(url).endsWith("/client_secrets")) {
+          return mintResponse(200, "req_abc");
+        }
+        reported.push(JSON.parse(String(init?.body)));
+        return new Response("{}", { status: 202 });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("reports every turn, not the last one", async () => {
+    // The numbers are the two turns measured against the live Realtime API on
+    // 2026-08-21. Keeping the last response would report output_tokens 4.
+    const adapter = adapterAt(server.port());
+    await adapter.connect();
+    await server.socketReady();
+
+    server.push({
+      type: "response.done",
+      response: {
+        usage: {
+          input_tokens: 120,
+          output_tokens: 4,
+          total_tokens: 124,
+          output_token_details: { audio_tokens: 3 },
+        },
+      },
+    });
+    server.push({
+      type: "response.done",
+      response: {
+        usage: {
+          input_tokens: 135,
+          output_tokens: 4,
+          total_tokens: 139,
+          output_token_details: { audio_tokens: 3 },
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.disconnect();
+
+    expect(reported).toEqual([
+      {
+        usage: {
+          input_tokens: 255,
+          output_tokens: 8,
+          total_tokens: 263,
+          output_token_details: { audio_tokens: 6 },
+        },
+      },
+    ]);
+  });
+
+  it("closes a session that produced no response at all, at zero", async () => {
+    // Connect then disconnect with no response.done. Reporting nothing would
+    // leave the record open, holding one of the key's session slots until the
+    // gateway's grace expires, which surfaces later as a 429 on a fresh mint.
+    const adapter = adapterAt(server.port());
+    await adapter.connect();
+    await server.socketReady();
+    await adapter.disconnect();
+
+    expect(reported).toEqual([
+      { usage: { input_tokens: 0, output_tokens: 0 } },
+    ]);
+  });
+
+  it("reports once, so a second disconnect cannot bill the session twice", async () => {
+    const adapter = adapterAt(server.port());
+    await adapter.connect();
+    await server.socketReady();
+    await adapter.disconnect();
+    await adapter.disconnect();
+
+    expect(reported).toHaveLength(1);
   });
 });
