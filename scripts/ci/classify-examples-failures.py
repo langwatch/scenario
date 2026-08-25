@@ -16,16 +16,51 @@ suites either, since pytest puts the reason on its summary line and vitest does
 not.
 """
 
+import re
 import sys
 import xml.etree.ElementTree as ET
 
 BUDGET_MARKERS = ("budget_exceeded", "budget_scope")
 
+# A JUnit report from pytest or vitest is kilobytes. Anything past this is not
+# one, and reading it would be the denial of service rather than the defence.
+MAX_REPORT_BYTES = 16 * 1024 * 1024
+
+DOCTYPE = re.compile(r"<!DOCTYPE", re.IGNORECASE)
+
 
 def classify(path: str) -> str:
+    """Read the report defensively, then decide.
+
+    `xml.etree` resolves no external entities, but it does expand internal
+    ones, so a report carrying a `<!DOCTYPE>` with nested entity definitions
+    can be made to expand to gigabytes. Neither pytest nor vitest ever writes a
+    doctype into a JUnit report, so refusing one closes that off entirely and
+    costs nothing. That is preferred here over `defusedxml`: this script runs
+    under the runner's bare `python3` rather than under `uv`, so a third-party
+    import would not resolve at all.
+
+    The threat is modest either way: whoever can write this file already runs
+    the test suite on this runner. This is depth rather than the only barrier,
+    and refusing is fail-closed, since the gate reads `unreadable` and keeps
+    the suite's own red exit status.
+    """
     try:
-        root = ET.parse(path).getroot()
-    except (OSError, ET.ParseError) as error:
+        with open(path, "rb") as handle:
+            raw = handle.read(MAX_REPORT_BYTES + 1)
+    except OSError as error:
+        return f"unreadable {error}"
+
+    if len(raw) > MAX_REPORT_BYTES:
+        return f"unreadable report is larger than {MAX_REPORT_BYTES} bytes"
+
+    report_text = raw.decode("utf-8", errors="replace")
+    if DOCTYPE.search(report_text):
+        return "unreadable report carries a doctype, which no test runner writes"
+
+    try:
+        root = ET.fromstring(report_text)
+    except ET.ParseError as error:
         return f"unreadable {error}"
 
     budget = 0

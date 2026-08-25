@@ -144,6 +144,25 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: javascript
 
+      # The inverse condition of the step above, so exactly one of the two runs.
+      # Without it a fork pull request that changes javascript/examples/** goes
+      # green with nothing having read the file it changed: the examples suite
+      # is the only JavaScript step that reads them, it is skipped for forks,
+      # and javascript-complete accepts a job whose steps were all skipped.
+      # That is #893, which was closed on the Python side alone by its
+      # `Collect (Examples)` fallback. This is the JavaScript half.
+      #
+      # `vitest list` imports every example file to enumerate its tests and
+      # makes no provider call, so it needs no secrets. It catches what a fork
+      # can break without any key: an import that does not resolve, a syntax
+      # error, a renamed export. It does not catch a wrong assertion, so this
+      # is weaker than running the suite, and is deliberately not presented as
+      # equivalent.
+      - name: List (Examples)
+        if: github.actor == 'dependabot[bot]' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+        run: pnpm -F vitest-examples exec vitest list
+        working-directory: javascript
+
   # One required check for the whole workflow. Reports success if every
   # upstream job either passed or was legitimately skipped (paths didn't
   # match). Reports failure if any upstream job failed.

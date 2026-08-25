@@ -52,6 +52,22 @@ set -uo pipefail
 
 : "${EXAMPLES_TOUCHED:?}" "${EXAMPLES_REPORT:?}"
 
+# Anything that is not exactly true or false is a wiring bug, and the lenient
+# branch is the one it would land on. `examples` reaches here from a path
+# filter through `needs.changes.outputs.examples`, and the action that produces
+# it documents how easily that goes wrong: a key consumed but not declared as
+# an output arrives as the empty string. `:?` above catches empty; this catches
+# `tru`, `True`, and `yes`, each of which would otherwise read as "the PR
+# changes nothing the suite covers" and tolerate an outage that hides an
+# unverified example change.
+case "$EXAMPLES_TOUCHED" in
+  true | false) ;;
+  *)
+    echo "::error::EXAMPLES_TOUCHED must be exactly 'true' or 'false', got '${EXAMPLES_TOUCHED}'. Refusing to guess which way a mis-wired value should be read."
+    exit 2
+    ;;
+esac
+
 if [[ $# -eq 0 ]]; then
   echo "usage: examples-suite-gate.sh <command> [args...]" >&2
   exit 2

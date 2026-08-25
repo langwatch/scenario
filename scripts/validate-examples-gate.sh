@@ -102,9 +102,115 @@ PY
 )
 
 echo ""
+echo "=== An example change from a fork cannot pass unexamined ==="
+# The examples suite needs secrets, so it is skipped for fork pull requests.
+# That is #893: a fork changed an example, every step that reads examples was
+# skipped, and the required check went green having read nothing. The fix is a
+# secret-free fallback on the exact complementary condition, so that for any
+# event precisely one of the two runs. Checking "a fallback exists" would not
+# be enough: two conditions can both be false and leave the same hole.
+while IFS='|' read -r wf verdict detail; do
+  [ -z "$wf" ] && continue
+  case "$verdict" in
+    ok) pass "$wf pairs its secret-gated examples step with a secret-free fallback on the complementary condition" ;;
+    *) fail "$wf: $detail" ;;
+  esac
+done < <(python3 - "$REPO_ROOT" <<'PYINNER'
+import itertools
+import pathlib
+import re
+import sys
+
+import yaml
+
+root = pathlib.Path(sys.argv[1])
+
+TOKEN = re.compile(r"'[^']*'|[A-Za-z_][A-Za-z0-9_.\[\]-]*")
+
+
+def to_python(expr):
+    """Rewrite a GitHub `if:` expression as a Python one over a variables dict.
+
+    Only the grammar these two workflows use: dotted contexts, single-quoted
+    literals, == and !=, && and ||, and parentheses.
+    """
+    names = set()
+
+    def swap(match):
+        token = match.group(0)
+        if token.startswith("'"):
+            return token
+        names.add(token)
+        return f"V[{token!r}]"
+
+    body = TOKEN.sub(swap, expr.replace("&&", " and ").replace("||", " or "))
+    # `and` and `or` were introduced above as bare words, not as contexts.
+    body = body.replace("V['and']", "and").replace("V['or']", "or")
+    names.discard("and")
+    names.discard("or")
+    return body, names
+
+
+def exactly_one_always(gated, fallback):
+    """True when the two conditions partition every context we can construct."""
+    gated_body, gated_names = to_python(gated)
+    fallback_body, fallback_names = to_python(fallback)
+    names = sorted(gated_names | fallback_names)
+    # Every literal either expression compares against, plus a value that is
+    # none of them, so "some other actor" and "some other event" are covered.
+    literals = sorted(set(re.findall(r"'([^']*)'", gated + fallback))) + ["<other>"]
+    for combo in itertools.product(literals, repeat=len(names)):
+        variables = dict(zip(names, combo))
+        if eval(gated_body, {}, {"V": variables}) == eval(  # noqa: S307
+            fallback_body, {}, {"V": variables}
+        ):
+            return False, variables
+    return True, None
+
+
+for name in ("python-ci.yml", "javascript-ci.yml"):
+    wf = root / ".github/workflows" / name
+    doc = yaml.safe_load(wf.read_text())
+    steps = [s for job in doc["jobs"].values() for s in (job.get("steps") or [])]
+    named = {(s.get("name") or ""): s for s in steps}
+
+    gated = next((s for n, s in named.items() if n.startswith("Test (Examples)")), None)
+    if gated is None:
+        print(f"{name}|missing|has no 'Test (Examples)' step, so this check is scanning nothing")
+        continue
+    if not gated.get("if"):
+        print(f"{name}|unconditional|'Test (Examples)' has no condition, so the pairing below cannot be reasoned about")
+        continue
+
+    fallback = next(
+        (s for n, s in named.items() if n.startswith(("Collect (Examples)", "List (Examples)"))),
+        None,
+    )
+    if fallback is None:
+        print(
+            f"{name}|nofallback|'Test (Examples)' is skipped without secrets and nothing else reads "
+            f"the examples, so a fork can change them and still go green"
+        )
+        continue
+
+    # The `secrets` context specifically. `steps.secrets.outputs.available` is
+    # the id of the step that decides availability, not a secret read.
+    if re.search(r"\$\{\{\s*secrets\.", yaml.safe_dump(fallback)):
+        print(f"{name}|needssecrets|'{fallback.get('name')}' reads secrets, so it is skipped in exactly the case it exists to cover")
+        continue
+
+    ok, witness = exactly_one_always(gated["if"], fallback.get("if") or "true")
+    if ok:
+        print(f"{name}|ok|")
+    else:
+        print(f"{name}|notcomplement|'{fallback.get('name')}' is not the complement of 'Test (Examples)': both are {witness}")
+PYINNER
+)
+
+echo ""
 # A validator that finds nothing to check prints the same closing line as one
 # that checked everything.
-EXPECTED_MIN=5
+EXPECTED_MIN=10
 if [ "$CHECKS" -lt "$EXPECTED_MIN" ]; then
   echo "  FAIL: ran $CHECKS checks, expected at least $EXPECTED_MIN; this validator is scanning nothing"
   FAIL=1

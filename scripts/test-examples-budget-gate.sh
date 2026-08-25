@@ -53,6 +53,17 @@ MIXED_XML='<testsuites><testsuite name="examples" tests="2" failures="2">
   </testcase>
 </testsuite></testsuites>'
 
+# A report is only ever written by pytest or vitest, neither of which emits a
+# doctype. One appearing means something else wrote the file, and an internal
+# entity definition is how a small report expands to gigabytes while the gate
+# waits for it.
+DOCTYPE_XML='<?xml version="1.0"?><!DOCTYPE testsuites [<!ENTITY a "aaaaaaaaaa">]>
+<testsuites><testsuite name="examples" tests="1" failures="1">
+  <testcase classname="examples.test_foo" name="test_bar">
+    <failure message="Error code: 402 budget_exceeded">&a;</failure>
+  </testcase>
+</testsuite></testsuites>'
+
 NO_FAILURES_XML='<testsuites><testsuite name="examples" tests="1"><testcase classname="e" name="t"/></testsuite></testsuites>'
 
 # run_case <label> <touched> <suite exit code> <junit xml> <expected gate exit>
@@ -153,6 +164,45 @@ fi
 rm -f "$SUMMARY" "$JUNIT"
 
 echo ""
+echo "=== the report is not the one the test runner wrote ==="
+# Fail closed rather than trusting it. The budget branch is the lenient one, so
+# a report the gate cannot vouch for must never reach it.
+run_case "a report carrying a doctype is not a budget outage" false 1 "$DOCTYPE_XML" 1
+
+# Built rather than inlined: the point is the size, and a 17MB shell variable
+# is its own problem.
+echo ""
+echo "=== the report is too large to be one ==="
+BIG_JUNIT="$(mktemp)"
+BIG_LOG="$(mktemp)"
+{
+  printf '%s' '<testsuites><testsuite name="examples" tests="1" failures="1"><testcase classname="e" name="t"><failure message="budget_exceeded">'
+  head -c 17000000 /dev/zero | tr '\0' 'a'
+  printf '%s' '</failure></testcase></testsuite></testsuites>'
+} >"$BIG_JUNIT"
+EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$BIG_JUNIT" GITHUB_STEP_SUMMARY=/dev/null \
+  bash "$GATE" bash -c "exit 1" >"$BIG_LOG" 2>&1
+BIG_STATUS=$?
+if [ "$BIG_STATUS" -eq 0 ]; then
+  fail "an oversized report was tolerated as a budget outage"
+  sed 's/^/      /' "$BIG_LOG"
+else
+  pass "an oversized report is not a budget outage"
+fi
+# The verdict alone does not reach the size check: the read is already bounded,
+# so dropping the check leaves a truncated document that fails to parse and is
+# refused anyway. What it costs is knowing WHY, and "the report is larger than
+# it can be" and "the report is malformed" send a maintainer to different
+# places. So the diagnostic is what is asserted here.
+if grep -q "larger than" "$BIG_LOG"; then
+  pass "an oversized report is reported as oversized, not as malformed"
+else
+  fail "an oversized report is reported as a parse error, which points at the wrong problem"
+  sed 's/^/      /' "$BIG_LOG"
+fi
+rm -f "$BIG_JUNIT" "$BIG_LOG"
+
+echo ""
 echo "=== the gate refuses what it cannot classify ==="
 if EXAMPLES_TOUCHED=false EXAMPLES_REPORT=/dev/null bash "$GATE" >/dev/null 2>&1; then
   fail "the gate accepted an empty command"
@@ -170,10 +220,21 @@ else
   pass "the gate refuses to run without EXAMPLES_REPORT"
 fi
 
+# `false` and anything-that-is-not-true both take the lenient branch, so a typo
+# or a mis-wired filter key would tolerate an outage on a PR that does change
+# the examples. Only the two real answers are accepted.
+for bad in tru True yes 1; do
+  if EXAMPLES_TOUCHED="$bad" EXAMPLES_REPORT=/dev/null bash "$GATE" true >/dev/null 2>&1; then
+    fail "the gate accepted EXAMPLES_TOUCHED='$bad', which it would have read as 'examples not changed'"
+  else
+    pass "the gate rejects EXAMPLES_TOUCHED='$bad' rather than reading it as false"
+  fi
+done
+
 echo ""
 # A harness that runs nothing prints the same happy line as one that runs
 # everything. This is what makes the line above mean something.
-EXPECTED_CHECKS=17
+EXPECTED_CHECKS=24
 if [ "$CHECKS" -ne "$EXPECTED_CHECKS" ]; then
   echo "  FAIL: ran $CHECKS checks, expected $EXPECTED_CHECKS; the harness is not running what it claims"
   FAIL=1
