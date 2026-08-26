@@ -35,6 +35,13 @@
 # until the daily window resets, so without it an examples change could merge
 # on a day-long green that ran nothing.
 #
+# WHERE THE VERDICT IS REPORTED. In the log, in the run summary, and on the
+# pull request itself via comment-examples-outage.sh. The third is not
+# decoration: the tolerated case makes a required check go GREEN having run
+# nothing, and the first two live in the Actions UI, which is exactly where a
+# reviewer looking at a green check does not go. Posting can fail without
+# changing the verdict; the gate decides first and reports second.
+#
 # EVERY failure, not any failure: a budget outage and a genuinely broken
 # example can land in the same run. That decision is made per failed test by
 # classify-examples-failures.py, which needs a report rather than a wall of
@@ -79,11 +86,21 @@ trap 'rm -f "$output"' EXIT
 "$@" 2>&1 | tee "$output"
 status="${PIPESTATUS[0]}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORTER="$SCRIPT_DIR/comment-examples-outage.sh"
+
 if [[ "$status" -eq 0 ]]; then
+  # An earlier attempt on this same pull request may have left a "the suite did
+  # not run" comment. The suite has now run, so that comment is false. It is
+  # edited rather than deleted, so the history that there was an outage stays
+  # readable, and `update-only` means a clean run never introduces one.
+  printf '%s\n' "### Examples suite: ran, and passed
+
+An earlier run on this pull request could not reach the suite because the shared gateway key was over its daily budget. That is no longer true: the suite has since run to completion and passed." |
+    bash "$REPORTER" update-only || true
   exit 0
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 verdict="$(python3 "$SCRIPT_DIR/classify-examples-failures.py" "$EXAMPLES_REPORT")"
 
 case "$verdict" in
@@ -113,6 +130,12 @@ if [[ "$EXAMPLES_TOUCHED" == "true" ]]; then
     echo ""
     echo "The check stays red because nothing verified the changed example. Re-run after the daily budget window resets."
   } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+  printf '%s\n' "### Examples suite: did NOT run, and this pull request changes examples
+
+${note}
+
+**The check is red because the suite could not run, not because your change is wrong.** It stays red anyway: this pull request changes files the suite covers, so nothing verified the change, and reporting that as a pass would be a lie. Re-run once the daily budget window resets." |
+    bash "$REPORTER" post || true
   exit "$status"
 fi
 
@@ -124,4 +147,14 @@ echo "::warning::${note} This pull request changes nothing the suite covers, so 
   echo ""
   echo "This pull request changes nothing the suite covers, so it is not held on the outage. Treat the examples as unverified for this run, not as passing."
 } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+# The check is about to go GREEN having run nothing. Everything above this line
+# reports that inside the Actions UI, which is exactly where a reviewer looking
+# at a green check does not go.
+printf '%s\n' "### Examples suite: did NOT run
+
+${note}
+
+This pull request changes nothing the suite covers, so the check is **not** held on the outage and is reported as passing. That is a statement about this pull request, not about the examples: **the examples are unverified for this run.** Re-run after the daily budget window resets if you want them covered." |
+  bash "$REPORTER" post || true
 exit 0

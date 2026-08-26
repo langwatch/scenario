@@ -17,6 +17,17 @@ CHECKS=0
 pass() { echo "  PASS: $1"; CHECKS=$((CHECKS + 1)); }
 fail() { echo "  FAIL: $1"; FAIL=1; CHECKS=$((CHECKS + 1)); }
 
+# The gate now reports its verdict on the pull request. This harness runs in
+# CI, where GITHUB_REPOSITORY, GITHUB_TOKEN and GITHUB_EVENT_PATH are all set
+# and real, so every invocation below is stripped of them: a synthetic budget
+# outage must never leave a comment on the pull request that is running these
+# tests. Two independent reasons then stop it, the missing repository and the
+# missing event payload, because one guard is one edit away from being gone.
+gate() {
+  env -u GITHUB_REPOSITORY -u GITHUB_TOKEN -u GH_TOKEN -u GITHUB_EVENT_PATH \
+    -u GITHUB_WORKFLOW "$@"
+}
+
 # JUnit reports, since the gate classifies per failed test rather than by
 # grepping the log. A budget outage and a real failure can land in the same
 # run, and only a per-test report can tell them apart.
@@ -80,7 +91,7 @@ run_case() {
   junit="$(mktemp)"
   report "$xml" "$junit"
 
-  EXAMPLES_TOUCHED="$touched" EXAMPLES_REPORT="$junit" GITHUB_STEP_SUMMARY="$summary" \
+  gate EXAMPLES_TOUCHED="$touched" EXAMPLES_REPORT="$junit" GITHUB_STEP_SUMMARY="$summary" \
     bash "$GATE" bash -c "exit $suite_status" \
     >"$log" 2>&1
   got=$?
@@ -129,7 +140,7 @@ echo "=== a mixed run says WHICH failure is not the budget ==="
 MIXED_LOG="$(mktemp)"
 MIXED_JUNIT="$(mktemp)"
 report "$MIXED_XML" "$MIXED_JUNIT"
-EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$MIXED_JUNIT" GITHUB_STEP_SUMMARY=/dev/null \
+gate EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$MIXED_JUNIT" GITHUB_STEP_SUMMARY=/dev/null \
   bash "$GATE" bash -c "exit 1" >"$MIXED_LOG" 2>&1
 if grep -q "test_broken" "$MIXED_LOG"; then
   pass "the mixed verdict names the failing test"
@@ -148,9 +159,10 @@ echo ""
 echo "=== the reason survives the log ==="
 SUMMARY="$(mktemp)"
 JUNIT="$(mktemp)"
+REPORTER_LOG="$(mktemp)"
 report "$BUDGET_XML" "$JUNIT"
-EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$JUNIT" GITHUB_STEP_SUMMARY="$SUMMARY" \
-  bash "$GATE" bash -c "exit 1" >/dev/null 2>&1
+gate EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$JUNIT" GITHUB_STEP_SUMMARY="$SUMMARY" \
+  bash "$GATE" bash -c "exit 1" >"$REPORTER_LOG" 2>&1
 if grep -q "budget" "$SUMMARY"; then
   pass "a tolerated outage still writes the run summary"
 else
@@ -161,7 +173,183 @@ if grep -qi "not run\|unverified" "$SUMMARY"; then
 else
   fail "the summary does not say the suite failed to run"
 fi
-rm -f "$SUMMARY" "$JUNIT"
+
+# The condition #944 was approved on: a tolerated outage turns a required check
+# GREEN having run nothing, and the warning and the run summary both live in
+# the Actions UI. The reporter is what puts it where a reviewer reads. It
+# declines here because the harness strips the Actions environment, and that
+# decline is the observable proof the gate reached it at all.
+if grep -q "examples-suite comment not posted" "$REPORTER_LOG"; then
+  pass "a tolerated outage reaches the pull-request reporter"
+else
+  fail "a tolerated outage never reaches the reporter, so a green check reports nothing on the PR"
+  sed 's/^/      /' "$REPORTER_LOG"
+fi
+rm -f "$SUMMARY" "$JUNIT" "$REPORTER_LOG"
+
+echo ""
+echo "=== the verdict reaches the pull request on every branch ==="
+# Each branch reports for a different reason: the tolerated one because the
+# check is green, the red one because "the shared budget is out" and "your
+# example is broken" send an author to completely different places, and the
+# passing one to retract a stale outage comment from an earlier attempt.
+reaches_reporter() {
+  local label="$1" touched="$2" suite_status="$3" xml="$4"
+  local junit log
+  junit="$(mktemp)"
+  log="$(mktemp)"
+  report "$xml" "$junit"
+  gate EXAMPLES_TOUCHED="$touched" EXAMPLES_REPORT="$junit" GITHUB_STEP_SUMMARY=/dev/null \
+    bash "$GATE" bash -c "exit $suite_status" >"$log" 2>&1
+  if grep -q "examples-suite comment not posted" "$log"; then
+    pass "$label"
+  else
+    fail "$label: the reporter was never called"
+    sed 's/^/      /' "$log"
+  fi
+  rm -f "$junit" "$log"
+}
+
+reaches_reporter "a budget outage on a PR that changes examples says so on the PR" true 1 "$BUDGET_XML"
+reaches_reporter "a passing suite still calls the reporter, to retract a stale outage comment" false 0 "$PASSING_XML"
+
+# A real failure is the author's own, and the gate has nothing to add that the
+# suite output does not already say. Commenting there would put a bot comment
+# on every red pull request in the repository.
+REAL_LOG="$(mktemp)"
+REAL_JUNIT="$(mktemp)"
+report "$REAL_XML" "$REAL_JUNIT"
+gate EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$REAL_JUNIT" GITHUB_STEP_SUMMARY=/dev/null \
+  bash "$GATE" bash -c "exit 1" >"$REAL_LOG" 2>&1
+if grep -q "examples-suite comment not posted" "$REAL_LOG"; then
+  fail "a genuinely broken example comments on the PR, which would put a bot comment on every red run"
+  sed 's/^/      /' "$REAL_LOG"
+else
+  pass "a genuinely broken example does not comment; the suite output already says it"
+fi
+rm -f "$REAL_LOG" "$REAL_JUNIT"
+
+echo ""
+echo "=== reporting can fail without changing the verdict ==="
+# The reporter runs on the lenient branch, after the verdict is decided. If it
+# could exit non-zero it would be able to turn a tolerated outage into a red
+# check, which is the bug this whole gate exists to remove.
+REPORTER="$SCRIPT_DIR/ci/comment-examples-outage.sh"
+reporter_survives() {
+  local label="$1"
+  shift
+  if echo "body" | gate "$@" bash "$REPORTER" post >/dev/null 2>&1; then
+    pass "$label"
+  else
+    fail "$label: the reporter exited non-zero, so it can fail a build it does not decide"
+  fi
+}
+
+reporter_survives "no Actions environment at all"
+reporter_survives "a repository but no token" GITHUB_REPOSITORY=o/r
+reporter_survives "a token but no event payload" GITHUB_REPOSITORY=o/r GITHUB_TOKEN=x
+reporter_survives "an event payload that is not a pull request" GITHUB_REPOSITORY=o/r GITHUB_TOKEN=x GITHUB_EVENT_PATH=/dev/null
+
+if echo "body" | gate bash "$REPORTER" wat >/dev/null 2>&1; then
+  pass "an unknown mode is refused without failing the build"
+else
+  fail "an unknown mode exits non-zero, so a typo in the gate would turn a tolerated outage red"
+fi
+
+if echo "" | gate GITHUB_REPOSITORY=o/r GITHUB_TOKEN=x bash "$REPORTER" post 2>&1 | grep -q "empty body"; then
+  pass "an empty body is refused rather than posted as a blank comment"
+else
+  fail "an empty body is not refused, so a bug upstream posts an empty comment"
+fi
+
+echo ""
+echo "=== one comment per suite, edited in place ==="
+# The checks above only prove the reporter declines cleanly. They say nothing
+# about what it does when it CAN post, which is where the two bugs that matter
+# live: a re-run appending a second comment every time the daily budget is
+# still out, and javascript-ci overwriting python-ci's. Both need a `gh` that
+# answers, so one is stubbed. The repository and token are deliberately
+# nonsense as well, so a stub that fails to shadow the real binary still
+# reaches nothing.
+STUB_DIR="$(mktemp -d)"
+STUB_CALLS="$(mktemp)"
+STUB_COMMENTS="$(mktemp)"
+EVENT="$(mktemp)"
+echo '{"pull_request":{"number":7}}' >"$EVENT"
+
+cat >"$STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_STUB_CALLS"
+if [[ "$*" == *"per_page=100"* ]]; then
+  cat "$GH_STUB_COMMENTS"
+fi
+exit 0
+STUB
+chmod +x "$STUB_DIR/gh"
+
+# report_with <existing-comments-json> <mode> <workflow>
+report_with() {
+  printf '%s\n' "$1" >"$STUB_COMMENTS"
+  : >"$STUB_CALLS"
+  echo "a body" | env "PATH=$STUB_DIR:$PATH" \
+    GH_STUB_CALLS="$STUB_CALLS" GH_STUB_COMMENTS="$STUB_COMMENTS" \
+    GITHUB_REPOSITORY=stub/repo GITHUB_TOKEN=stub GITHUB_EVENT_PATH="$EVENT" \
+    GITHUB_WORKFLOW="$3" bash "$REPORTER" "$2" >/dev/null 2>&1
+}
+
+MARKED='[{"id":11,"body":"<!-- examples-suite-report:javascript-ci -->\n\nold text"}]'
+
+# The listing call is `issues/7/comments?per_page=100`, so matching on the path
+# alone reads a read as a write. Both writes are matched on `-F body=@`, which
+# only a write carries, and the edit additionally on the comment id.
+created() { grep -q "issues/7/comments -F body=@" "$STUB_CALLS"; }
+edited() { grep -q "issues/comments/11 -X PATCH -F body=@" "$STUB_CALLS"; }
+
+report_with "[]" post javascript-ci
+if created && ! edited; then
+  pass "with no comment yet, post creates one"
+else
+  fail "post did not create a comment on a pull request that has none"
+  sed 's/^/      /' "$STUB_CALLS"
+fi
+
+report_with "$MARKED" post javascript-ci
+if edited && ! created; then
+  pass "with a comment already there, post edits it rather than appending a second"
+else
+  fail "post appended instead of editing, so every re-run during an outage leaves another comment"
+  sed 's/^/      /' "$STUB_CALLS"
+fi
+
+report_with "[]" update-only javascript-ci
+if created || edited; then
+  fail "update-only wrote a comment, so a clean run announces an outage that never happened here"
+  sed 's/^/      /' "$STUB_CALLS"
+else
+  pass "update-only creates nothing when there is nothing to retract"
+fi
+
+report_with "$MARKED" update-only javascript-ci
+if edited; then
+  pass "update-only retracts a stale outage comment once the suite runs"
+else
+  fail "update-only left a stale 'the suite did not run' comment on a run that passed"
+  sed 's/^/      /' "$STUB_CALLS"
+fi
+
+# The two workflows both call this on the same pull request. Keyed on one
+# marker they would take turns overwriting each other, and the surviving
+# comment would name whichever suite happened to finish last.
+report_with "$MARKED" post python-ci
+if created && ! edited; then
+  pass "a different workflow keeps its own comment rather than overwriting the other suite's"
+else
+  fail "python-ci overwrote javascript-ci's comment, so only the last suite to finish is reported"
+  sed 's/^/      /' "$STUB_CALLS"
+fi
+
+rm -rf "$STUB_DIR"
+rm -f "$STUB_CALLS" "$STUB_COMMENTS" "$EVENT"
 
 echo ""
 echo "=== the report is not the one the test runner wrote ==="
@@ -180,7 +368,7 @@ BIG_LOG="$(mktemp)"
   head -c 17000000 /dev/zero | tr '\0' 'a'
   printf '%s' '</failure></testcase></testsuite></testsuites>'
 } >"$BIG_JUNIT"
-EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$BIG_JUNIT" GITHUB_STEP_SUMMARY=/dev/null \
+gate EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$BIG_JUNIT" GITHUB_STEP_SUMMARY="/dev/null" \
   bash "$GATE" bash -c "exit 1" >"$BIG_LOG" 2>&1
 BIG_STATUS=$?
 if [ "$BIG_STATUS" -eq 0 ]; then
@@ -234,7 +422,7 @@ done
 echo ""
 # A harness that runs nothing prints the same happy line as one that runs
 # everything. This is what makes the line above mean something.
-EXPECTED_CHECKS=24
+EXPECTED_CHECKS=39
 if [ "$CHECKS" -ne "$EXPECTED_CHECKS" ]; then
   echo "  FAIL: ran $CHECKS checks, expected $EXPECTED_CHECKS; the harness is not running what it claims"
   FAIL=1
