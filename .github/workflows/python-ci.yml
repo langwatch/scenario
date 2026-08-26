@@ -66,6 +66,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.detect.outputs.relevant }}
+      # Whether this PR changes anything the examples suite covers. The gate
+      # in front of that suite needs it to decide whether a gateway budget
+      # outage is collateral or a genuine loss of coverage.
+      examples: ${{ steps.detect.outputs.examples }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: ./.github/actions/detect-changes
@@ -75,6 +79,8 @@ jobs:
             relevant:
               - 'python/**'
               - '.github/workflows/python-ci.yml'
+            examples:
+              - 'python/examples/**'
 
   test:
     needs: changes
@@ -154,8 +160,18 @@ jobs:
         # well over the 60s per-test timeout that pytest.ini sets for the unit
         # suite. Override to 300s here so slow-but-correct runs don't get
         # pytest-timeout'd.
-        run: uv run pytest examples/ -v --tb=short --timeout=300
+        # Wrapped so a shared-budget outage is told apart from a broken
+        # example. The suite runs on one gateway virtual key with a daily
+        # spend cap; when that cap is hit every test fails at once and blocks
+        # unrelated PRs from merging. See scripts/ci/examples-suite-gate.sh
+        # for what is tolerated and, more to the point, what is not.
+        # --junitxml is what lets the gate decide per failed test rather than
+        # by grepping the log: a budget outage and a genuinely broken example
+        # can land in the same run, and only a per-test report separates them.
+        run: ../scripts/ci/examples-suite-gate.sh uv run pytest examples/ -v --tb=short --timeout=300 --junitxml="$EXAMPLES_REPORT"
         env:
+          EXAMPLES_TOUCHED: ${{ needs.changes.outputs.examples }}
+          EXAMPLES_REPORT: ${{ runner.temp }}/examples-junit.xml
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # The Gemini examples still call Google directly. The mechanism to

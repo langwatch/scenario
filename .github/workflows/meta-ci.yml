@@ -67,3 +67,14 @@ jobs:
       - name: Validate the aggregator workflows' path filters
         if: ${{ !cancelled() }}
         run: bash scripts/validate-aggregator-workflows.sh
+
+      # Same reason as above: report this run's verdict rather than the first
+      # failure's. These two cover the examples suite's required-check wiring,
+      # which is what lets a shared gateway budget block unrelated PRs.
+      - name: Validate the examples suite's budget-gate wiring
+        if: ${{ !cancelled() }}
+        run: bash scripts/validate-examples-gate.sh
+
+      - name: Test the examples budget gate's own decisions
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-examples-budget-gate.sh
