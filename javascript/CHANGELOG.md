@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.4.0](https://github.com/langwatch/scenario/compare/javascript/v1.3.0...javascript/v1.4.0) (2026-08-26)
+
+
+### Features
+
+* **voice:** let the realtime adapters mint through a voice gateway ([#935](https://github.com/langwatch/scenario/issues/935)) ([a3f40b4](https://github.com/langwatch/scenario/commit/a3f40b4dbfd25528df5c9c06e51563d47ba92f6f))
+* **voice:** mint every JavaScript voice session through the gateway ([#937](https://github.com/langwatch/scenario/issues/937)) ([fae2e9c](https://github.com/langwatch/scenario/commit/fae2e9c6b6aa4c8571986b3f7ce23afe5a92e2c4))
+
+
+### Miscellaneous
+
+* **deps-dev:** bump @amiceli/vitest-cucumber from 6.5.0 to 7.0.0 in /javascript ([#816](https://github.com/langwatch/scenario/issues/816)) ([2bccab9](https://github.com/langwatch/scenario/commit/2bccab9305b7a4734682ef7675bef29cea54e69d))
+* **deps-dev:** bump @amiceli/vitest-cucumber in /javascript ([2bccab9](https://github.com/langwatch/scenario/commit/2bccab9305b7a4734682ef7675bef29cea54e69d))
+* **deps-dev:** bump @types/node ([71ffc8e](https://github.com/langwatch/scenario/commit/71ffc8e1bf17a0f20c082698601f13b706d67071))
+* **deps-dev:** bump @types/node from 24.12.4 to 26.2.0 in /javascript in the types group across 1 directory ([#811](https://github.com/langwatch/scenario/issues/811)) ([71ffc8e](https://github.com/langwatch/scenario/commit/71ffc8e1bf17a0f20c082698601f13b706d67071))
+* **deps-dev:** bump @typescript/native-preview ([dfc7f98](https://github.com/langwatch/scenario/commit/dfc7f9821a085a457d789c2414deccab19db9d31))
+* **deps-dev:** bump @typescript/native-preview from 7.0.0-dev.20251128.1 to 7.0.0-dev.20260707.2 in /javascript in the typescript-native-preview group across 1 directory ([#810](https://github.com/langwatch/scenario/issues/810)) ([dfc7f98](https://github.com/langwatch/scenario/commit/dfc7f9821a085a457d789c2414deccab19db9d31))
+* **deps-dev:** bump @vitejs/plugin-react from 5.2.0 to 6.0.5 in /javascript ([#819](https://github.com/langwatch/scenario/issues/819)) ([5417d51](https://github.com/langwatch/scenario/commit/5417d5111587f55ef31eecd0fd701c70697a138a))
+* **deps-dev:** bump @vitejs/plugin-react in /javascript ([5417d51](https://github.com/langwatch/scenario/commit/5417d5111587f55ef31eecd0fd701c70697a138a))
+* **deps-dev:** bump concurrently from 9.2.1 to 10.0.5 in /javascript ([#821](https://github.com/langwatch/scenario/issues/821)) ([eb7ff06](https://github.com/langwatch/scenario/commit/eb7ff0618cec1111ad3a10481eddca32f61fd7ff))
+* **deps-dev:** bump globals from 16.5.0 to 17.11.0 in /javascript ([#818](https://github.com/langwatch/scenario/issues/818)) ([3f74952](https://github.com/langwatch/scenario/commit/3f74952274cb3b04119af255d0dc43f28c990bc8))
+* **deps-dev:** bump vitest-mock-extended from 3.1.0 to 5.1.1 in /javascript ([#817](https://github.com/langwatch/scenario/issues/817)) ([a79a3a2](https://github.com/langwatch/scenario/commit/a79a3a26824c923c71e85eb564893b07caba9c4c))
+* **deps-dev:** bump vitest-mock-extended in /javascript ([a79a3a2](https://github.com/langwatch/scenario/commit/a79a3a26824c923c71e85eb564893b07caba9c4c))
+* **deps:** bump lucide-react from 0.555.0 to 1.31.0 in /javascript ([#822](https://github.com/langwatch/scenario/issues/822)) ([f30fbdb](https://github.com/langwatch/scenario/commit/f30fbdb924f1e02670218ede3b3c9fe33de5be1b))
+* **deps:** bump the minor-and-patch group across 2 directories with 24 updates ([#923](https://github.com/langwatch/scenario/issues/923)) ([8263c6f](https://github.com/langwatch/scenario/commit/8263c6feca84cc00ddae67a9967ff9f43aba0649))
+* **deps:** bump the opentelemetry group across 1 directory with 4 updates ([#844](https://github.com/langwatch/scenario/issues/844)) ([dcf9d8e](https://github.com/langwatch/scenario/commit/dcf9d8e581562e03ad0693f985dc8a5e810862d9))
+* **deps:** bump the vitest group across 1 directory with 2 updates ([#805](https://github.com/langwatch/scenario/issues/805)) ([658bfde](https://github.com/langwatch/scenario/commit/658bfde0a3bad6f71c33dd42c08524ddcf9ed6e0))
+* **deps:** the ElevenLabs SDK installs only for the people who use it ([#945](https://github.com/langwatch/scenario/issues/945)) ([8b6de26](https://github.com/langwatch/scenario/commit/8b6de2653f77f07785d90e07255ed07d30161f41))
+
 ## [1.3.0](https://github.com/langwatch/scenario/compare/javascript/v1.2.0...javascript/v1.3.0) (2026-08-18)
 
 
