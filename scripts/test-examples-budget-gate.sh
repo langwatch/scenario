@@ -273,6 +273,7 @@ echo "=== one comment per suite, edited in place ==="
 # reaches nothing.
 STUB_DIR="$(mktemp -d)"
 STUB_CALLS="$(mktemp)"
+STUB_BODIES="$(mktemp)"
 STUB_COMMENTS="$(mktemp)"
 EVENT="$(mktemp)"
 echo '{"pull_request":{"number":7}}' >"$EVENT"
@@ -280,6 +281,14 @@ echo '{"pull_request":{"number":7}}' >"$EVENT"
 cat >"$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GH_STUB_CALLS"
+# Record what was actually sent, not just that something was. A body written
+# without the marker is findable by nothing, so the run after it posts a second
+# comment rather than editing this one.
+for arg in "$@"; do
+  if [[ "$arg" == body=@* && -r "${arg#body=@}" ]]; then
+    cat "${arg#body=@}" >>"$GH_STUB_BODIES"
+  fi
+done
 if [[ "$*" == *"per_page=100"* ]]; then
   cat "$GH_STUB_COMMENTS"
 fi
@@ -291,8 +300,10 @@ chmod +x "$STUB_DIR/gh"
 report_with() {
   printf '%s\n' "$1" >"$STUB_COMMENTS"
   : >"$STUB_CALLS"
+  : >"$STUB_BODIES"
   echo "a body" | env "PATH=$STUB_DIR:$PATH" \
     GH_STUB_CALLS="$STUB_CALLS" GH_STUB_COMMENTS="$STUB_COMMENTS" \
+    GH_STUB_BODIES="$STUB_BODIES" \
     GITHUB_REPOSITORY=stub/repo GITHUB_TOKEN=stub GITHUB_EVENT_PATH="$EVENT" \
     GITHUB_WORKFLOW="$3" bash "$REPORTER" "$2" >/dev/null 2>&1
 }
@@ -348,8 +359,26 @@ else
   sed 's/^/      /' "$STUB_CALLS"
 fi
 
+# The round trip, which is what the checks above do not reach: they all seed a
+# fixture that already carries the marker, so a reporter writing a body without
+# one still finds and edits it. Only the NEXT run breaks, posting a second
+# comment. So what was written is checked for the marker the next run looks up.
+report_with "[]" post python-ci
+if grep -q "examples-suite-report:python-ci" "$STUB_BODIES"; then
+  pass "the comment it writes carries the marker the next run looks it up by"
+else
+  fail "the comment it writes carries no marker, so every re-run during an outage posts another"
+  sed 's/^/      /' "$STUB_BODIES"
+fi
+if grep -q "a body" "$STUB_BODIES"; then
+  pass "the comment it writes carries the body it was given"
+else
+  fail "the body never reached the comment, so the marker is posted on its own"
+  sed 's/^/      /' "$STUB_BODIES"
+fi
+
 rm -rf "$STUB_DIR"
-rm -f "$STUB_CALLS" "$STUB_COMMENTS" "$EVENT"
+rm -f "$STUB_CALLS" "$STUB_BODIES" "$STUB_COMMENTS" "$EVENT"
 
 echo ""
 echo "=== the report is not the one the test runner wrote ==="
@@ -422,7 +451,7 @@ done
 echo ""
 # A harness that runs nothing prints the same happy line as one that runs
 # everything. This is what makes the line above mean something.
-EXPECTED_CHECKS=39
+EXPECTED_CHECKS=41
 if [ "$CHECKS" -ne "$EXPECTED_CHECKS" ]; then
   echo "  FAIL: ran $CHECKS checks, expected $EXPECTED_CHECKS; the harness is not running what it claims"
   FAIL=1
