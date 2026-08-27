@@ -308,7 +308,15 @@ report_with() {
     GITHUB_WORKFLOW="$3" bash "$REPORTER" "$2" >/dev/null 2>&1
 }
 
-MARKED='[{"id":11,"body":"<!-- examples-suite-report:javascript-ci -->\n\nold text"}]'
+# One page, one comment, authored by the identity the Actions token posts as.
+MARKED='[[{"id":11,"body":"<!-- examples-suite-report:javascript-ci -->\n\nold text","user":{"login":"github-actions[bot]"}}]]'
+# The same marker on a comment somebody else wrote. Anyone can copy a marker
+# out of a rendered comment, and editing a person's comment is worse than
+# posting a second one.
+IMPOSTOR='[[{"id":22,"body":"<!-- examples-suite-report:javascript-ci -->\n\nquoted it","user":{"login":"a-participant"}}]]'
+# Two pages, the marked comment on the second. Without --slurp this is the case
+# that parses as nothing and posts a duplicate on every re-run.
+PAGED='[[{"id":9,"body":"unrelated","user":{"login":"someone"}}],[{"id":33,"body":"<!-- examples-suite-report:javascript-ci -->\n\nold text","user":{"login":"github-actions[bot]"}}]]'
 
 # The listing call is `issues/7/comments?per_page=100`, so matching on the path
 # alone reads a read as a write. Both writes are matched on `-F body=@`, which
@@ -316,7 +324,7 @@ MARKED='[{"id":11,"body":"<!-- examples-suite-report:javascript-ci -->\n\nold te
 created() { grep -q "issues/7/comments -F body=@" "$STUB_CALLS"; }
 edited() { grep -q "issues/comments/11 -X PATCH -F body=@" "$STUB_CALLS"; }
 
-report_with "[]" post javascript-ci
+report_with "[[]]" post javascript-ci
 if created && ! edited; then
   pass "with no comment yet, post creates one"
 else
@@ -332,7 +340,7 @@ else
   sed 's/^/      /' "$STUB_CALLS"
 fi
 
-report_with "[]" update-only javascript-ci
+report_with "[[]]" update-only javascript-ci
 if created || edited; then
   fail "update-only wrote a comment, so a clean run announces an outage that never happened here"
   sed 's/^/      /' "$STUB_CALLS"
@@ -359,11 +367,40 @@ else
   sed 's/^/      /' "$STUB_CALLS"
 fi
 
+edited_id() { grep -q "issues/comments/$1 -X PATCH -F body=@" "$STUB_CALLS"; }
+
+report_with "$IMPOSTOR" post javascript-ci
+if created && ! edited_id 22; then
+  pass "a marker on somebody else's comment is not adopted; a fresh one is posted"
+else
+  fail "the reporter edited a comment it did not write"
+  sed 's/^/      /' "$STUB_CALLS"
+fi
+
+report_with "$IMPOSTOR" update-only javascript-ci
+if edited_id 22; then
+  fail "update-only overwrote a participant's comment"
+  sed 's/^/      /' "$STUB_CALLS"
+else
+  pass "update-only leaves somebody else's comment alone"
+fi
+
+# Without --slurp, gh emits one JSON value per page and the parse gives up on
+# the second, which reads as "no existing comment". A pull request busy enough
+# to pass 100 comments is exactly where the duplicate would appear.
+report_with "$PAGED" post javascript-ci
+if edited_id 33 && ! created; then
+  pass "a comment on the second page is still found, so a busy PR gets no duplicate"
+else
+  fail "a marked comment past the first page was missed, so every re-run posts another"
+  sed 's/^/      /' "$STUB_CALLS"
+fi
+
 # The round trip, which is what the checks above do not reach: they all seed a
 # fixture that already carries the marker, so a reporter writing a body without
 # one still finds and edits it. Only the NEXT run breaks, posting a second
 # comment. So what was written is checked for the marker the next run looks up.
-report_with "[]" post python-ci
+report_with "[[]]" post python-ci
 if grep -q "examples-suite-report:python-ci" "$STUB_BODIES"; then
   pass "the comment it writes carries the marker the next run looks it up by"
 else
@@ -451,7 +488,7 @@ done
 echo ""
 # A harness that runs nothing prints the same happy line as one that runs
 # everything. This is what makes the line above mean something.
-EXPECTED_CHECKS=41
+EXPECTED_CHECKS=44
 if [ "$CHECKS" -ne "$EXPECTED_CHECKS" ]; then
   echo "  FAIL: ran $CHECKS checks, expected $EXPECTED_CHECKS; the harness is not running what it claims"
   FAIL=1

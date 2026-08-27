@@ -87,7 +87,28 @@ printf '%s\n\n%s\n' "$marker" "$body" >"$payload"
 
 export GH_TOKEN="$token"
 
-if ! gh api "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments?per_page=100" --paginate >"$listing" 2>/dev/null; then
+# Who this run posts as. The marker alone is not proof of authorship: anyone
+# reading a comment can copy it into one of their own, and the reporter would
+# then edit a person's comment or, on `update-only`, silently skip because it
+# believes its own comment already exists.
+#
+# `gh api user` answers for a personal token and is refused for the Actions
+# token, which posts as `github-actions[bot]` and cannot read /user at all. So
+# that is the fallback rather than an error. If neither resolves we do not know
+# who we are, and editing someone else's comment is the one outcome worth
+# avoiding: `me` stays empty, no comment is ever selected, and `post` writes a
+# possible duplicate while `update-only` does nothing.
+me="$(gh api user --jq .login 2>/dev/null || true)"
+[[ -n "$me" ]] || me="github-actions[bot]"
+
+# `--slurp` is what makes multiple pages ONE json value. Without it `--paginate`
+# emits one value per page, `json.load` raises on the second, and the reporter
+# reads that as "no existing comment": a pull request busy enough to pass 100
+# comments is exactly where it would then post a duplicate on every re-run.
+# `--slurp` cannot be combined with `--jq`, which is why the match below is
+# Python rather than a jq filter. It also wraps single-page output in an outer
+# array, so the flatten is unconditional.
+if ! gh api "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments?per_page=100" --paginate --slurp >"$listing" 2>/dev/null; then
   skip "could not read the existing comments on #${pr}"
 fi
 
@@ -95,20 +116,29 @@ fi
 # the marker contains the characters that would need escaping into one, and a
 # quoting bug here reads as "no existing comment" and posts a duplicate on
 # every re-run.
-existing="$(python3 - "$listing" "$marker" <<'PY' 2>/dev/null || true
+existing="$(python3 - "$listing" "$marker" "$me" <<'PY' 2>/dev/null || true
 import json
 import sys
 
 try:
     with open(sys.argv[1], encoding="utf-8") as handle:
-        comments = json.load(handle)
+        pages = json.load(handle)
 except (OSError, ValueError):
     raise SystemExit(0)
 
-if not isinstance(comments, list):
+if not isinstance(pages, list):
     raise SystemExit(0)
 
-marker = sys.argv[2]
+# `--slurp` yields a list of pages, each a list of comments. A page that is not
+# a list is skipped rather than crashing the match.
+comments = [
+    comment
+    for page in pages
+    if isinstance(page, list)
+    for comment in page
+]
+
+marker, me = sys.argv[2], sys.argv[3]
 matching = [
     comment["id"]
     for comment in comments
@@ -116,6 +146,8 @@ matching = [
     and isinstance(comment.get("body"), str)
     and marker in comment["body"]
     and isinstance(comment.get("id"), int)
+    and isinstance(comment.get("user"), dict)
+    and comment["user"].get("login") == me
 ]
 if matching:
     print(matching[-1])
