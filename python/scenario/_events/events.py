@@ -9,7 +9,7 @@ If you need to add custom logic or helpers, you can extend or wrap these models 
 """
 
 from dataclasses import dataclass
-from typing import Union, Any, List, Optional, TypeAlias
+from typing import Union, Any, Optional, TypeAlias
 
 from attrs import define as _attrs_define
 
@@ -57,11 +57,11 @@ class ScenarioRunStartedEventMetadata(PostApiScenarioEventsBodyType0Metadata):
     `langwatch` key, which the platform reserves for itself.
 
     Args:
-        agents (Union[Unset, List[ScenarioRunStartedEventAgent]]): The agents of the
+        agents (Union[Unset, list[ScenarioRunStartedEventAgent]]): The agents of the
             run, in the order in which the scenario lists them
     """
 
-    agents: Union[Unset, List[ScenarioRunStartedEventAgent]] = UNSET
+    agents: Union[Unset, list[ScenarioRunStartedEventAgent]] = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         field_dict = super().to_dict()
