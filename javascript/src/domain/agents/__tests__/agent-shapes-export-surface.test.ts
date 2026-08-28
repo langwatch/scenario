@@ -22,10 +22,9 @@ import * as voice from "../../../voice/index";
 import * as domainAgents from "../index";
 
 /**
- * The two runtime names the removed shim forwarded. It forwarded four, but the
- * other two are types: they are erased, so nothing can be asserted about them
- * here. The typecheck is what carries those, since this file imports both
- * namespaces and would fail to compile if either stopped exporting them.
+ * The two runtime names the removed shim forwarded. It forwarded five in all;
+ * the other three are types, and a runtime assertion cannot see an erased type.
+ * The type surface is pinned separately, at compile time, further down.
  *
  * A rename or a dropped export in a future move fails here rather than in a
  * consumer's build.
@@ -83,6 +82,55 @@ describe("the agent shapes, after moving to the domain layer", () => {
     it("is the same binding the voice namespace re-exports, not a second copy", () => {
       expect(voice.isVoiceUserSim).toBe(domainAgents.isVoiceUserSim);
       expect(voice.isRealtimeUserAgent).toBe(domainAgents.isRealtimeUserAgent);
+    });
+  });
+
+  /**
+   * The types the shim forwarded, pinned at compile time.
+   *
+   * The assertions above reach only the two guards, because a type is erased
+   * before any test can look at it. The annotations below do reach them: drop a
+   * type export from either path and this file stops compiling, which surfaces
+   * the break on the branch that caused it rather than in a consumer's build.
+   *
+   * The two lists differ deliberately. The `voice` barrel published two of the
+   * three types and never `UserSimulatorAgentWithVoice`, so asserting that one
+   * through `voice` would pin a surface that never existed.
+   */
+  describe("when the erased type exports are what a consumer depends on", () => {
+    it("still types both shapes on the voice path", () => {
+      const realtime: voice.RealtimeUserAgent = {
+        sendText: async () => undefined,
+        speakUserTurn: async () => ({ data: new Uint8Array(), transcript: "" }),
+      };
+      const sim: voice.VoiceUserSimulator = {
+        voice: "alloy",
+        voiceifyText: async () => ({ role: "user", content: "" }),
+      };
+
+      // A guard whose narrowed type the value already carries must accept it.
+      // That is what ties the type export to the runtime export: either one
+      // going missing on its own breaks this.
+      expect(voice.isRealtimeUserAgent(realtime)).toBe(true);
+      expect(voice.isVoiceUserSim(sim)).toBe(true);
+    });
+
+    it("still types all three shapes on the domain path, which is the canonical one", () => {
+      const realtime: domainAgents.RealtimeUserAgent = {
+        sendText: async () => undefined,
+        speakUserTurn: async () => ({ data: new Uint8Array() }),
+      };
+      const sim: domainAgents.VoiceUserSimulator = {
+        voice: "alloy",
+        voiceifyText: async () => ({ role: "user", content: "" }),
+      };
+      // Assignable because the two are structurally the same shape. This is the
+      // duplication the ticket noticed; collapsing it is a breaking change to
+      // the published package, so it stays until a human calls it.
+      const narrowed: domainAgents.UserSimulatorAgentWithVoice = sim;
+
+      expect(domainAgents.isRealtimeUserAgent(realtime)).toBe(true);
+      expect(domainAgents.isVoiceUserSim(narrowed)).toBe(true);
     });
   });
 });
