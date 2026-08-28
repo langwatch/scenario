@@ -184,6 +184,49 @@ const DEFAULT_WAIT_FOR_SPEECH_MS = 15_000;
  * console.log("Scenario result:", result.success);
  * ```
  */
+/**
+ * A background agent turn, and what the interrupt path needs to know about it.
+ *
+ * `done` is polled rather than awaited, because the barge-in has to fire while
+ * the turn is still in flight: awaiting it would mean the bot always finished
+ * first and the interrupt never happened. `error` captures a rejection instead
+ * of letting it escape as an unhandled promise, so it can be re-thrown at
+ * drain or interrupt time by whoever is in a position to report it.
+ */
+interface AgentTaskEntry {
+  promise: Promise<void>;
+  done: boolean;
+  /** Captured rejection, if any. Re-thrown by {@link ScenarioExecution.fireUserInterrupt}. */
+  error: unknown | null;
+}
+
+/**
+ * Wrap a background agent turn so its settling is observable without awaiting
+ * it.
+ *
+ * The `.catch` and `.finally` close over the entry that is being assigned in
+ * the same statement, which is the part worth doing once: they run only after
+ * the turn settles, by which point the field holds the real promise, so there
+ * is no placeholder to leak. Written out at each call site, the two copies
+ * agreed by inspection and nothing held them together.
+ */
+function makeTaskEntry(run: () => Promise<unknown>): AgentTaskEntry {
+  const entry: AgentTaskEntry = {
+    promise: run()
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        // Captured, not swallowed: re-thrown at drain or interrupt time.
+        entry.error = err;
+      })
+      .finally(() => {
+        entry.done = true;
+      }),
+    done: false,
+    error: null,
+  };
+  return entry;
+}
+
 export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorState {
   /** LangWatch tracer for scenario execution */
   private tracer = getLangWatchTracer("@langwatch/scenario");
@@ -246,12 +289,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `error` captures any rejection from the background turn so it can be
    * re-thrown after the promise settles (rather than silently swallowed).
    */
-  private pendingAgentTask: {
-    promise: Promise<void>;
-    done: boolean;
-    /** Captured rejection, if any. Re-thrown by {@link fireUserInterrupt}. */
-    error: unknown | null;
-  } | null = null;
+  private pendingAgentTask: AgentTaskEntry | null = null;
 
   /**
    * Snapshot of voice adapters for the in-flight execution. Captured at
@@ -1473,23 +1511,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `void executor.agent().catch()` call sites did.
    */
   agentNonBlocking(content?: string | ModelMessage): void {
-    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
-      // Assigned in the same statement; the `.finally` below closes over
-      // `entry` and only runs after this turn settles, by which point the field
-      // holds the real promise (no dead Promise.resolve() placeholder — review
-      // H6).
-      promise: this.scriptCallAgent(AgentRole.AGENT, content)
-        .then(() => undefined)
-        .catch((err: unknown) => {
-          entry.error = err; // capture, don't swallow — re-thrown at drain/interrupt time
-        })
-        .finally(() => {
-          entry.done = true;
-        }),
-      done: false,
-      error: null,
-    };
-    this.pendingAgentTask = entry;
+    this.pendingAgentTask = makeTaskEntry(() =>
+      this.scriptCallAgent(AgentRole.AGENT, content),
+    );
   }
 
   /**
@@ -1826,23 +1850,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    *
    * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
    */
-  private dispatchAgentBackground(idx: number): {
-    promise: Promise<void>;
-    done: boolean;
-    error: unknown | null;
-  } {
-    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
-      promise: this.callAgent(idx, AgentRole.AGENT)
-        .then(() => undefined)
-        .catch((err: unknown) => {
-          entry.error = err; // captured, re-thrown by fireUserInterrupt/drain
-        })
-        .finally(() => {
-          entry.done = true;
-        }),
-      done: false,
-      error: null,
-    };
+  private dispatchAgentBackground(idx: number): AgentTaskEntry {
+    const entry = makeTaskEntry(() => this.callAgent(idx, AgentRole.AGENT));
     this.pendingAgentTask = entry;
     return entry;
   }
@@ -1859,7 +1868,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   private async prepareAndFireBargeIn(
     config: InterruptionConfig,
     voiceUserSim: VoiceUserSimulator,
-    entry: { promise: Promise<void>; done: boolean; error: unknown | null },
+    entry: AgentTaskEntry,
   ): Promise<boolean> {
     // Sample the delay BEFORE voiceifyText so it is applied AFTER
     // agentSpeakingEvent fires (in fireUserInterrupt) — not before TTS.
