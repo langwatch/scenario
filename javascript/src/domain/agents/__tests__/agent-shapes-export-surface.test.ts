@@ -18,12 +18,17 @@
 
 import { describe, expect, it } from "vitest";
 
-import * as domainAgents from "../index";
 import * as voice from "../../../voice/index";
+import * as domainAgents from "../index";
 
 /**
- * The four names the removed shim forwarded. A rename or a dropped export in a
- * future move fails here rather than in a consumer's build.
+ * The two runtime names the removed shim forwarded. It forwarded four, but the
+ * other two are types: they are erased, so nothing can be asserted about them
+ * here. The typecheck is what carries those, since this file imports both
+ * namespaces and would fail to compile if either stopped exporting them.
+ *
+ * A rename or a dropped export in a future move fails here rather than in a
+ * consumer's build.
  */
 const FORWARDED_VALUES = ["isRealtimeUserAgent", "isVoiceUserSim"] as const;
 
