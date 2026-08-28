@@ -8,7 +8,7 @@ architecture or API.
 """
 
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 from .types import AgentInput, AgentReturnTypes, AgentRole
 
@@ -23,6 +23,8 @@ class AgentAdapter(ABC):
     the conversation state and returns responses in a standardized format.
 
     Attributes:
+        name: The name that LangWatch shows as the target of the run. When you do not
+            set it, the framework uses the class name of the adapter.
         role: The role this agent plays in scenarios (USER, AGENT, or JUDGE)
 
     Example:
@@ -31,6 +33,8 @@ class AgentAdapter(ABC):
         from my_agent import MyCustomAgent
 
         class MyAgentAdapter(scenario.AgentAdapter):
+            name = "MyAgent"
+
             def __init__(self):
                 self.agent = MyCustomAgent()
 
@@ -67,6 +71,7 @@ class AgentAdapter(ABC):
         - For stateless agents, use input.messages for the full conversation history
     """
 
+    name: ClassVar[Optional[str]] = None
     role: ClassVar[AgentRole] = AgentRole.AGENT
 
     @abstractmethod

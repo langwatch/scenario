@@ -72,6 +72,7 @@ from ._events import (
     ScenarioRunStartedEvent,
     ScenarioMessageSnapshotEvent,
     ScenarioRunFinishedEvent,
+    ScenarioRunStartedEventAgent,
     ScenarioRunStartedEventMetadata,
     ScenarioRunFinishedEventResults,
     ScenarioRunFinishedEventVerdict,
@@ -1853,10 +1854,17 @@ class ScenarioExecutor:
         metadata = ScenarioRunStartedEventMetadata(
             name=self.name,
             description=self.description,
+            agents=[
+                ScenarioRunStartedEventAgent(
+                    name=getattr(agent, "name", None) or type(agent).__name__,
+                    role=agent.role.value.lower(),
+                )
+                for agent in self.agents
+            ],
         )
         if self.metadata:
             for key, value in self.metadata.items():
-                if key not in ("name", "description"):
+                if key not in ("name", "description", "agents"):
                     metadata.additional_properties[key] = value
 
         event = ScenarioRunStartedEvent(

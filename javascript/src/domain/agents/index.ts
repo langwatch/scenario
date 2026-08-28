@@ -114,6 +114,7 @@ export interface AgentInput {
  * @example
  * ```typescript
  * class MyAgent extends AgentAdapter {
+ *   name = "MyAgent";
  *   role = AgentRole.AGENT;
  *
  *   async call(input: AgentInput): Promise<AgentReturnTypes> {
@@ -127,6 +128,10 @@ export interface AgentInput {
  * ```
  */
 export abstract class AgentAdapter {
+  /**
+   * The name that LangWatch shows as the target of the run. When you do not set
+   * it, the framework uses the class name of the adapter.
+   */
   name?: string;
   role: AgentRole = AgentRole.AGENT;
 

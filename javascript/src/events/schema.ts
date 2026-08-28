@@ -66,15 +66,28 @@ const baseScenarioEventSchema = baseEventSchema.extend({
 });
 
 /**
+ * Scenario Run Agent Schema
+ * One agent that takes part in a scenario run. The name is the adapter's own name,
+ * or its class name when the adapter sets none.
+ */
+export const scenarioRunAgentSchema = z.object({
+  name: z.string(),
+  role: z.enum(["agent", "user", "judge"]),
+});
+export type ScenarioRunAgent = z.infer<typeof scenarioRunAgentSchema>;
+
+/**
  * Scenario Run Started Event Schema
  * Captures the initiation of a scenario run with metadata about the scenario being executed.
- * Contains the scenario name and optional description for identification purposes.
+ * Contains the scenario name, an optional description for identification purposes, and the
+ * agents that the run uses.
  */
 export const scenarioRunStartedSchema = baseScenarioEventSchema.extend({
   type: z.literal(ScenarioEventType.RUN_STARTED),
   metadata: z.object({
     name: z.string().optional(),
     description: z.string().optional(),
+    agents: z.array(scenarioRunAgentSchema).optional(),
   }).catchall(z.unknown()),
 });
 
