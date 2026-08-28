@@ -42,6 +42,8 @@ from google.genai.types import Content, Part
 import google.adk.models.lite_llm as litellm
 
 class GoogleADKAgentAdapter(scenario.AgentAdapter):
+    name = "GoogleADKAgent"
+
     def __init__(self):
         self.session_service = InMemorySessionService()
         self.runner = Runner(

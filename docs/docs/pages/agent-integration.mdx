@@ -23,6 +23,7 @@ interface. This adapter pattern allows you to:
 
 The <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface defines a contract for Scenario to work with any agent implementation. You only need to provide:
 
+- `name`: The name that LangWatch shows as the target of the run. The class name of the adapter is the default.
 - `role`: The agent’s role in the scenario (default to `AGENT`)
 - `call`: An async function that receives the full conversation history and returns the agent’s next response
 
@@ -42,6 +43,8 @@ Agent `call` functions must receive the full chat history via `input.messages` t
 import scenario
 
 class MyAgent(scenario.AgentAdapter):
+    name = "MyAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Your integration logic here
         pass
@@ -52,6 +55,7 @@ import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 // Object style
 const myAgent: AgentAdapter = {
+  name: "MyAgent",
   role: AgentRole.AGENT,
   async call(input) {
     // Your integration logic here
@@ -64,6 +68,7 @@ import type { AgentInput, AgentReturnTypes } from "@langwatch/scenario";
 import { AgentRole } from "@langwatch/scenario";
 
 class MyAgent implements AgentAdapter {
+  name = "MyAgent";
   role = AgentRole.AGENT;
   async call(input): Promise<AgentReturnTypes> {
     // Your integration logic here
@@ -73,6 +78,9 @@ class MyAgent implements AgentAdapter {
 ```
 
 :::
+
+Each run reports its agents to LangWatch. LangWatch shows the name of the agent as the
+target of the run. When you set no name, the framework uses the class name of the adapter.
 
 ### AgentInput
 

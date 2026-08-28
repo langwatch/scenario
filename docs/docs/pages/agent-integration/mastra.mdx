@@ -35,6 +35,7 @@ You can integrate it with Scenario like this:
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 const weatherAgent: AgentAdapter = {
+  name: "WeatherAgent",
   role: AgentRole.AGENT,
   call: async (input) => {
     const result = await weatherAgentMastra.generate(input.messages);
