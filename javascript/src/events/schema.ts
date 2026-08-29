@@ -72,7 +72,7 @@ const baseScenarioEventSchema = baseEventSchema.extend({
  * it can name it, so the name is never blank.
  */
 export const scenarioRunAgentSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   role: z.enum(["agent", "user", "judge"]),
 });
 export type ScenarioRunAgent = z.infer<typeof scenarioRunAgentSchema>;

@@ -157,14 +157,27 @@ export abstract class AgentAdapter {
  * class carries no name either: both return undefined, and the run leaves the
  * agent out of the list instead of reporting a name that means nothing. The
  * Python SDK follows the same steps.
+ *
+ * Only a string counts as a name. A test double built by a mocking library
+ * answers every property with a function, and a JavaScript caller can set any
+ * value, so the type says less here than it does elsewhere.
  */
 export function resolveAgentName(agent: AgentAdapter): string | undefined {
-  const explicit = agent.name?.trim();
+  const explicit = nameFrom(agent.name);
   if (explicit) return explicit;
 
-  const ownClass = (agent as { constructor?: { name?: string } }).constructor;
+  // The class comes from the prototype, not from the object: an adapter that
+  // carries a `constructor` key of its own would otherwise name the run.
+  const ownClass = (Object.getPrototypeOf(agent) as { constructor?: unknown })
+    ?.constructor;
   if (!ownClass || ownClass === Object) return undefined;
-  return ownClass.name?.trim() || undefined;
+  return nameFrom((ownClass as { name?: unknown }).name);
+}
+
+/** The value when it is a string that holds more than space. */
+function nameFrom(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value.trim() || undefined;
 }
 
 /**
