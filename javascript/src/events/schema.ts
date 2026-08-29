@@ -68,10 +68,11 @@ const baseScenarioEventSchema = baseEventSchema.extend({
 /**
  * Scenario Run Agent Schema
  * One agent that takes part in a scenario run. The name is the adapter's own name,
- * or its class name when the adapter sets none.
+ * or its class name when the adapter sets none. A run reports an agent only when
+ * it can name it, so the name is never blank.
  */
 export const scenarioRunAgentSchema = z.object({
-  name: z.string(),
+  name: z.string().min(1),
   role: z.enum(["agent", "user", "judge"]),
 });
 export type ScenarioRunAgent = z.infer<typeof scenarioRunAgentSchema>;

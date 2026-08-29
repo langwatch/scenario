@@ -20,6 +20,26 @@ Feature: Agent adapters carry a name and runs report their agents
     Then metadata.agents contains an entry with name "PlainAgent" and role "agent"
 
   @unit
+  Scenario: A name keeps no space around it
+    Given an agent adapter that sets name to "  MyAgent  "
+    When the scenario run starts
+    Then metadata.agents contains an entry with name "MyAgent" and role "agent"
+
+  @unit
+  Scenario: A blank name counts as no name
+    Given an agent adapter class "PlainAgent" that sets name to "   "
+    When the scenario run starts
+    Then metadata.agents contains an entry with name "PlainAgent" and role "agent"
+    And both SDKs report the same name for the same adapter
+
+  @unit
+  Scenario: An adapter that carries no usable name stays out of the list
+    Given an agent adapter that is a plain object with no name
+    When the scenario run starts
+    Then metadata.agents holds no entry for that adapter
+    And the platform reads the run under the default target
+
+  @unit
   Scenario: The user simulator and the judge report their roles
     Given the scenario lists a user simulator agent and a judge agent
     When the scenario run starts

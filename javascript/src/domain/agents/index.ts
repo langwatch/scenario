@@ -149,6 +149,25 @@ export abstract class AgentAdapter {
 }
 
 /**
+ * The name a run reports for an agent adapter.
+ *
+ * The adapter's own name comes first, without the space around it. A blank name
+ * counts as no name, so the class name of the adapter is used instead. An
+ * adapter written as a plain object has no class of its own, and an anonymous
+ * class carries no name either: both return undefined, and the run leaves the
+ * agent out of the list instead of reporting a name that means nothing. The
+ * Python SDK follows the same steps.
+ */
+export function resolveAgentName(agent: AgentAdapter): string | undefined {
+  const explicit = agent.name?.trim();
+  if (explicit) return explicit;
+
+  const ownClass = (agent as { constructor?: { name?: string } }).constructor;
+  if (!ownClass || ownClass === Object) return undefined;
+  return ownClass.name?.trim() || undefined;
+}
+
+/**
  * Abstract base class for user simulator agents.
  * User simulator agents are responsible for generating user messages to drive the conversation.
  */

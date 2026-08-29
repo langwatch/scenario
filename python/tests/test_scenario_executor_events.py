@@ -493,6 +493,20 @@ class PlainAgent(AgentAdapter):
         return "Hey, how can I help you?"
 
 
+class BlankNameAgent(AgentAdapter):
+    name = "   "
+
+    async def call(self, input: AgentInput) -> str:
+        return "Hey, how can I help you?"
+
+
+class PaddedNameAgent(AgentAdapter):
+    name = "  MyAgent  "
+
+    async def call(self, input: AgentInput) -> str:
+        return "Hey, how can I help you?"
+
+
 async def _run_started_metadata(
     agent: AgentAdapter,
     metadata: Optional[Dict[str, Any]] = None,
@@ -537,6 +551,25 @@ async def test_adapter_without_name_reports_its_class_name() -> None:
     metadata_dict = await _run_started_metadata(PlainAgent())
 
     assert metadata_dict["agents"][0] == {"name": "PlainAgent", "role": "agent"}
+
+
+@pytest.mark.asyncio
+async def test_name_keeps_no_space_around_it() -> None:
+    """An adapter name reports without the space around it."""
+    metadata_dict = await _run_started_metadata(PaddedNameAgent())
+
+    assert metadata_dict["agents"][0] == {"name": "MyAgent", "role": "agent"}
+
+
+@pytest.mark.asyncio
+async def test_blank_name_counts_as_no_name() -> None:
+    """A blank name reports the class name, the way the TypeScript SDK does."""
+    metadata_dict = await _run_started_metadata(BlankNameAgent())
+
+    assert metadata_dict["agents"][0] == {
+        "name": "BlankNameAgent",
+        "role": "agent",
+    }
 
 
 @pytest.mark.asyncio

@@ -203,7 +203,8 @@ export interface AgentAdapter {
 
 Each run reports its agents to LangWatch. LangWatch shows the name of the agent as
 the target of the run. When you set no name, the framework uses the class name of
-the adapter.
+the adapter. An adapter written as a plain object has no class name of its own, so
+set a name there to see the agent as the target of the run.
 
 Scenario provides built-in agents for common testing needs:
 

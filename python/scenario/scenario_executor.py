@@ -62,7 +62,7 @@ from .types import (
 )
 from ._error_messages import agent_response_not_awaitable
 from .cache import context_scenario
-from .agent_adapter import AgentAdapter
+from .agent_adapter import AgentAdapter, resolve_agent_name
 from .script import proceed
 from pksuid import PKSUID
 from .scenario_state import ScenarioState
@@ -1851,16 +1851,24 @@ class ScenarioExecutor:
             scenario_run_id: Unique identifier for the current scenario run
         """
         common_fields = self._create_common_event_fields(scenario_run_id)
+
+        # A run reports an agent only when it can name it, so the platform never
+        # reads a blank target name.
+        agents: List[ScenarioRunStartedEventAgent] = []
+        for agent in self.agents:
+            name = resolve_agent_name(agent)
+            if name:
+                agents.append(
+                    ScenarioRunStartedEventAgent(
+                        name=name,
+                        role=agent.role.value.lower(),
+                    )
+                )
+
         metadata = ScenarioRunStartedEventMetadata(
             name=self.name,
             description=self.description,
-            agents=[
-                ScenarioRunStartedEventAgent(
-                    name=getattr(agent, "name", None) or type(agent).__name__,
-                    role=agent.role.value.lower(),
-                )
-                for agent in self.agents
-            ],
+            agents=agents,
         )
         if self.metadata:
             for key, value in self.metadata.items():

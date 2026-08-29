@@ -24,6 +24,7 @@ import {
   ScenarioConfigFinal,
   DEFAULT_MAX_TURNS,
   DEFAULT_VERBOSE,
+  resolveAgentName,
 } from "../domain";
 import {
   isRealtimeUserAgent,
@@ -2632,10 +2633,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         ...this.config.metadata,
         name: this.config.name,
         description: this.config.description,
-        agents: this.config.agents.map((agent) => ({
-          name: agent.name ?? agent.constructor.name,
-          role: agent.role.toLowerCase() as "agent" | "user" | "judge",
-        })),
+        agents: this.config.agents.flatMap((agent) => {
+          const name = resolveAgentName(agent);
+          if (!name) return [];
+          return [
+            {
+              name,
+              role: agent.role.toLowerCase() as "agent" | "user" | "judge",
+            },
+          ];
+        }),
       },
     } as ScenarioRunStartedEvent);
   }

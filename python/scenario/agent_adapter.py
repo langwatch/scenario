@@ -118,3 +118,26 @@ class AgentAdapter(ABC):
             ```
         """
         pass
+
+
+def resolve_agent_name(agent: AgentAdapter) -> Optional[str]:
+    """
+    The name a run reports for an agent adapter.
+
+    The adapter's own name comes first, without the space around it. A blank name
+    counts as no name, so the class name of the adapter is used instead. The
+    result is None only for an adapter with no class name of its own, which
+    Python does not produce but the TypeScript SDK does for a plain object. The
+    TypeScript SDK follows the same steps.
+
+    Args:
+        agent: The adapter that takes part in the run
+
+    Returns:
+        The name to report, or None when the adapter carries no usable name
+    """
+    explicit = getattr(agent, "name", None)
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+
+    return type(agent).__name__.strip() or None

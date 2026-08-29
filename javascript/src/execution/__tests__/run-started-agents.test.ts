@@ -8,9 +8,9 @@ import {
   AgentReturnTypes,
 } from "../../domain";
 import { UserSimulatorAgentAdapter } from "../../domain/agents";
+import { ScenarioEventType, type ScenarioRunStartedEvent } from "../../events";
 import { user, agent, judge } from "../../script";
 import { ScenarioExecution } from "../scenario-execution";
-import { ScenarioEventType, type ScenarioRunStartedEvent } from "../../events";
 
 class NamedAgent extends AgentAdapter {
   name = "MyAgent";
@@ -26,6 +26,30 @@ class PlainAgent extends AgentAdapter {
     return { role: "assistant" as const, content: "Hey, how can I help you?" };
   }
 }
+
+class BlankNameAgent extends AgentAdapter {
+  name = "   ";
+  role = AgentRole.AGENT;
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    return { role: "assistant" as const, content: "Hey, how can I help you?" };
+  }
+}
+
+class PaddedNameAgent extends AgentAdapter {
+  name = "  MyAgent  ";
+  role = AgentRole.AGENT;
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    return { role: "assistant" as const, content: "Hey, how can I help you?" };
+  }
+}
+
+/** The object style that the docs show, written without a name. */
+const plainObjectAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    return { role: "assistant" as const, content: "Hey, how can I help you?" };
+  },
+};
 
 class MockUserSimulatorAgent extends UserSimulatorAgentAdapter {
   role = AgentRole.USER;
@@ -100,6 +124,39 @@ describe("run started agents metadata", () => {
         name: "PlainAgent",
         role: "agent",
       });
+    });
+  });
+
+  describe("when an adapter sets a name with space around it", () => {
+    it("reports the name without that space", async () => {
+      const metadata = await runStartedMetadata(new PaddedNameAgent());
+
+      expect((metadata.agents as unknown[])[0]).toEqual({
+        name: "MyAgent",
+        role: "agent",
+      });
+    });
+  });
+
+  describe("when an adapter sets a blank name", () => {
+    it("reports the class name, the way the Python SDK does", async () => {
+      const metadata = await runStartedMetadata(new BlankNameAgent());
+
+      expect((metadata.agents as unknown[])[0]).toEqual({
+        name: "BlankNameAgent",
+        role: "agent",
+      });
+    });
+  });
+
+  describe("when an adapter is a plain object with no name", () => {
+    it("leaves it out of the list instead of reporting Object", async () => {
+      const metadata = await runStartedMetadata(plainObjectAgent);
+
+      expect(metadata.agents).toEqual([
+        { name: "UserSimulatorAgent", role: "user" },
+        { name: "JudgeAgent", role: "judge" },
+      ]);
     });
   });
 
