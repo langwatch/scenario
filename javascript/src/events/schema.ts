@@ -70,6 +70,9 @@ const baseScenarioEventSchema = baseEventSchema.extend({
  * One agent that takes part in a scenario run. The name is the adapter's own name,
  * or its class name when the adapter sets none. A run reports an agent only when
  * it can name it, so the name is never blank.
+ *
+ * Parsing takes the space off the name and refuses what is left when it is
+ * empty, which is a `ZodError` on `parse` and `success: false` on `safeParse`.
  */
 export const scenarioRunAgentSchema = z.object({
   name: z.string().trim().min(1),
