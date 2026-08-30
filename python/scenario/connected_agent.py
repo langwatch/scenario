@@ -72,9 +72,13 @@ class ConnectedAgentLike(Protocol):
 
     name: str
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """The original function, with its own signature."""
+        raise NotImplementedError
 
-    def invoke(self, call: Any) -> Awaitable[Any]: ...
+    def invoke(self, call: Any) -> Awaitable[Any]:
+        """Runs one turn for a :class:`ConnectedAgentCall` and returns the reply."""
+        raise NotImplementedError
 
 
 AgentLike = Union[AgentAdapter, ConnectedAgentLike]
