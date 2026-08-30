@@ -16,6 +16,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Union,
@@ -63,6 +64,7 @@ from .types import (
 from ._error_messages import agent_response_not_awaitable
 from .cache import context_scenario
 from .agent_adapter import AgentAdapter
+from .connected_agent import AgentLike, resolve_agents
 from .script import proceed
 from pksuid import PKSUID
 from .scenario_state import ScenarioState
@@ -177,8 +179,9 @@ class ScenarioExecutor:
         self,
         name: str,
         description: str,
-        agents: List[AgentAdapter] = [],
+        agents: Sequence[AgentLike] = [],
         script: Optional[List[ScriptStep]] = None,
+        parameters: Optional[Dict[str, Any]] = None,
         # Config
         max_turns: Optional[int] = None,
         min_turns: Optional[int] = None,
@@ -205,6 +208,9 @@ class ScenarioExecutor:
                    Typically includes: agent under test, user simulator, and judge.
             script: Optional list of script steps to control scenario flow.
                    If not provided, defaults to automatic proceeding.
+            parameters: Run parameters for connected agent functions in
+                   ``agents``. A parameter not set here takes the default
+                   the function declares.
             max_turns: Maximum number of conversation turns before timeout.
                       Overrides global configuration for this scenario.
             min_turns: Minimum turns guaranteed before the judge may volunteer
@@ -232,7 +238,7 @@ class ScenarioExecutor:
         """
         self.name = name
         self.description = description
-        self.agents = agents
+        self.agents = resolve_agents(agents, parameters)
         self.script = script or [proceed()]
         self.metadata = metadata
         self._on_audio_chunk = on_audio_chunk
@@ -1945,7 +1951,7 @@ def _build_scenario(
     *,
     name: str,
     description: str,
-    agents: List[AgentAdapter],
+    agents: Sequence[AgentLike],
     max_turns: Optional[int],
     min_turns: Optional[int],
     verbose: Optional[Union[bool, int]],
@@ -1959,6 +1965,7 @@ def _build_scenario(
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
+    parameters: Optional[Dict[str, Any]] = None,
 ) -> "ScenarioExecutor":
     """Shared setup used by both ``run()`` (threaded) and ``arun()`` (async-native)."""
     from ._tracing import ensure_tracing_initialized
@@ -1983,6 +1990,7 @@ def _build_scenario(
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
+        parameters=parameters,
     )
 
 
@@ -1999,7 +2007,7 @@ def _cleanup_scenario_spans(scenario: "ScenarioExecutor") -> None:
 async def arun(
     name: str,
     description: str,
-    agents: List[AgentAdapter] = [],
+    agents: Sequence[AgentLike] = [],
     max_turns: Optional[int] = None,
     min_turns: Optional[int] = None,
     verbose: Optional[Union[bool, int]] = None,
@@ -2013,6 +2021,7 @@ async def arun(
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
+    parameters: Optional[Dict[str, Any]] = None,
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
@@ -2047,6 +2056,7 @@ async def arun(
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
+        parameters=parameters,
     )
 
     try:
@@ -2063,7 +2073,7 @@ async def arun(
 async def run(
     name: str,
     description: str,
-    agents: List[AgentAdapter] = [],
+    agents: Sequence[AgentLike] = [],
     max_turns: Optional[int] = None,
     min_turns: Optional[int] = None,
     verbose: Optional[Union[bool, int]] = None,
@@ -2077,6 +2087,7 @@ async def run(
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
+    parameters: Optional[Dict[str, Any]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -2118,6 +2129,10 @@ async def run(
         metadata: Optional metadata to attach to the scenario run.
                  Accepts arbitrary key-value pairs. The ``langwatch`` key
                  is reserved for platform-internal use.
+        parameters: Run parameters for the connected agent functions in
+                 ``agents`` (the objects ``langwatch.connect_agent``
+                 returns). A parameter not set here takes the default the
+                 function declares.
 
     Returns:
         ScenarioResult containing the test outcome, conversation history,
@@ -2180,6 +2195,7 @@ async def run(
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
+        parameters=parameters,
     )
 
     # We'll use a thread pool to run the execution logic, we

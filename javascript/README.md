@@ -198,6 +198,8 @@ export interface AgentAdapter {
 }
 ```
 
+A function returned by `connectAgent` from the `langwatch` package is accepted as is: `scenario.run({ agents: [supportAgent, userSimulatorAgent(), judgeAgent({ criteria })] })` runs it as the agent under test, and `parameters: { model: "gpt-5-mini" }` on the config sets its run parameters.
+
 Scenario provides built-in agents for common testing needs:
 
 - `userSimulatorAgent(config)`: Simulates a human user, generating realistic messages based on the scenario description.

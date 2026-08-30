@@ -9,6 +9,7 @@
  */
 import { AssistantContent, ToolContent, ModelMessage } from "ai";
 import { Subscription } from "rxjs";
+import { resolveAgents } from "../agents/connected-agent";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getEnv } from "../config";
 import { getProjectConfig } from "../config/get-project-config";
@@ -115,11 +116,17 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
   if (cfg.agents.length === 0) {
     throw new Error("At least one agent is required");
   }
-  if (!cfg.agents.find((agent) => agent.role === AgentRole.AGENT)) {
+
+  // A connected agent function runs as the agent under test; it is wrapped
+  // once here so every later reader of `cfg.agents` sees adapters only.
+  const agents = resolveAgents(cfg.agents, cfg.parameters);
+  cfg.agents = agents;
+
+  if (!agents.find((agent) => agent.role === AgentRole.AGENT)) {
     throw new Error("At least one non-user/non-judge agent is required");
   }
 
-  cfg.agents.forEach((agent, i) => {
+  agents.forEach((agent, i) => {
     if (!allAgentRoles.includes(agent.role)) {
       throw new Error(`Agent ${i} has invalid role: ${agent.role}`);
     }

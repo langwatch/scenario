@@ -256,6 +256,8 @@ This is how it will look like:
 
 You can find the same code example in [python/examples/](python/examples/test_vegetarian_recipe_agent.py) or [javascript/examples/](javascript/examples/vitest/tests/vegetarian-recipe-agent.test.ts).
 
+An agent already connected to LangWatch with `langwatch.connect_agent` (Python) or `connectAgent` (TypeScript) needs no adapter class: pass the decorated function straight to `run`, as in `scenario.run(agents=[support_agent, scenario.UserSimulatorAgent(), scenario.JudgeAgent(...)])`.
+
 Now check out the [full documentation](https://scenario.langwatch.ai) to learn more and next steps.
 
 ## Simulation on Autopilot

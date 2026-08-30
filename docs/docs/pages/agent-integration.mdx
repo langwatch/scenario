@@ -30,6 +30,30 @@ You can wrap any agent (OpenAI, AgentKit, Mastra, custom, etc.) as an AgentAdapt
 
 When writing a Scenario test, you pass your agents as AgentAdapter objects. Scenario will call your agent’s call function whenever it’s their turn in the conversation, passing in the latest state and message history.
 
+An agent connected to LangWatch with `langwatch.connect_agent` (Python) or `connectAgent` (TypeScript) needs no adapter: pass the decorated function straight to `run`. Scenario wraps it, sends it the connected agent turn fields (`messages`, `new_messages`, `thread_id`, `session`, `trace_id`), echoes the `session` it returns on the next turn of the same thread, and passes the run `parameters` you set on the scenario.
+
+:::code-group
+
+```python [python]
+result = await scenario.run(
+    name="support",
+    description="The user asks for a refund",
+    agents=[support_agent, scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
+    parameters={"model": "gpt-5-mini"},
+)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "support",
+  description: "The user asks for a refund",
+  agents: [supportAgent, scenario.userSimulatorAgent(), scenario.judgeAgent({ criteria: [...] })],
+  parameters: { model: "gpt-5-mini" },
+});
+```
+
+:::
+
 :::tip
 **Message Mocking Requirement**
 

@@ -3,6 +3,7 @@ import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
 export * from "./types/agent-return.types";
+export * from "./connected-agent.types";
 export {
   isRealtimeUserAgent,
   isVoiceUserSim,
