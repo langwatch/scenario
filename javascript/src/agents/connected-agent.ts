@@ -89,8 +89,8 @@ export class ConnectedAgentAdapter implements AgentAdapter {
 
   async call(input: AgentInput): Promise<AgentReturnTypes> {
     const call: ConnectedAgentCall = {
-      messages: input.messages,
-      newMessages: input.newMessages,
+      messages: [...input.messages],
+      newMessages: [...input.newMessages],
       threadId: input.threadId,
       session: this.sessions.get(input.threadId) ?? null,
       params: { ...this.parameters },
