@@ -71,7 +71,11 @@ class AgentAdapter(ABC):
         - For stateless agents, use input.messages for the full conversation history
     """
 
-    name: ClassVar[Optional[str]] = None
+    # Not a ClassVar: most adapters set the name in the class body, but an
+    # adapter that wraps something named at runtime, such as the connected
+    # agent adapter, sets it on the instance. The TypeScript SDK declares the
+    # same field on the instance.
+    name: Optional[str] = None
     role: ClassVar[AgentRole] = AgentRole.AGENT
 
     @abstractmethod

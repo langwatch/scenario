@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, cast
 import pytest
 
 import scenario
-from scenario.agent_adapter import AgentAdapter
+from scenario.agent_adapter import AgentAdapter, resolve_agent_name
 from scenario.connected_agent import (
     ConnectedAgentAdapter,
     ConnectedAgentCall,
@@ -128,6 +128,18 @@ class TestAccept:
         assert isinstance(executor.agents[0], ConnectedAgentAdapter)
         assert executor.agents[0].parameters == {"model": "gpt-5-mini"}
         assert isinstance(executor.agents[1], scenario.JudgeAgent)
+
+
+class TestReportedName:
+    """Scenario: A run reports the connected agent under the name of the function."""
+
+    def test_the_run_reports_the_name_of_the_function(self):
+        fake = FakeConnectedAgent(name="support-agent")
+
+        wrapped = resolve_agents([fake])[0]
+
+        assert resolve_agent_name(wrapped) == "support-agent"
+        assert resolve_agent_name(wrapped) != "ConnectedAgentAdapter"
 
 
 class TestConnectedCall:

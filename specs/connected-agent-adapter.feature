@@ -68,3 +68,11 @@ Feature: scenario.run accepts a connected agent function
     Given a scenario that sets no run parameter
     When the wrapper invokes the decorated function
     Then the function receives no parameter and uses its own default
+
+  @unit
+  Scenario: A run reports the connected agent under the name of the function
+    Given a scenario with the decorated function in its agents list
+    When the scenario run starts
+    Then the run reports the agent under the name the decorator gave the function
+    And it does not report the name of the wrapper class
+    And both SDKs report the same name for the same function

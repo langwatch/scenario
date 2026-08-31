@@ -13,6 +13,7 @@ import { CONNECTED_AGENT_ADAPTER_FEATURE } from "../../__tests__/features";
 import {
   AgentRole,
   isConnectedAgent,
+  resolveAgentName,
   type AgentAdapter,
   type AgentInput,
   type AgentReturnTypes,
@@ -299,6 +300,29 @@ describeFeature(feature, ({ Background, Scenario }) => {
     });
     Then("the function receives no parameter and uses its own default", () => {
       expect(fake.calls[0]?.params).toEqual({});
+    });
+  });
+
+  Scenario("A run reports the connected agent under the name of the function", ({ Given, When, Then, And }) => {
+    let fake: Fake;
+    let resolved: AgentAdapter[];
+
+    Given("a scenario with the decorated function in its agents list", () => {
+      fake = makeFake("support-agent");
+    });
+    When("the scenario run starts", () => {
+      resolved = resolveAgents([fake.agent], {});
+    });
+    Then("the run reports the agent under the name the decorator gave the function", () => {
+      expect(resolveAgentName(resolved[0] as AgentAdapter)).toBe("support-agent");
+    });
+    And("it does not report the name of the wrapper class", () => {
+      expect(resolveAgentName(resolved[0] as AgentAdapter)).not.toBe("ConnectedAgentAdapter");
+    });
+    And("both SDKs report the same name for the same function", () => {
+      // The Python twin asserts the same in
+      // python/tests/test_connected_agent_adapter.py, class TestReportedName.
+      expect(resolved[0]?.name).toBe("support-agent");
     });
   });
 });
