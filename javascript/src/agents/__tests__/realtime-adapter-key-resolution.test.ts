@@ -36,6 +36,22 @@ function mintResponse(status: number, sessionId?: string): Response {
   });
 }
 
+/**
+ * A `fetch` stand-in that answers every call with one mint response.
+ *
+ * The parameters are written out so `mock.calls` carries the URL and the
+ * request. A `vi.fn` that declares none types its calls as an empty tuple, and
+ * every read of an argument is then a type error.
+ */
+function mintFetch(status: number, sessionId?: string) {
+  return vi.fn(
+    async (
+      _input: Parameters<typeof fetch>[0],
+      _init?: Parameters<typeof fetch>[1],
+    ): Promise<Response> => mintResponse(status, sessionId),
+  );
+}
+
 function makeAdapter(
   recorded: ConnectParams[],
   overrides: Partial<ConstructorParameters<typeof RealtimeAgentAdapter>[0]> = {},
@@ -86,7 +102,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
       process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
       process.env.OPENAI_API_KEY = "vk-lw-test";
       process.env.OPENAI_REALTIME_API_KEY = "sk-direct-provider-key";
-      const fetchSpy = vi.fn(async () => mintResponse(200, "req_abc"));
+      const fetchSpy = mintFetch(200, "req_abc");
       vi.stubGlobal("fetch", fetchSpy);
 
       const recorded: ConnectParams[] = [];
@@ -104,16 +120,14 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
     it("mints for the model the session was built with", async () => {
       process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
       process.env.OPENAI_API_KEY = "vk-lw-test";
-      const fetchSpy = vi.fn(async () => mintResponse(200, "req_abc"));
+      const fetchSpy = mintFetch(200, "req_abc");
       vi.stubGlobal("fetch", fetchSpy);
 
       await makeAdapter([], {}, "gpt-realtime").connect();
 
       // The gateway prices and budgets against this model, so a default here
       // would bill a session that opened as something else.
-      const body = JSON.parse(
-        String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body),
-      );
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
       expect(body.session.model).toBe("gpt-realtime");
     });
 
@@ -122,16 +136,14 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
       // mint for the session's model would bill something the call never used.
       process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
       process.env.OPENAI_API_KEY = "vk-lw-test";
-      const fetchSpy = vi.fn(async () => mintResponse(200, "req_abc"));
+      const fetchSpy = mintFetch(200, "req_abc");
       vi.stubGlobal("fetch", fetchSpy);
 
       await makeAdapter([], {}, "gpt-realtime").connect({
         model: "gpt-realtime-mini",
       } as Parameters<RealtimeAgentAdapter["connect"]>[0]);
 
-      const body = JSON.parse(
-        String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body),
-      );
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
       expect(body.session.model).toBe("gpt-realtime-mini");
     });
   });
@@ -139,7 +151,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
   describe("when the vendor answers the mint", () => {
     it("dials with the ephemeral secret but reports no session, because OpenAI names none", async () => {
       process.env.OPENAI_API_KEY = "sk-provider";
-      const fetchSpy = vi.fn(async () => mintResponse(200));
+      const fetchSpy = mintFetch(200);
       vi.stubGlobal("fetch", fetchSpy);
 
       const recorded: ConnectParams[] = [];
@@ -162,7 +174,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
       process.env.OPENAI_REALTIME_API_KEY = "sk-direct-provider-key";
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => mintResponse(404)),
+        mintFetch(404),
       );
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -183,7 +195,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
       process.env.OPENAI_API_KEY = "sk-plain";
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => mintResponse(404)),
+        mintFetch(404),
       );
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -204,7 +216,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
         process.env.OPENAI_REALTIME_API_KEY = "sk-direct-provider-key";
         vi.stubGlobal(
           "fetch",
-          vi.fn(async () => mintResponse(status)),
+          mintFetch(status),
         );
 
         const recorded: ConnectParams[] = [];
@@ -220,7 +232,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
     it("an explicit params.apiKey skips the mint entirely", async () => {
       process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
       process.env.OPENAI_API_KEY = "vk-lw-test";
-      const fetchSpy = vi.fn(async () => mintResponse(200, "req_abc"));
+      const fetchSpy = mintFetch(200, "req_abc");
       vi.stubGlobal("fetch", fetchSpy);
 
       const recorded: ConnectParams[] = [];
@@ -233,7 +245,7 @@ describe("RealtimeAgentAdapter.connect credential resolution", () => {
     it("`mint: false` dials the vendor directly with no mint attempt", async () => {
       process.env.OPENAI_BASE_URL = "https://gateway.example/v1";
       process.env.OPENAI_API_KEY = "sk-plain";
-      const fetchSpy = vi.fn(async () => mintResponse(200, "req_abc"));
+      const fetchSpy = mintFetch(200, "req_abc");
       vi.stubGlobal("fetch", fetchSpy);
 
       const recorded: ConnectParams[] = [];
