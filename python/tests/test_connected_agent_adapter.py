@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, cast
 import pytest
 
 import scenario
-from scenario.agent_adapter import AgentAdapter, resolve_agent_name
+from scenario.agent_adapter import AgentAdapter
 from scenario.connected_agent import (
     ConnectedAgentAdapter,
     ConnectedAgentCall,
@@ -20,6 +20,7 @@ from scenario.connected_agent import (
     read_reply,
     resolve_agents,
 )
+from scenario._events import ScenarioEvent, ScenarioRunStartedEvent
 from scenario.scenario_executor import ScenarioExecutor
 from scenario.types import AgentInput, AgentRole
 
@@ -133,13 +134,33 @@ class TestAccept:
 class TestReportedName:
     """Scenario: A run reports the connected agent under the name of the function."""
 
-    def test_the_run_reports_the_name_of_the_function(self):
+    @pytest.mark.asyncio
+    async def test_the_run_reports_the_name_of_the_function(self):
+        """The whole path runs: the executor wraps the function, the run starts,
+        and the started event carries the name the decorator gave it."""
         fake = FakeConnectedAgent(name="support-agent")
 
-        wrapped = resolve_agents([fake])[0]
+        executor = ScenarioExecutor(
+            name="connected agent name",
+            description="the run reports the agent it runs",
+            agents=[fake, ScriptedUser()],
+            script=[
+                scenario.user("hello"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+        events: List[ScenarioEvent] = []
+        executor.events.subscribe(events.append)
+        await executor.run()
 
-        assert resolve_agent_name(wrapped) == "support-agent"
-        assert resolve_agent_name(wrapped) != "ConnectedAgentAdapter"
+        started = next(
+            event for event in events if isinstance(event, ScenarioRunStartedEvent)
+        )
+        agents = started.metadata.to_dict()["agents"]
+
+        assert agents[0] == {"name": "support-agent", "role": "agent"}
+        assert agents[0]["name"] != "ConnectedAgentAdapter"
 
 
 class TestConnectedCall:

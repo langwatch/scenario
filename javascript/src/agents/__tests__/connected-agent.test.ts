@@ -20,6 +20,9 @@ import {
   type ConnectedAgentCall,
   type ConnectedAgentFunction,
 } from "../../domain";
+import { ScenarioEventType, type ScenarioRunStartedEvent } from "../../events";
+import { ScenarioExecution } from "../../execution/scenario-execution";
+import { agent as agentStep, succeed, user } from "../../script";
 import { ConnectedAgentAdapter, readReply, resolveAgents } from "../connected-agent";
 
 const feature = await loadFeature(CONNECTED_AGENT_ADAPTER_FEATURE);
@@ -87,6 +90,14 @@ function makeInput(overrides: Partial<AgentInput> = {}): AgentInput {
   };
 }
 
+const scriptedUser: AgentAdapter = {
+  name: "scripted-user",
+  role: AgentRole.USER,
+  async call(): Promise<AgentReturnTypes> {
+    throw new Error("the script supplies every user message");
+  },
+};
+
 const plainAdapter: AgentAdapter = {
   name: "plain",
   role: AgentRole.AGENT,
@@ -94,6 +105,32 @@ const plainAdapter: AgentAdapter = {
     return "plain";
   },
 };
+
+/** The agents a real run reports, from the started event it emits. */
+async function runStartedAgents(
+  agent: ConnectedAgentFunction,
+): Promise<{ name: string; role: string }[]> {
+  const execution = new ScenarioExecution(
+    {
+      name: "connected agent name",
+      description: "the run reports the agent it runs",
+      agents: [agent, scriptedUser],
+    },
+    [user("hello"), agentStep(), succeed()],
+    "test-batch-id",
+  );
+
+  const started: ScenarioRunStartedEvent[] = [];
+  execution.events$.subscribe((event) => {
+    if (event.type === ScenarioEventType.RUN_STARTED) {
+      started.push(event as ScenarioRunStartedEvent);
+    }
+  });
+  await execution.execute();
+
+  expect(started.length).toBeGreaterThan(0);
+  return (started[0]!.metadata as { agents: { name: string; role: string }[] }).agents;
+}
 
 describeFeature(feature, ({ Background, Scenario }) => {
   Background(({ Given, And }) => {
@@ -305,24 +342,28 @@ describeFeature(feature, ({ Background, Scenario }) => {
 
   Scenario("A run reports the connected agent under the name of the function", ({ Given, When, Then, And }) => {
     let fake: Fake;
-    let resolved: AgentAdapter[];
+    let reported: { name: string; role: string }[];
 
     Given("a scenario with the decorated function in its agents list", () => {
       fake = makeFake("support-agent");
     });
-    When("the scenario run starts", () => {
-      resolved = resolveAgents([fake.agent], {});
+    When("the scenario run starts", async () => {
+      // The whole path runs: the execution wraps the function, the run starts,
+      // and the started event carries what the platform reads.
+      reported = await runStartedAgents(fake.agent);
     });
     Then("the run reports the agent under the name the decorator gave the function", () => {
-      expect(resolveAgentName(resolved[0] as AgentAdapter)).toBe("support-agent");
+      expect(reported[0]).toEqual({ name: "support-agent", role: "agent" });
     });
     And("it does not report the name of the wrapper class", () => {
-      expect(resolveAgentName(resolved[0] as AgentAdapter)).not.toBe("ConnectedAgentAdapter");
+      expect(reported[0]?.name).not.toBe("ConnectedAgentAdapter");
     });
     And("both SDKs report the same name for the same function", () => {
-      // The Python twin asserts the same in
+      // The Python twin asserts the same on its own run in
       // python/tests/test_connected_agent_adapter.py, class TestReportedName.
-      expect(resolved[0]?.name).toBe("support-agent");
+      expect(resolveAgentName(resolveAgents([fake.agent], {})[0] as AgentAdapter)).toBe(
+        "support-agent",
+      );
     });
   });
 });
