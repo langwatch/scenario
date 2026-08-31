@@ -1,0 +1,6 @@
+{
+  "name": "pr-token-usage-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Marks the CI scripts beside it as ES modules. Without it node infers the module type from the repository root, which declares none, and reparses the script on every run with a MODULE_TYPELESS_PACKAGE_JSON warning. This is not a package: nothing installs, builds or publishes it, and it declares no dependencies because the scripts have none."
+}
