@@ -1,6 +1,6 @@
 ---
 description: React and TSX component development guidelines
-globs: *.tsx
+globs: "*.tsx"
 alwaysApply: false
 ---
 
