@@ -59,6 +59,8 @@ import scenario
 import uuid
 
 class CrewAIAgentAdapter(scenario.AgentAdapter):
+    name = "CrewAIAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         context = {"thread_id": input.thread_id or str(uuid.uuid4())}
         response_content = await call_crew(

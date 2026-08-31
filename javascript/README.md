@@ -37,6 +37,7 @@ import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 // 1. Create an adapter for your agent
 const echoAgent: AgentAdapter = {
+  name: "EchoAgent",
   role: AgentRole.AGENT,
   call: async (input) => {
     // This agent simply echoes back the last message content
@@ -94,6 +95,7 @@ describe("Weather Agent", () => {
 
     // 2. Create an adapter for your agent
     const weatherAgent: AgentAdapter = {
+      name: "WeatherAgent",
       role: AgentRole.AGENT,
       call: async (input) => {
         const response = await generateText({
@@ -193,10 +195,16 @@ Agents are the participants in a scenario. They are defined by the `AgentAdapter
 
 ```typescript
 export interface AgentAdapter {
+  name?: string; // Shown by LangWatch as the target of the run
   role: AgentRole; // USER, AGENT, or JUDGE
   call: (input: AgentInput) => Promise<AgentReturnTypes>;
 }
 ```
+
+Each run reports its agents to LangWatch. LangWatch shows the name of the agent as
+the target of the run. When you set no name, the framework uses the class name of
+the adapter. An adapter written as a plain object has no class name of its own, so
+set a name there to see the agent as the target of the run.
 
 Scenario provides built-in agents for common testing needs:
 
