@@ -29,7 +29,7 @@
     "@types/three": "0.181.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
-    "lucide-react": "1.31.0",
+    "lucide-react": "1.35.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "3.6.0",

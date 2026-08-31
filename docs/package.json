@@ -17,10 +17,10 @@
   "dependencies": {
     "@radix-ui/react-tabs": "^1.1.21",
     "@tailwindcss/vite": "^4.3.3",
-    "lucide-react": "^1.31.0",
+    "lucide-react": "^1.35.0",
     "react": "latest",
     "react-dom": "latest",
-    "react-router": "^8.3.0",
+    "react-router": "^8.3.1",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.3.3",
     "vocs": "github:langwatch/vocs#build",
