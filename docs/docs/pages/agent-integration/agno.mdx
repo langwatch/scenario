@@ -39,6 +39,8 @@ Integrate with Scenario as follows:
 
 ```python
 class Agent(scenario.AgentAdapter):
+    name = "AgnoAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         result = agent.run(
             input.last_new_user_message_str(), session_id=input.thread_id
@@ -55,6 +57,8 @@ import scenario
 from agno.models.openai import OpenAIChat
 
 class AgnoAgentAdapter(scenario.AgentAdapter):
+    name = "AgnoAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Get the current message count to identify new messages
         current_messages_count = len(

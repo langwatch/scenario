@@ -8,7 +8,11 @@ the backend, and provides a single import location for event models.
 If you need to add custom logic or helpers, you can extend or wrap these models here.
 """
 
+from dataclasses import dataclass
 from typing import Union, Any, Optional, TypeAlias
+
+from attrs import define as _attrs_define
+
 from scenario._generated.langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
     PostApiScenarioEventsBodyType0Metadata,
@@ -18,10 +22,54 @@ from scenario._generated.langwatch_api_client.lang_watch_api_client.models impor
     PostApiScenarioEventsBodyType1Status,
     PostApiScenarioEventsBodyType2,
 )
+from scenario._generated.langwatch_api_client.lang_watch_api_client.types import (
+    UNSET,
+    Unset,
+)
 from .messages import MessageType
 
-# Create alias for cleaner naming
-ScenarioRunStartedEventMetadata: TypeAlias = PostApiScenarioEventsBodyType0Metadata
+
+@dataclass(frozen=True)
+class ScenarioRunStartedEventAgent:
+    """
+    One agent that takes part in a scenario run.
+
+    Args:
+        name (str): The adapter's explicit name, or its class name when it sets none
+        role (str): The adapter's role in lower case: "agent", "user" or "judge"
+    """
+
+    name: str
+    role: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "role": self.role}
+
+
+@_attrs_define
+class ScenarioRunStartedEventMetadata(PostApiScenarioEventsBodyType0Metadata):
+    """
+    Metadata of a scenario run, extended with the agents that the run uses.
+
+    The generated model carries `name` and `description`. `agents` is added here
+    because the generated client is not regenerated for this field. It stays a
+    top level key next to `name` and `description`, and it never goes into the
+    `langwatch` key, which the platform reserves for itself.
+
+    Args:
+        agents (Union[Unset, list[ScenarioRunStartedEventAgent]]): The agents of the
+            run, in the order in which the scenario lists them
+    """
+
+    agents: Union[Unset, list[ScenarioRunStartedEventAgent]] = UNSET
+
+    def to_dict(self) -> dict[str, Any]:
+        field_dict = super().to_dict()
+        if not isinstance(self.agents, Unset):
+            field_dict["agents"] = [agent.to_dict() for agent in self.agents]
+        return field_dict
+
+
 ScenarioRunFinishedEventResults: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0
 ScenarioRunFinishedEventVerdict: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0Verdict
 ScenarioRunFinishedEventStatus: TypeAlias = PostApiScenarioEventsBodyType1Status
@@ -152,6 +200,7 @@ ScenarioEvent = Union[
 __all__ = [
     "ScenarioEvent",
     "ScenarioRunStartedEvent",
+    "ScenarioRunStartedEventAgent",
     "ScenarioRunStartedEventMetadata",
     "ScenarioRunFinishedEvent",
     "ScenarioRunFinishedEventResults",

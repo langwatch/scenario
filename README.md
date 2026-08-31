@@ -122,6 +122,8 @@ scenario.configure(default_model="openai/gpt-4.1-mini")
 @pytest.mark.asyncio
 async def test_vegetarian_recipe_agent():
     class Agent(scenario.AgentAdapter):
+        name = "VegetarianRecipeAgent"
+
         async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
             return vegetarian_recipe_agent(input.messages)
 
@@ -191,6 +193,7 @@ import { describe, it, expect } from "vitest";
 
 describe("Vegetarian Recipe Agent", () => {
   const agent: AgentAdapter = {
+    name: "VegetarianRecipeAgent",
     role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
