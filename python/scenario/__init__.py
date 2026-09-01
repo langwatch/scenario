@@ -114,6 +114,7 @@ from ._tracing.live import RealtimeLangWatchSession as realtime_langwatch_sessio
 from .scenario_executor import run, arun
 from .scenario_state import ScenarioState
 from .agent_adapter import AgentAdapter
+from .connected_agent import ConnectedAgentAdapter, ConnectedAgentCall
 from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
@@ -260,6 +261,8 @@ __all__ = [
     # Classes
     "ScenarioState",
     "AgentAdapter",
+    "ConnectedAgentAdapter",
+    "ConnectedAgentCall",
     "UserSimulatorAgent",
     "RedTeamAgent",
     "AttackerOutput",

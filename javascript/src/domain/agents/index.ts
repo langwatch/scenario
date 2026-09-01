@@ -3,6 +3,7 @@ import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
 export * from "./types/agent-return.types";
+export * from "./connected-agent.types";
 export {
   isRealtimeUserAgent,
   isVoiceUserSim,
@@ -160,7 +161,21 @@ export abstract class AgentAdapter {
  *
  * Only a string counts as a name. A test double built by a mocking library
  * answers every property with a function, and a JavaScript caller can set any
- * value, so the type says less here than it does elsewhere.
+ * value, so the type says less here than it does elsewhere. Reading a name
+ * raises nothing, whatever the adapter carries.
+ *
+ * @param agent - The adapter that takes part in the run. Its `name` may come
+ *   from the class body, from the instance, or not at all.
+ * @returns The name to report, or `undefined` when the adapter carries no
+ *   usable name: a blank name on a plain object, or an anonymous class.
+ *
+ * @example
+ * ```ts
+ * class SupportAgent extends AgentAdapter {}
+ * resolveAgentName(new SupportAgent());              // "SupportAgent"
+ * resolveAgentName({ name: "  Support  ", ... });    // "Support"
+ * resolveAgentName({ role: AgentRole.AGENT, ... });  // undefined
+ * ```
  */
 export function resolveAgentName(agent: AgentAdapter): string | undefined {
   const explicit = nameFrom(agent.name);

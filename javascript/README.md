@@ -206,6 +206,8 @@ the target of the run. When you set no name, the framework uses the class name o
 the adapter. An adapter written as a plain object has no class name of its own, so
 set a name there to see the agent as the target of the run.
 
+A function returned by [`connectAgent`](https://langwatch.ai/docs/agent-testing/connect-your-agent) from the `langwatch` package is accepted as is: `scenario.run({ agents: [supportAgent, userSimulatorAgent(), judgeAgent({ criteria })] })` runs it as the agent under test, and `parameters: { model: "gpt-5-mini" }` on the config sets its run parameters.
+
 Scenario provides built-in agents for common testing needs:
 
 - `userSimulatorAgent(config)`: Simulates a human user, generating realistic messages based on the scenario description.

@@ -34,3 +34,7 @@ function featurePath(name: string): string {
 }
 
 export const VOICE_AGENTS_FEATURE = featurePath("voice-agents.feature");
+
+export const CONNECTED_AGENT_ADAPTER_FEATURE = featurePath(
+  "connected-agent-adapter.feature"
+);

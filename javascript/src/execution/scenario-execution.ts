@@ -8,6 +8,7 @@ import {
   ScenarioExecutionState,
   StateChangeEventType,
 } from "./scenario-execution-state";
+import { resolveAgents } from "../agents/connected-agent";
 import { getGlobalSettings } from "../config/configure";
 import {
   type ScenarioResult,
@@ -393,7 +394,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       id: config.id ?? generateScenarioId(),
       name: config.name,
       description: config.description,
-      agents: config.agents,
+      agents: resolveAgents(config.agents, config.parameters),
       script: script,
       verbose: config.verbose ?? DEFAULT_VERBOSE,
       maxTurns,

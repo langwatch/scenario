@@ -2,6 +2,10 @@ import { ModelMessage } from "ai";
 import type { AudioChunk } from "../../voice/audio-chunk";
 import type { VoiceConfig } from "../../voice/config";
 import type { VoiceEvent } from "../../voice/recording.types";
+import type {
+  ConnectedAgentFunction,
+  ConnectedAgentParameterValue,
+} from "../agents/connected-agent.types";
 import { AgentAdapter } from "../agents/index";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
@@ -41,9 +45,16 @@ export interface ScenarioConfig {
   description: string;
 
   /**
-   * The agents participating in the scenario.
+   * The agents participating in the scenario. An {@link AgentAdapter}, or
+   * the function `connectAgent` from the LangWatch SDK returns, which runs
+   * as the agent under test with no adapter.
    */
-  agents: AgentAdapter[];
+  agents: (AgentAdapter | ConnectedAgentFunction)[];
+  /**
+   * Run parameters for the connected agent functions in {@link agents}.
+   * A parameter not set here takes the default the function declares.
+   */
+  parameters?: Record<string, ConnectedAgentParameterValue>;
   /**
    * The script of steps to execute for the scenario.
    */
@@ -207,9 +218,11 @@ export interface ScenarioConfig {
 export interface ScenarioConfigFinal
   extends Omit<
     ScenarioConfig,
-    "id" | "script" | "threadId" | "verbose" | "maxTurns"
+    "id" | "agents" | "script" | "threadId" | "verbose" | "maxTurns"
   > {
   id: string;
+  /** Every agent as an adapter: connected agent functions are wrapped by then. */
+  agents: AgentAdapter[];
   script: ScriptStep[];
 
   verbose: boolean;
