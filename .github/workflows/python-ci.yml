@@ -86,6 +86,16 @@ jobs:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
+
+    # `pull-requests: write` is what lets the examples gate say on the pull
+    # request that the suite did not run. Without it the tolerated-outage case
+    # goes green and reports that fact only inside the Actions UI. Declaring a
+    # block here drops every scope not listed, so `contents: read` is restated
+    # for the checkout.
+    permissions:
+      contents: read
+      pull-requests: write
+
     strategy:
       matrix:
         python-version: ["3.12"] # Focus on primary version for performance

@@ -208,9 +208,73 @@ PYINNER
 )
 
 echo ""
+echo "=== The job running the gate can write to the pull request ==="
+# The gate reports a tolerated outage on the pull request, because that case
+# turns a required check GREEN having run nothing and the log and run summary
+# both live behind a click in the Actions UI. Posting needs
+# `pull-requests: write`, which is not in the default token scope. Missing, the
+# comment silently never appears: the reporter is deliberately fail-open, so
+# nothing goes red and the only evidence is a note in a log nobody opens. That
+# is the same "looks wired, answers nothing" shape as an undeclared filter key,
+# which is why it is checked here rather than trusted.
+while IFS='|' read -r wf verdict detail; do
+  [ -z "$wf" ] && continue
+  case "$verdict" in
+    ok) pass "$wf grants pull-requests: write to the job that runs the gate" ;;
+    *) fail "$wf: $detail" ;;
+  esac
+done < <(python3 - "$REPO_ROOT" <<'PYPERM'
+import pathlib
+import sys
+
+import yaml
+
+root = pathlib.Path(sys.argv[1])
+
+
+def granted(scope, doc, job):
+    """Whether `job` ends up with `scope: write`, workflow default included."""
+    for level in (job, doc):
+        permissions = level.get("permissions")
+        if permissions is None:
+            continue
+        if permissions == "write-all":
+            return True
+        if permissions in ("read-all", {}):
+            return False
+        if isinstance(permissions, dict):
+            # A block is exhaustive: a scope it omits is dropped, not inherited.
+            return permissions.get(scope) == "write"
+    return False
+
+
+for name in ("python-ci.yml", "javascript-ci.yml"):
+    wf = root / ".github/workflows" / name
+    doc = yaml.safe_load(wf.read_text())
+    running = [
+        (job_name, job)
+        for job_name, job in doc["jobs"].items()
+        for step in (job.get("steps") or [])
+        if "examples-suite-gate.sh" in (step.get("run") or "")
+    ]
+    if not running:
+        print(f"{name}|missing|no job runs examples-suite-gate.sh, so this check is scanning nothing")
+        continue
+    ungranted = [job_name for job_name, job in running if not granted("pull-requests", doc, job)]
+    if ungranted:
+        print(
+            f"{name}|noperm|job '{ungranted[0]}' runs the gate without pull-requests: write, "
+            f"so a tolerated outage reports itself only inside the Actions UI"
+        )
+    else:
+        print(f"{name}|ok|")
+PYPERM
+)
+
+echo ""
 # A validator that finds nothing to check prints the same closing line as one
 # that checked everything.
-EXPECTED_MIN=10
+EXPECTED_MIN=12
 if [ "$CHECKS" -lt "$EXPECTED_MIN" ]; then
   echo "  FAIL: ran $CHECKS checks, expected at least $EXPECTED_MIN; this validator is scanning nothing"
   FAIL=1
