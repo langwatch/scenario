@@ -267,8 +267,17 @@ type BargeInInternals = {
  * A live entry is the precondition the substep runs under: its sole caller
  * dispatches the AGENT first, so `done` is false unless the bot beat the TTS.
  */
-function liveEntry(done = false) {
-  return { promise: Promise.resolve(), done, error: null };
+function liveEntry() {
+  return { promise: Promise.resolve(), done: false, error: null };
+}
+
+/** A promise whose settling the test controls, to pin an ordering. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
 }
 
 /** A voice user simulator whose TTS outcome the test decides. */
@@ -362,21 +371,36 @@ describe("prepareAndFireBargeIn (substep 4)", () => {
     expect(inner.interruptBargeInDelayMs).toBeUndefined();
   });
 
-  it("skips the barge-in when the bot finished before the phrase was voiced", async () => {
+  it("skips the barge-in when the bot finishes while the phrase is being voiced", async () => {
     const { exec, inner, fired } = makeBargeInExec();
     exec.interruptOverrides = { rng: () => 0 };
     const config = new InterruptionConfig({
       strategy: "random_phrase",
       delayRange: [2, 2],
     });
+    // Live when the substep starts, which is what its sole caller guarantees.
+    const entry = liveEntry();
 
-    const result = await inner.prepareAndFireBargeIn(
-      config,
-      simThat({ voiced }),
-      liveEntry(true),
-    );
+    const ttsStarted = deferred<void>();
+    const ttsFinishes = deferred<void>();
+    const sim = {
+      voice: "alloy",
+      async voiceifyText(): Promise<ModelMessage> {
+        ttsStarted.resolve();
+        await ttsFinishes.promise;
+        return voiced;
+      },
+    };
 
-    expect(result).toBe(true);
+    const pending = inner.prepareAndFireBargeIn(config, sim, entry);
+    await ttsStarted.promise;
+    // The bot finishing DURING the TTS call is the situation the check exists
+    // for, and the ordering is the whole of it: a check that ran before the
+    // phrase was voiced would have seen a live entry and barged in anyway.
+    entry.done = true;
+    ttsFinishes.resolve();
+
+    await expect(pending).resolves.toBe(true);
     expect(fired).toEqual([]);
   });
 
