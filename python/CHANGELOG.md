@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.4.0](https://github.com/langwatch/scenario/compare/python/v1.3.0...python/v1.4.0) (2026-09-01)
+
+
+### Features
+
+* agent adapters carry a name and runs report their agents ([#952](https://github.com/langwatch/scenario/issues/952)) ([6df4e12](https://github.com/langwatch/scenario/commit/6df4e1296f23079e70a1ea7c40dd0877bbd15d7a))
+* scenario.run accepts a connected agent function ([#954](https://github.com/langwatch/scenario/issues/954)) ([5cb7758](https://github.com/langwatch/scenario/commit/5cb7758a1197a7e97e023257e68608a86d05b968))
+* **voice:** let the python realtime adapters mint through a voice gateway ([#938](https://github.com/langwatch/scenario/issues/938)) ([0545b34](https://github.com/langwatch/scenario/commit/0545b34eb691ad3ce07583aaaa773440bb47d27c))
+
+
+### Miscellaneous
+
+* **audio-examples:** bring the fourth sibling into the shared judge criteria ([#682](https://github.com/langwatch/scenario/issues/682)) ([#936](https://github.com/langwatch/scenario/issues/936)) ([5e1bd79](https://github.com/langwatch/scenario/commit/5e1bd79fff5ce5733dd60db915bf2a91a552c861))
+* **deps:** bump opentelemetry-sdk ([84b4fac](https://github.com/langwatch/scenario/commit/84b4fac1598504ba817366c6ad55b006fc6a8564))
+* **deps:** bump opentelemetry-sdk from 1.42.0 to 1.44.0 in /python in the opentelemetry group across 1 directory ([#801](https://github.com/langwatch/scenario/issues/801)) ([84b4fac](https://github.com/langwatch/scenario/commit/84b4fac1598504ba817366c6ad55b006fc6a8564))
+* **deps:** bump rich from 14.3.4 to 15.0.0 in /python ([#808](https://github.com/langwatch/scenario/issues/808)) ([8d90cf4](https://github.com/langwatch/scenario/commit/8d90cf4734a6c3ea985df38fc940ed0cd17835d7))
+
 ## [1.3.0](https://github.com/langwatch/scenario/compare/python/v1.2.0...python/v1.3.0) (2026-08-18)
 
 
