@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.5.0](https://github.com/langwatch/scenario/compare/javascript/v1.4.0...javascript/v1.5.0) (2026-09-01)
+
+
+### Features
+
+* agent adapters carry a name and runs report their agents ([#952](https://github.com/langwatch/scenario/issues/952)) ([6df4e12](https://github.com/langwatch/scenario/commit/6df4e1296f23079e70a1ea7c40dd0877bbd15d7a))
+* scenario.run accepts a connected agent function ([#954](https://github.com/langwatch/scenario/issues/954)) ([5cb7758](https://github.com/langwatch/scenario/commit/5cb7758a1197a7e97e023257e68608a86d05b968))
+
+
+### Miscellaneous
+
+* **audio-examples:** bring the fourth sibling into the shared judge criteria ([#682](https://github.com/langwatch/scenario/issues/682)) ([#936](https://github.com/langwatch/scenario/issues/936)) ([5e1bd79](https://github.com/langwatch/scenario/commit/5e1bd79fff5ce5733dd60db915bf2a91a552c861))
+
+
+### Code Refactoring
+
+* **voice:** one constructor for a background agent turn ([#576](https://github.com/langwatch/scenario/issues/576)) ([#949](https://github.com/langwatch/scenario/issues/949)) ([52006f0](https://github.com/langwatch/scenario/commit/52006f08e3faa76f50ea5e2bcfc0674fc19c104e))
+
 ## [1.4.0](https://github.com/langwatch/scenario/compare/javascript/v1.3.0...javascript/v1.4.0) (2026-08-26)
 
 
