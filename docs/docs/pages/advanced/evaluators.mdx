@@ -1,0 +1,135 @@
+---
+title: Evaluators on Scenarios
+description: Attach LangWatch evaluators to a scenario run from code. Evaluators read the conversation, the scenario fields and the trace, gate the run when a required one fails, and report their results next to the judge verdict in LangWatch.
+---
+
+# Evaluators on Scenarios [Structured checks next to the judge verdict]
+
+The judge reads the transcript and the trace and decides against your criteria. Some checks do not fit that shape. A golden SQL query compared to the one the agent ran, a table schema the query has to respect, a deterministic exact match, or a judge you already saved on the platform and want to reuse across scenarios. Evaluators cover these.
+
+An evaluator runs once the scenario has a verdict. It reads its inputs from three sources: the conversation, the scenario definition (its description, its criteria, and any field you pass), and the trace of the run (a tool call or the retrieved contexts). The result lands on `result.evaluations` and on the run in LangWatch.
+
+## Attach evaluators to a run
+
+Pass `fields` and `evaluators` to `run`. A field is a value the scenario carries next to its description. An evaluator names a built-in type such as `ragas/sql_query_equivalence`, or a saved evaluator as `evaluators/<slug>`, the same reference the LangWatch evaluate endpoint accepts.
+
+:::code-group
+
+```python [python]
+result = await scenario.run(
+    name="chargeback totals by quarter",
+    description="A fraud analyst asks for chargebacks per quarter for merchant ACME Travel.",
+    agents=[MyAgent(), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
+    fields={
+        "golden_sql": "SELECT quarter, count(*) FROM chargebacks WHERE merchant = 'ACME Travel' GROUP BY 1",
+        "table_schema": "CREATE TABLE chargebacks (id text, merchant text, quarter text)",
+    },
+    evaluators=[
+        scenario.evaluator(
+            "ragas/sql_query_equivalence",
+            required=True,
+            mappings={
+                "output": scenario.trace.tool_call("run_sql").input,
+                "expected_output": scenario.field("golden_sql"),
+                "expected_contexts": scenario.field("table_schema"),
+            },
+        ),
+        scenario.evaluator("evaluators/answer-quality-judge"),
+    ],
+)
+
+assert result.success
+for evaluation in result.evaluations:
+    print(evaluation.name, evaluation.status, evaluation.details)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "chargeback totals by quarter",
+  description: "A fraud analyst asks for chargebacks per quarter for merchant ACME Travel.",
+  agents: [myAgent, scenario.userSimulatorAgent(), scenario.judgeAgent({ criteria: [...] })],
+  fields: {
+    golden_sql: "SELECT quarter, count(*) FROM chargebacks WHERE merchant = 'ACME Travel' GROUP BY 1",
+    table_schema: "CREATE TABLE chargebacks (id text, merchant text, quarter text)",
+  },
+  evaluators: [
+    scenario.evaluator("ragas/sql_query_equivalence", {
+      required: true,
+      mappings: {
+        output: scenario.trace.toolCall("run_sql").input,
+        expected_output: scenario.field("golden_sql"),
+        expected_contexts: scenario.field("table_schema"),
+      },
+    }),
+    scenario.evaluator("evaluators/answer-quality-judge"),
+  ],
+});
+
+expect(result.success).toBe(true);
+for (const evaluation of result.evaluations ?? []) {
+  console.log(evaluation.name, evaluation.status, evaluation.details);
+}
+```
+
+:::
+
+Evaluators run through the LangWatch API, so the run needs `LANGWATCH_API_KEY` and `LANGWATCH_ENDPOINT` (or the `langwatch` config of the run). They run in parallel, after the judge verdict or the last script step.
+
+## Mappings
+
+A mapping says where one evaluator input reads from. The helpers build the same shape the platform stores on a test suite.
+
+| Helper | Reads |
+| --- | --- |
+| `conversation.first_user_message` / `conversation.firstUserMessage` | The first message the simulated user sent |
+| `conversation.last_agent_message` / `conversation.lastAgentMessage` | The last message the agent under test sent |
+| `conversation.transcript` | The whole conversation as `role: content` lines |
+| `conversation.messages` | The whole conversation as a JSON list of messages |
+| `scenario_source.situation` / `scenarioSource.situation` | The scenario description |
+| `scenario_source.criteria` / `scenarioSource.criteria` | The judge criteria, one per line |
+| `field("name")` | One field of the scenario |
+| `trace.tool_call("name").input` / `trace.toolCall("name").input` | The arguments of the last call to that tool |
+| `trace.tool_call("name").output` / `trace.toolCall("name").output` | The result of the last call to that tool |
+| `trace.contexts` | The contexts retrieved by the agent |
+| `value("literal")` | A literal |
+
+Tool calls come from the messages the agent adapter returns (the `tool_calls` of an assistant message, or the `tool-call` parts of a message) or from the tool spans of the trace. Contexts come from the trace. When neither the messages nor the spans collected during the run hold what a trace mapping asks for, the run fetches its remote traces from LangWatch once, waiting the `trace_wait_timeout` / `traceWaitTimeoutMs` budget, the same way the [judge does](/advanced/remote-traces).
+
+## Inference
+
+An input without a mapping is inferred from its name, with the rules the platform applies:
+
+- `input`, `question`, `user_input` read the first user message.
+- `output`, `response`, `answer` read the last agent message.
+- `transcript`, `conversation`, `messages` read the transcript.
+- `contexts`, `retrieved_contexts` read the retrieved contexts of the trace.
+- An expected-like input (`expected_output`, `expected_contexts`, `golden`, `reference`, `ground_truth`) reads the one field whose name shares a word with it. `expected_output` accepts a field named with `expected`, `golden`, `reference`, `answer`, `sql`, `query`, `label` or `target`; `expected_contexts` accepts `schema`, `context` or `table`. With one field only, every expected-like input reads it. With several candidates the input stays unmapped and the evaluator reports an error asking for a mapping.
+- A tool call is never inferred. Map it with `trace.tool_call(...)`.
+
+An explicit mapping always wins over inference. The list of inputs an evaluator takes comes from LangWatch.
+
+## Required evaluators and scores
+
+An evaluator that answers pass or fail is required by default: when it fails, the scenario fails and the reason joins `result.reasoning`. Pass `required=False` (`required: false`) to keep it as a report next to the verdict.
+
+A score-only evaluator never fails the scenario, whatever `required` says. Its score reports beside the verdict.
+
+## Statuses
+
+Every evaluator produces one result with a status:
+
+| Status | Meaning |
+| --- | --- |
+| `passed` | The evaluator answered pass |
+| `failed` | The evaluator answered fail, or a tool call or the contexts the mapping asked for are not in the trace (`details` says which) |
+| `scored` | The evaluator answered a score or a label and no verdict |
+| `skipped` | A field the mapping reads is blank on this scenario (`details` says which), or the evaluator declined the input |
+| `error` | The evaluator could not run: unknown evaluator, a required input without a mapping, or a failure of the evaluate call (`details` carries the error) |
+
+Each result also carries `evaluator_id` (`evaluatorId`), `name`, `required`, `passed`, `score`, `label`, `details`, `cost` and `inputs`, the resolved input values cut to 2000 characters.
+
+## Results in LangWatch
+
+The run finished event carries the evaluations with the verdict, so the agent testing results in LangWatch show one row per evaluator under the criteria: its status, whether it was required, its verdict or score and its details. A failed required evaluator names itself in the verdict line. Each evaluation is also recorded on the trace of the last turn.
+
+Test suites defined on the platform carry their own fields and evaluators. When the platform runs a scenario, it runs those evaluators server-side with the same mappings and inference rules. When a scenario run from code sends its own evaluations, the platform stores them as they are and does not run them again.
