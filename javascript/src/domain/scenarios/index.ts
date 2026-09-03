@@ -7,6 +7,7 @@ import type {
   ConnectedAgentParameterValue,
 } from "../agents/connected-agent.types";
 import { AgentAdapter } from "../agents/index";
+import type { ScenarioEvaluator, ScenarioFieldValue } from "../core/evaluations";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
 export const DEFAULT_MAX_TURNS = 10;
@@ -59,6 +60,20 @@ export interface ScenarioConfig {
    * The script of steps to execute for the scenario.
    */
   script?: ScriptStep[];
+
+  /**
+   * Values the scenario carries next to its description, keyed by field
+   * name, for example a golden SQL query or a table schema. Evaluator
+   * inputs read them through `scenario.field(name)` or by inference.
+   */
+  fields?: Record<string, ScenarioFieldValue>;
+
+  /**
+   * LangWatch evaluators to run once the scenario has a verdict. Their
+   * results land on {@link ScenarioResult.evaluations} and on the run in
+   * LangWatch; a required evaluator that fails fails the scenario.
+   */
+  evaluators?: ScenarioEvaluator[];
 
   /**
    * Whether to output verbose logging.

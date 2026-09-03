@@ -9,7 +9,9 @@ import {
   StateChangeEventType,
 } from "./scenario-execution-state";
 import { resolveAgents } from "../agents/connected-agent";
+import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getGlobalSettings } from "../config/configure";
+import { getProjectConfig } from "../config/get-project-config";
 import {
   type ScenarioResult,
   type ScenarioConfig,
@@ -24,6 +26,7 @@ import {
   ScenarioExecutionStateLike,
   ScenarioConfigFinal,
   DEFAULT_MAX_TURNS,
+  DEFAULT_TRACE_WAIT_TIMEOUT_MS,
   DEFAULT_VERBOSE,
   resolveAgentName,
 } from "../domain";
@@ -35,6 +38,12 @@ import {
   type VoiceUserSimulator,
 } from "../domain/agents/agent-shapes";
 import {
+  applyEvaluationsToResult,
+  EvaluationsApiClient,
+  resolveEvaluationsApiAuth,
+  runScenarioEvaluators,
+} from "../evaluators";
+import {
   ScenarioEvent,
   ScenarioEventType,
   ScenarioMessageSnapshotEvent,
@@ -44,6 +53,10 @@ import {
   Verdict,
 } from "../events/schema";
 import { buildPropagationHeaders } from "../tracing/propagation";
+import {
+  collectMessageTraceIds,
+  remoteTraceFetcher,
+} from "../tracing/remote-trace-fetcher";
 import {
   ATTR_SCENARIO_SDK_NAME,
   ATTR_SCENARIO_SDK_VERSION,
@@ -418,6 +431,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       voice: config.voice,
       onAudioChunk: config.onAudioChunk,
       onVoiceEvent: config.onVoiceEvent,
+      // Evaluators run once the run has a verdict; the fields are what their
+      // scenario mappings read.
+      fields: config.fields,
+      evaluators: config.evaluators,
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
@@ -683,15 +700,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           const cp = this.compiledCheckpoints;
           this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
 
-          this.emitRunFinished({
-            scenarioRunId,
-            status: this.result.success
-              ? ScenarioRunStatus.SUCCESS
-              : ScenarioRunStatus.FAILED,
-            result: this.result,
-          });
-
-          return this.result;
+          return this.finishRun({ scenarioRunId, result: this.result });
         }
 
       }
@@ -723,13 +732,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           unmetCriteria: cp.unmetCriteria,
         });
 
-        this.emitRunFinished({
-          scenarioRunId,
-          status: result.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
-          result,
-        });
-
-        return result;
+        return this.finishRun({ scenarioRunId, result });
       }
 
       const result = this.reachedMaxTurns(
@@ -741,13 +744,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         ].join("\n")
       );
 
-      this.emitRunFinished({
-        scenarioRunId,
-        status: result.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
-        result,
-      });
-
-      return result;
+      return await this.finishRun({ scenarioRunId, result });
     } catch (error) {
       if (checkFailure) {
         // Already handled above — just propagate
@@ -2661,6 +2658,92 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
+   * Concludes a run that reached a verdict: runs the scenario's evaluators
+   * over the final state, applies their gate to the result, then emits the
+   * run finished event. Runs that ended in an error skip the evaluators.
+   */
+  private async finishRun({
+    scenarioRunId,
+    result,
+  }: {
+    scenarioRunId: string;
+    result: ScenarioResult;
+  }): Promise<ScenarioResult> {
+    let finalResult = result;
+    if (this.config.evaluators && this.config.evaluators.length > 0) {
+      const evaluations = await this.runEvaluators();
+      finalResult = applyEvaluationsToResult({ result, evaluations });
+      this._result = finalResult;
+      if (this.config.verbose) {
+        for (const evaluation of evaluations) {
+          console.log(
+            `Evaluator ${evaluation.name}: ${evaluation.status}${evaluation.details ? ` (${evaluation.details})` : ""}`
+          );
+        }
+      }
+    }
+
+    this.emitRunFinished({
+      scenarioRunId,
+      status: finalResult.success
+        ? ScenarioRunStatus.SUCCESS
+        : ScenarioRunStatus.FAILED,
+      result: finalResult,
+    });
+    return finalResult;
+  }
+
+  /**
+   * Runs the evaluators against the run state. Tool calls and contexts come
+   * from the messages and the spans already collected; when a trace mapping
+   * finds nothing there, the remote traces of the run are fetched once,
+   * waiting the same budget the judge uses.
+   */
+  private async runEvaluators() {
+    const auth = resolveEvaluationsApiAuth(this.config.langwatch);
+    const api = new EvaluationsApiClient(auth);
+    const threadId = this.config.threadId;
+    const messages = this.state.messages;
+    const criteria = this.agents.flatMap((agent) =>
+      agent instanceof JudgeAgentAdapter ? agent.criteria ?? [] : []
+    );
+    const traceIds = collectMessageTraceIds(messages);
+    const lastTraceId = traceIds.at(-1);
+
+    const fetchRemoteTraces = async () => {
+      if (traceIds.length === 0 || !auth.apiKey) return;
+      const projectConfig = await getProjectConfig();
+      await remoteTraceFetcher.settleWait({
+        threadId,
+        traceIds,
+        collector: judgeSpanCollector,
+        langwatch: this.config.langwatch,
+        timeoutMs:
+          this.config.traceWaitTimeoutMs ??
+          projectConfig?.traceWaitTimeoutMs ??
+          DEFAULT_TRACE_WAIT_TIMEOUT_MS,
+      });
+    };
+
+    return runScenarioEvaluators({
+      evaluators: this.config.evaluators ?? [],
+      context: {
+        messages,
+        description: this.config.description,
+        criteria,
+        fields: this.config.fields ?? {},
+      },
+      traceId: lastTraceId,
+      deps: {
+        getEvaluatorSpec: (ref) => api.getEvaluatorSpec(ref),
+        evaluate: (args) => api.evaluate(args),
+        getSpans: () => judgeSpanCollector.getSpansForThread(threadId),
+        fetchRemoteTraces,
+      },
+    });
+  }
+
+  /**
    * Emits a run finished event with the final execution status.
    */
   private emitRunFinished({
@@ -2682,6 +2765,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         unmetCriteria: result?.unmetCriteria ?? [],
         reasoning: result?.reasoning,
         error: result?.error,
+        ...(result?.evaluations ? { evaluations: result.evaluations } : {}),
       },
     };
 

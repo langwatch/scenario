@@ -10,6 +10,7 @@ import type {
   VoiceRecording,
 } from "../../voice/recording.types";
 import type { ScenarioConfig } from "../scenarios";
+import type { EvaluationResult } from "./evaluations";
 
 /**
  * Represents the result of a scenario execution.
@@ -60,6 +61,12 @@ export interface ScenarioResult {
    * An optional error message if the scenario failed due to an error.
    */
   error?: string;
+
+  /**
+   * One result per evaluator attached to the run. Present only when the
+   * scenario declared evaluators.
+   */
+  evaluations?: EvaluationResult[];
 
   /**
    * Voice-only: the full audio record of the conversation, segmented by
