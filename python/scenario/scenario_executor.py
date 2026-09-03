@@ -62,6 +62,16 @@ from .types import (
     ScriptStep,
 )
 from ._error_messages import agent_response_not_awaitable
+from ._evaluators import (
+    EvaluationsApiClient,
+    EvaluatorInputContext,
+    RunEvaluatorsDeps,
+    apply_evaluations_to_result,
+    distinct_message_trace_ids,
+    resolve_evaluations_api_auth,
+    run_scenario_evaluators,
+)
+from .evaluators import EvaluationResult, ScenarioEvaluator
 from .cache import context_scenario
 from .agent_adapter import AgentAdapter, resolve_agent_name
 from .connected_agent import AgentLike, resolve_agents
@@ -197,6 +207,8 @@ class ScenarioExecutor:
         on_audio_chunk: Optional[Callable[[Any], None]] = None,
         on_voice_event: Optional[Callable[[Any], None]] = None,
         audio_playback: bool = False,
+        fields: Optional[Dict[str, Any]] = None,
+        evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
     ):
         """
         Initialize a scenario executor.
@@ -236,12 +248,20 @@ class ScenarioExecutor:
             metadata: Optional metadata to attach to the scenario run.
                      Accepts arbitrary key-value pairs. The ``langwatch`` key
                      is reserved for platform-internal use.
+            fields: Values the scenario carries next to its description,
+                     keyed by field name. Evaluator inputs read them through
+                     ``scenario.field(name)`` or by inference.
+            evaluators: LangWatch evaluators to run once the scenario has a
+                     verdict. A required evaluator that fails fails the
+                     scenario; results land on ``ScenarioResult.evaluations``.
         """
         self.name = name
         self.description = description
         self.agents = resolve_agents(agents, parameters)
         self.script = script or [proceed()]
         self.metadata = metadata
+        self.fields: Dict[str, Any] = dict(fields or {})
+        self.evaluators: List[ScenarioEvaluator] = list(evaluators or [])
         self._on_audio_chunk = on_audio_chunk
         self._on_voice_event = on_voice_event
         self._audio_playback = audio_playback
@@ -704,8 +724,7 @@ class ScenarioExecutor:
                             "voice harvest failed on script-result path; returning result without voice fields",
                             exc_info=True,
                         )
-                    self._emit_run_finished_event(scenario_run_id, result, status)
-                    return result
+                    return await self._finish_run(scenario_run_id, result)
 
             if _check_failure is not None:
                 compiled_passed, compiled_failed = self._compiled_checkpoints
@@ -768,13 +787,7 @@ class ScenarioExecutor:
                         exc_info=True,
                     )
 
-                status = (
-                    ScenarioRunFinishedEventStatus.SUCCESS
-                    if result.success
-                    else ScenarioRunFinishedEventStatus.FAILED
-                )
-                self._emit_run_finished_event(scenario_run_id, result, status)
-                return result
+                return await self._finish_run(scenario_run_id, result)
             else:
                 result = self._reached_max_turns(
                     """Reached end of script without conclusion, add one of the following:
@@ -785,13 +798,7 @@ class ScenarioExecutor:
                     """
                 )
 
-                status = (
-                    ScenarioRunFinishedEventStatus.SUCCESS
-                    if result.success
-                    else ScenarioRunFinishedEventStatus.FAILED
-                )
-                self._emit_run_finished_event(scenario_run_id, result, status)
-                return result
+                return await self._finish_run(scenario_run_id, result)
 
         except Exception as e:
             if _check_failure is not None:
@@ -824,6 +831,82 @@ class ScenarioExecutor:
             raise  # Re-raise the exception after cleanup
         finally:
             await self._voice_disconnect_all()
+
+    async def _finish_run(
+        self, scenario_run_id: str, result: ScenarioResult
+    ) -> ScenarioResult:
+        """
+        Concludes a run that reached a verdict: runs the scenario's
+        evaluators over the final state, applies their gate to the result,
+        then emits the run finished event. Runs that ended in an error skip
+        the evaluators.
+        """
+        if self.evaluators:
+            evaluations = await self._run_evaluators()
+            result = apply_evaluations_to_result(result=result, evaluations=evaluations)
+            if self.config.verbose:
+                for evaluation in evaluations:
+                    details = f" ({evaluation.details})" if evaluation.details else ""
+                    print(f"Evaluator {evaluation.name}: {evaluation.status}{details}")
+
+        status = (
+            ScenarioRunFinishedEventStatus.SUCCESS
+            if result.success
+            else ScenarioRunFinishedEventStatus.FAILED
+        )
+        self._emit_run_finished_event(scenario_run_id, result, status)
+        return result
+
+    async def _run_evaluators(self) -> List[EvaluationResult]:
+        """
+        Runs the evaluators against the run state. Tool calls and contexts
+        come from the messages and the spans already collected; when a trace
+        mapping finds nothing there, the remote traces of the run are fetched
+        once, waiting the same budget the judge uses.
+        """
+        from ._tracing import judge_span_collector, remote_trace_fetcher
+        from ._tracing.remote_trace_fetcher import DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS
+        from .judge_agent import JudgeAgent
+
+        auth = resolve_evaluations_api_auth()
+        api = EvaluationsApiClient(auth)
+        thread_id = self._state.thread_id
+        messages = list(self._state.messages)
+        criteria = [
+            criterion
+            for agent in self.agents
+            if isinstance(agent, JudgeAgent)
+            for criterion in (agent.criteria or [])
+        ]
+        trace_ids = distinct_message_trace_ids(messages)
+
+        async def fetch_remote_traces() -> None:
+            if not trace_ids or not auth.api_key:
+                return
+            await remote_trace_fetcher.settle_traces(
+                thread_id=thread_id,
+                trace_ids=trace_ids,
+                collector=judge_span_collector,
+                timeout=self.config.trace_wait_timeout
+                or DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS,
+            )
+
+        return await run_scenario_evaluators(
+            evaluators=self.evaluators,
+            context=EvaluatorInputContext(
+                messages=messages,
+                description=self.description,
+                criteria=criteria,
+                fields=self.fields,
+            ),
+            trace_id=trace_ids[-1] if trace_ids else None,
+            deps=RunEvaluatorsDeps(
+                get_evaluator_spec=api.get_evaluator_spec,
+                evaluate=api.evaluate,
+                get_spans=lambda: judge_span_collector.get_spans_for_thread(thread_id),
+                fetch_remote_traces=fetch_remote_traces,
+            ),
+        )
 
     async def _voice_connect_all(self) -> None:
         """Invoke ``connect()`` on every VoiceAgentAdapter in the scenario."""
@@ -1950,6 +2033,12 @@ class ScenarioExecutor:
             met_criteria=result.passed_criteria,
             unmet_criteria=result.failed_criteria,
         )
+        # Sent only when the run ran evaluators: an absent key is what lets a
+        # platform-run scenario evaluate server-side.
+        if self.evaluators:
+            results.evaluations = [
+                evaluation.to_wire() for evaluation in result.evaluations
+            ]
 
         event = ScenarioRunFinishedEvent(
             **common_fields,
@@ -1982,6 +2071,8 @@ def _build_scenario(
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
     parameters: Optional[Dict[str, Any]] = None,
+    fields: Optional[Dict[str, Any]] = None,
+    evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
 ) -> "ScenarioExecutor":
     """Shared setup used by both ``run()`` (threaded) and ``arun()`` (async-native)."""
     from ._tracing import ensure_tracing_initialized
@@ -2007,6 +2098,8 @@ def _build_scenario(
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
         parameters=parameters,
+        fields=fields,
+        evaluators=evaluators,
     )
 
 
@@ -2038,6 +2131,8 @@ async def arun(
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
     parameters: Optional[Dict[str, Any]] = None,
+    fields: Optional[Dict[str, Any]] = None,
+    evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
@@ -2073,6 +2168,8 @@ async def arun(
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
         parameters=parameters,
+        fields=fields,
+        evaluators=evaluators,
     )
 
     try:
@@ -2104,6 +2201,8 @@ async def run(
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
     parameters: Optional[Dict[str, Any]] = None,
+    fields: Optional[Dict[str, Any]] = None,
+    evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -2149,6 +2248,14 @@ async def run(
                  ``agents`` (the objects ``langwatch.connect_agent``
                  returns). A parameter not set here takes the default the
                  function declares.
+        fields: Values the scenario carries next to its description, keyed
+                 by field name, for example a golden SQL query. Evaluator
+                 inputs read them through ``scenario.field(name)`` or by
+                 inference.
+        evaluators: LangWatch evaluators to run once the scenario has a
+                 verdict, built with ``scenario.evaluator(...)``. A required
+                 evaluator that fails fails the scenario; every result lands
+                 on ``result.evaluations`` and on the run in LangWatch.
 
     Returns:
         ScenarioResult containing the test outcome, conversation history,
@@ -2212,6 +2319,8 @@ async def run(
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
         parameters=parameters,
+        fields=fields,
+        evaluators=evaluators,
     )
 
     # We'll use a thread pool to run the execution logic, we

@@ -70,7 +70,31 @@ class ScenarioRunStartedEventMetadata(PostApiScenarioEventsBodyType0Metadata):
         return field_dict
 
 
-ScenarioRunFinishedEventResults: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0
+@_attrs_define
+class ScenarioRunFinishedEventResults(PostApiScenarioEventsBodyType1ResultsType0):
+    """
+    Results of a scenario run, extended with the evaluations the run itself ran.
+
+    The generated model carries the verdict, the criteria and the reasoning.
+    `evaluations` is added here because the generated client is not
+    regenerated for this field. It is sent only when the run ran evaluators:
+    the platform stores the list as it is and skips its own evaluators, so an
+    absent key is what lets a platform-run scenario evaluate server-side.
+
+    Args:
+        evaluations (Union[Unset, list[dict[str, Any]]]): One entry per
+            evaluator, in the wire shape of `results.evaluations`
+    """
+
+    evaluations: Union[Unset, list[dict[str, Any]]] = UNSET
+
+    def to_dict(self) -> dict[str, Any]:
+        field_dict = super().to_dict()
+        if not isinstance(self.evaluations, Unset):
+            field_dict["evaluations"] = list(self.evaluations)
+        return field_dict
+
+
 ScenarioRunFinishedEventVerdict: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0Verdict
 ScenarioRunFinishedEventStatus: TypeAlias = PostApiScenarioEventsBodyType1Status
 

@@ -130,6 +130,17 @@ from ._red_team import (
 )
 from .cache import scenario_cache
 from .script import message, user, agent, judge, proceed, succeed, fail
+from .evaluators import (
+    EvaluationResult,
+    EvaluatorMapping,
+    ScenarioEvaluator,
+    conversation,
+    evaluator,
+    field,
+    scenario_source,
+    trace,
+    value,
+)
 
 # Voice support (issue #350) — sits alongside the text-based script steps.
 # Per the proposal (§1): same scenario.run(), same script DSL, same judge;
@@ -205,6 +216,16 @@ __all__ = [
     "judge",
     "agent",
     "user",
+    # Evaluators on scenario runs
+    "evaluator",
+    "field",
+    "value",
+    "conversation",
+    "trace",
+    "scenario_source",
+    "EvaluationResult",
+    "EvaluatorMapping",
+    "ScenarioEvaluator",
     # Voice script steps
     "audio",
     "dtmf",
