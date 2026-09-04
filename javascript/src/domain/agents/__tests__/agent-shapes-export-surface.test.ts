@@ -93,9 +93,7 @@ describe("the agent shapes, after moving to the domain layer", () => {
    * type export from either path and this file stops compiling, which surfaces
    * the break on the branch that caused it rather than in a consumer's build.
    *
-   * The two lists differ deliberately. The `voice` barrel published two of the
-   * three types and never `UserSimulatorAgentWithVoice`, so asserting that one
-   * through `voice` would pin a surface that never existed.
+   * Both entry points carry the same two types, so both lists are the same.
    */
   describe("when the erased type exports are what a consumer depends on", () => {
     it("still types both shapes on the voice path", () => {
@@ -115,7 +113,7 @@ describe("the agent shapes, after moving to the domain layer", () => {
       expect(voice.isVoiceUserSim(sim)).toBe(true);
     });
 
-    it("still types all three shapes on the domain path, which is the canonical one", () => {
+    it("still types both shapes on the domain path, which is the canonical one", () => {
       const realtime: domainAgents.RealtimeUserAgent = {
         sendText: async () => undefined,
         speakUserTurn: async () => ({ data: new Uint8Array() }),
@@ -124,13 +122,9 @@ describe("the agent shapes, after moving to the domain layer", () => {
         voice: "alloy",
         voiceifyText: async () => ({ role: "user", content: "" }),
       };
-      // Assignable because the two are structurally the same shape. This is the
-      // duplication the ticket noticed; collapsing it is a breaking change to
-      // the published package, so it stays until a human calls it.
-      const narrowed: domainAgents.UserSimulatorAgentWithVoice = sim;
 
       expect(domainAgents.isRealtimeUserAgent(realtime)).toBe(true);
-      expect(domainAgents.isVoiceUserSim(narrowed)).toBe(true);
+      expect(domainAgents.isVoiceUserSim(sim)).toBe(true);
     });
   });
 });
