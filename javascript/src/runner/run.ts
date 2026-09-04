@@ -174,13 +174,17 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
 
     const startedAt = Date.now();
     const result = await execution.execute();
-    if (cfg.verbose && !result.success) {
+    if (!result.success) {
       console.log(`Scenario failed: ${cfg.name}`);
       console.log(`Reasoning: ${result.reasoning}`);
-      console.log("--------------------------------");
-      console.log(`Met criteria: ${result.metCriteria.join("\n- ")}`);
+      if (cfg.verbose) {
+        console.log("--------------------------------");
+        console.log(`Met criteria: ${result.metCriteria.join("\n- ")}`);
+      }
       console.log(`Unmet criteria: ${result.unmetCriteria.join("\n- ")}`);
-      console.log(result.messages.map(formatMessage).join("\n"));
+      if (cfg.verbose) {
+        console.log(result.messages.map(formatMessage).join("\n"));
+      }
     }
 
     // Auto-save red-team report when a RedTeamAgent participated.
