@@ -9,8 +9,8 @@ import {
   type ScenarioEvaluator,
 } from "../../domain";
 import { UserSimulatorAgentAdapter } from "../../domain/agents";
-import { ScenarioEventType, type ScenarioRunFinishedEvent } from "../../events";
 import { evaluator, field, trace } from "../../evaluators/mappings";
+import { ScenarioEventType, type ScenarioRunFinishedEvent } from "../../events";
 import { user, agent, judge } from "../../script";
 import { ScenarioExecution } from "../scenario-execution";
 
