@@ -278,6 +278,11 @@ class ScenarioResult(BaseModel):
     # Prevent issues with slightly inconsistent message types for example when comming from Gemini right at the result level
     messages: Annotated[List[ChatCompletionMessageParamWithTrace], SkipValidation]
     reasoning: Optional[str] = None
+    # Set when the run's verdict could not be reached for infrastructure
+    # reasons (e.g. the judge's discovery budget ran out). Consumers must
+    # treat such a result as an errored run, never as a real verdict (#888).
+    # Mirrors `ScenarioResult.error` in the JS SDK.
+    error: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
     total_time: Optional[float] = None

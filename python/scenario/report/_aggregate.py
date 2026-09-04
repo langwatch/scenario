@@ -17,6 +17,8 @@ import litellm
 from litellm import Choices
 from litellm.files.main import ModelResponse
 
+from ._risk import _status
+
 
 _AGGREGATE_PROMPT = """You are consolidating remediation recommendations across multiple red-team findings for a single AI agent.
 
@@ -47,7 +49,10 @@ def _build_findings_block(reports: list[dict]) -> str:
     lines: list[str] = []
     for r in reports:
         name = r.get("test_name", "unknown")
-        status = r.get("status") or ("held" if r.get("success") else "broke")
+        # Shared normalization (#888): without it a legacy JS "broken" report
+        # or a pre-fix early-exit run would be described to the fix-clustering
+        # model as [held], biasing the prioritized list away from it.
+        status = _status(r)
         summary = (r.get("failure_summary") or "").strip()
         suggestions = r.get("suggestions") or []
         if not suggestions:

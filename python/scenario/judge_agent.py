@@ -1982,6 +1982,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "JudgeAgent: trace discovery did not converge on a "
                     "verdict within the step budget"
                 ),
+                # Infrastructure failure, not a verdict — downstream
+                # consumers (the red-team report) file this as errored,
+                # never as a security break (#888).
+                error=(
+                    "JudgeAgent: trace discovery did not converge on a "
+                    "verdict within the step budget"
+                ),
                 passed_criteria=[],
                 failed_criteria=list(effective_criteria),
             )

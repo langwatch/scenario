@@ -692,11 +692,7 @@ class ScenarioExecutor:
                     compiled_passed, _ = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed + result.passed_criteria
 
-                    status = (
-                        ScenarioRunFinishedEventStatus.SUCCESS
-                        if result.success
-                        else ScenarioRunFinishedEventStatus.FAILED
-                    )
+                    status = _run_finished_status(result)
                     try:
                         result = self._attach_voice_output(result)
                     except Exception:
@@ -768,11 +764,7 @@ class ScenarioExecutor:
                         exc_info=True,
                     )
 
-                status = (
-                    ScenarioRunFinishedEventStatus.SUCCESS
-                    if result.success
-                    else ScenarioRunFinishedEventStatus.FAILED
-                )
+                status = _run_finished_status(result)
                 self._emit_run_finished_event(scenario_run_id, result, status)
                 return result
             else:
@@ -785,11 +777,7 @@ class ScenarioExecutor:
                     """
                 )
 
-                status = (
-                    ScenarioRunFinishedEventStatus.SUCCESS
-                    if result.success
-                    else ScenarioRunFinishedEventStatus.FAILED
-                )
+                status = _run_finished_status(result)
                 self._emit_run_finished_event(scenario_run_id, result, status)
                 return result
 
@@ -1949,6 +1937,9 @@ class ScenarioExecutor:
             reasoning=result.reasoning or "",
             met_criteria=result.passed_criteria,
             unmet_criteria=result.failed_criteria,
+            # An infrastructure failure rides the wire explicitly so the
+            # platform can file the run as errored, not failed (#888).
+            **({"error": result.error} if result.error else {}),
         )
 
         event = ScenarioRunFinishedEvent(
@@ -1961,6 +1952,24 @@ class ScenarioExecutor:
         # Signal end of event stream
         self._events.on_completed()
         self._trace.__exit__(None, None, None)
+
+
+def _run_finished_status(
+    result: "ScenarioResult",
+) -> ScenarioRunFinishedEventStatus:
+    """Terminal status for the run-finished event.
+
+    A result carrying ``error`` means the verdict could not be reached for
+    infrastructure reasons (e.g. the judge's discovery budget ran out) —
+    that is an ERROR run on the platform, never a FAILED verdict (#888).
+    """
+    if getattr(result, "error", None):
+        return ScenarioRunFinishedEventStatus.ERROR
+    return (
+        ScenarioRunFinishedEventStatus.SUCCESS
+        if result.success
+        else ScenarioRunFinishedEventStatus.FAILED
+    )
 
 
 def _build_scenario(

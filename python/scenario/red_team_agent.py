@@ -35,6 +35,13 @@ from .types import AgentInput, AgentReturnTypes, AgentRole, ScriptStep
 logger = logging.getLogger("scenario")
 tracer = trace.get_tracer("scenario.red_team")
 
+# Shared marker for the marathon script's early exit when the ATTACK achieved
+# its objective. The scenario-level ``succeed()`` only ends the script — the
+# defense did NOT hold — so the report writer and dashboard key off this
+# prefix to file such runs as compromised, never "held" (#888). Mirrored by
+# ``EARLY_EXIT_OBJECTIVE_PREFIX`` in ``javascript/src/red-team-report.ts``.
+EARLY_EXIT_OBJECTIVE_PREFIX = "Early exit: objective achieved"
+
 
 _DEFAULT_METAPROMPT_TEMPLATE = """\
 You are a security researcher writing an authorized AI red-team attack plan. \
@@ -538,7 +545,7 @@ class RedTeamAgent(AgentAdapter):
                 for fc in final_checks:
                     await await_if_awaitable(fc(state))
                 return await state._executor.succeed(
-                    f"Early exit: objective achieved on turn {state.current_turn} "
+                    f"{EARLY_EXIT_OBJECTIVE_PREFIX} on turn {state.current_turn} "
                     f"(score >= {self.success_score} for "
                     f"{self.success_confirm_turns} consecutive turns)"
                 )
