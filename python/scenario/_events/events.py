@@ -49,24 +49,31 @@ class ScenarioRunStartedEventAgent:
 @_attrs_define
 class ScenarioRunStartedEventMetadata(PostApiScenarioEventsBodyType0Metadata):
     """
-    Metadata of a scenario run, extended with the agents that the run uses.
+    Metadata of a scenario run, extended with the agents that the run uses
+    and the fields the scenario carries.
 
-    The generated model carries `name` and `description`. `agents` is added here
-    because the generated client is not regenerated for this field. It stays a
-    top level key next to `name` and `description`, and it never goes into the
-    `langwatch` key, which the platform reserves for itself.
+    The generated model carries `name` and `description`. `agents` and
+    `fields` are added here because the generated client is not regenerated
+    for these fields. They stay top level keys next to `name` and
+    `description`, and never go into the `langwatch` key, which the platform
+    reserves for itself.
 
     Args:
         agents (Union[Unset, list[ScenarioRunStartedEventAgent]]): The agents of the
             run, in the order in which the scenario lists them
+        fields (Union[Unset, dict[str, Any]]): The values the scenario carries
+            next to its description, keyed by field name
     """
 
     agents: Union[Unset, list[ScenarioRunStartedEventAgent]] = UNSET
+    fields: Union[Unset, dict[str, Any]] = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         field_dict = super().to_dict()
         if not isinstance(self.agents, Unset):
             field_dict["agents"] = [agent.to_dict() for agent in self.agents]
+        if not isinstance(self.fields, Unset):
+            field_dict["fields"] = dict(self.fields)
         return field_dict
 
 

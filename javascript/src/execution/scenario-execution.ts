@@ -443,6 +443,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // Set once here so adapters fetched via AgentInput.scenarioState can
     // find their voice fields.
     this.state.setExecutor(this);
+    this.state.setSpanProvider(() =>
+      judgeSpanCollector.getSpansForThread(this.config.threadId)
+    );
     this.preAssignedRunId = runId;
 
     // Pull voice-side hooks off the user-supplied config. They fan out
@@ -2419,6 +2422,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // so adapters reaching `input.scenarioState._executor` would see
     // `null` for the rest of the run otherwise.
     this.state.setExecutor(this);
+    this.state.setSpanProvider(() =>
+      judgeSpanCollector.getSpansForThread(this.config.threadId)
+    );
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
     // Initialize turn state without creating a span yet. execute() calls
@@ -2641,6 +2647,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
             },
           ];
         }),
+        ...(this.config.fields && Object.keys(this.config.fields).length > 0
+          ? { fields: this.config.fields }
+          : {}),
       },
     } as ScenarioRunStartedEvent);
   }
@@ -2694,20 +2703,17 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
-   * Runs the evaluators against the run state. Tool calls and contexts come
-   * from the messages and the spans already collected; when a trace mapping
-   * finds nothing there, the remote traces of the run are fetched once,
-   * waiting the same budget the judge uses.
+   * Runs the evaluators against the run state. Each mapping reads the state
+   * a script step reads: the messages, the fields and the spans already
+   * collected. When a mapping read the trace and found nothing, the remote
+   * traces of the run are fetched once, waiting the same budget the judge
+   * uses, and the mapping is called again.
    */
   private async runEvaluators() {
     const auth = resolveEvaluationsApiAuth(this.config.langwatch);
     const api = new EvaluationsApiClient(auth);
     const threadId = this.config.threadId;
-    const messages = this.state.messages;
-    const criteria = this.agents.flatMap((agent) =>
-      agent instanceof JudgeAgentAdapter ? agent.criteria ?? [] : []
-    );
-    const traceIds = collectMessageTraceIds(messages);
+    const traceIds = collectMessageTraceIds(this.state.messages);
     const lastTraceId = traceIds.at(-1);
 
     const fetchRemoteTraces = async () => {
@@ -2727,17 +2733,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     return runScenarioEvaluators({
       evaluators: this.config.evaluators ?? [],
-      context: {
-        messages,
-        description: this.config.description,
-        criteria,
-        fields: this.config.fields ?? {},
-      },
+      state: this.state,
       traceId: lastTraceId,
       deps: {
         getEvaluatorSpec: (ref) => api.getEvaluatorSpec(ref),
         evaluate: (args) => api.evaluate(args),
-        getSpans: () => judgeSpanCollector.getSpansForThread(threadId),
         fetchRemoteTraces,
       },
     });

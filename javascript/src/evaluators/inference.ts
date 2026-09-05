@@ -1,8 +1,9 @@
 /**
- * Infers where an unmapped evaluator input reads from, by its name. Mirrors
- * the rules the LangWatch platform applies when an evaluator is attached to
- * a test suite, so a scenario in code and a scenario on the platform map the
- * same inputs the same way.
+ * Infers where an unmapped evaluator input reads from, by its name, and
+ * produces the state callable that reads it. Mirrors the rules the LangWatch
+ * platform applies when an evaluator is attached to a test suite, so a
+ * scenario in code and a scenario on the platform map the same inputs the
+ * same way.
  *
  * - `input`, `question`, `user_input` read the first user message
  * - `output`, `response`, `answer` read the last agent message
@@ -13,9 +14,9 @@
  * - a tool call is never inferred
  */
 import type { EvaluatorMapping } from "../domain";
-import { conversation, field, trace } from "./mappings";
+import { conversation, field, trace, type StateMapping } from "./mappings";
 
-const CONVERSATION_INPUTS: Record<string, EvaluatorMapping> = {
+const CONVERSATION_INPUTS: Record<string, StateMapping> = {
   input: conversation.firstUserMessage,
   question: conversation.firstUserMessage,
   user_input: conversation.firstUserMessage,
@@ -67,7 +68,7 @@ function inferField({
 }: {
   inputId: string;
   fieldNames: string[];
-}): EvaluatorMapping | undefined {
+}): StateMapping | undefined {
   if (fieldNames.length === 0) return undefined;
   if (fieldNames.length === 1) return field(fieldNames[0]);
 
@@ -97,7 +98,7 @@ export function inferEvaluatorMappings({
 }): Record<string, EvaluatorMapping> {
   const result: Record<string, EvaluatorMapping> = { ...mappings };
   for (const inputId of inputs) {
-    if (result[inputId]) continue;
+    if (result[inputId] !== undefined) continue;
     const inferred = isExpectedLikeInput(inputId)
       ? inferField({ inputId, fieldNames })
       : CONVERSATION_INPUTS[inputId.toLowerCase()];

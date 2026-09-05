@@ -5,6 +5,9 @@ export {
   scenarioSource,
   trace,
   value,
+  type StateMapping,
+  type ToolCallPick,
+  type ToolCallsMapping,
 } from "./mappings";
 export { inferEvaluatorMappings, isExpectedLikeInput } from "./inference";
 export {
@@ -21,8 +24,8 @@ export {
   type RunEvaluatorsDeps,
 } from "./run-evaluators";
 export {
-  resolveInput,
-  messageText,
-  type EvaluatorInputContext,
+  resolveMapping,
+  isNothing,
+  type EvaluatorState,
   type ResolvedInput,
-} from "./resolve-inputs";
+} from "./resolve-mapping";

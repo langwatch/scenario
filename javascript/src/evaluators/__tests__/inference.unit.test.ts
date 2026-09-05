@@ -1,40 +1,13 @@
 // Ref: specs/scenario-evaluators.feature
 import { describe, it, expect } from "vitest";
 import { inferEvaluatorMappings, isExpectedLikeInput } from "../inference";
-import { conversation, field, trace, value } from "../mappings";
+import { conversation, field, trace, type StateMapping } from "../mappings";
+
+function expression(mapping: unknown): string | undefined {
+  return (mapping as StateMapping | undefined)?.expression;
+}
 
 describe("evaluator mapping inference", () => {
-  describe("given the mapping helpers", () => {
-    // Scenario: Mapping helpers build the platform mapping shape
-    it("builds the source mapping the platform stores", () => {
-      expect(conversation.firstUserMessage).toEqual({
-        type: "source",
-        sourceId: "conversation",
-        path: ["first_user_message"],
-      });
-      expect(field("golden_sql")).toEqual({
-        type: "source",
-        sourceId: "scenario",
-        path: ["fields", "golden_sql"],
-      });
-      expect(trace.toolCall("run_sql").input).toEqual({
-        type: "source",
-        sourceId: "trace",
-        path: ["tool_calls", "run_sql", "input"],
-      });
-      expect(trace.toolCall("run_sql").output.path).toEqual([
-        "tool_calls",
-        "run_sql",
-        "output",
-      ]);
-      expect(trace.contexts.path).toEqual(["contexts"]);
-    });
-
-    it("builds a literal value mapping", () => {
-      expect(value("42")).toEqual({ type: "value", value: "42" });
-    });
-  });
-
   describe("given an evaluator with conversation inputs and no mappings", () => {
     // Scenario: Unmapped conversation inputs are inferred by name
     describe("when the mappings are inferred", () => {
@@ -43,16 +16,18 @@ describe("evaluator mapping inference", () => {
         fieldNames: [],
       });
 
-      it("maps input to the first user message", () => {
-        expect(mappings.input).toEqual(conversation.firstUserMessage);
+      it("maps input to the first user message of the state", () => {
+        expect(mappings.input).toBe(conversation.firstUserMessage);
+        expect(expression(mappings.input)).toBe("state.firstUserMessage() || undefined");
       });
 
-      it("maps output to the last agent message", () => {
-        expect(mappings.output).toEqual(conversation.lastAgentMessage);
+      it("maps output to the last agent message of the state", () => {
+        expect(mappings.output).toBe(conversation.lastAgentMessage);
       });
 
-      it("maps contexts to the retrieved contexts of the trace", () => {
-        expect(mappings.contexts).toEqual(trace.contexts);
+      it("maps contexts to the retrieved contexts of the state", () => {
+        expect(mappings.contexts).toBe(trace.contexts);
+        expect(expression(mappings.contexts)).toBe("state.contexts");
       });
     });
   });
@@ -65,12 +40,12 @@ describe("evaluator mapping inference", () => {
         fieldNames: ["golden_sql", "table_schema"],
       });
 
-      it("maps expected_output to golden_sql", () => {
-        expect(mappings.expected_output).toEqual(field("golden_sql"));
+      it("maps expected_output to the field golden_sql", () => {
+        expect(expression(mappings.expected_output)).toBe(field("golden_sql").expression);
       });
 
-      it("maps expected_contexts to table_schema", () => {
-        expect(mappings.expected_contexts).toEqual(field("table_schema"));
+      it("maps expected_contexts to the field table_schema", () => {
+        expect(expression(mappings.expected_contexts)).toBe(field("table_schema").expression);
       });
     });
   });
@@ -92,31 +67,41 @@ describe("evaluator mapping inference", () => {
         inputs: ["expected_answer"],
         fieldNames: ["truth"],
       });
-      expect(mappings.expected_answer).toEqual(field("truth"));
+      expect(expression(mappings.expected_answer)).toBe('state.field("truth")');
     });
   });
 
   describe("given an output input and a run_sql tool call in the messages", () => {
     // Scenario: A tool call source is never inferred
-    it("maps output to the conversation, not to the tool call", () => {
+    it("maps output to the last agent message, not to the tool call", () => {
       const mappings = inferEvaluatorMappings({
         inputs: ["output"],
         fieldNames: [],
       });
-      expect(mappings.output).toEqual(conversation.lastAgentMessage);
+      expect(mappings.output).toBe(conversation.lastAgentMessage);
     });
   });
 
-  describe("given an explicit tool call mapping", () => {
+  describe("given an explicit mapping", () => {
     // Scenario: An explicit mapping wins over inference
-    it("keeps the explicit mapping", () => {
-      const explicit = trace.toolCall("run_sql").input;
+    it("keeps the function the author wrote", () => {
+      const explicit = (state: { toolCalls(name: string): { last?: { input: unknown } } }) =>
+        state.toolCalls("run_sql").last?.input;
       const mappings = inferEvaluatorMappings({
         inputs: ["output"],
         fieldNames: [],
         mappings: { output: explicit },
       });
       expect(mappings.output).toBe(explicit);
+    });
+
+    it("keeps a literal the author wrote", () => {
+      const mappings = inferEvaluatorMappings({
+        inputs: ["language"],
+        fieldNames: [],
+        mappings: { language: "en" },
+      });
+      expect(mappings.language).toBe("en");
     });
   });
 

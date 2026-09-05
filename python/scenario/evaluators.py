@@ -2,9 +2,10 @@
 Attach LangWatch evaluators to scenario runs: the mapping helpers, the
 evaluator attachment and the result one evaluator produces.
 
-The mapping shape is the one the LangWatch platform stores on a test suite, so
-a scenario defined in code and a scenario defined on the platform describe the
-same thing.
+A mapping is a function of the scenario state, the same ``ScenarioState`` a
+script step receives, sync or async, or a literal for a constant. The helpers
+in this module are that same kind of function with a name: each one carries
+the state expression it stands for.
 
 Example:
     ```
@@ -18,7 +19,7 @@ Example:
                 "ragas/sql_query_equivalence",
                 required=True,
                 mappings={
-                    "output": scenario.trace.tool_call("run_sql").input,
+                    "output": lambda state: state.tool_calls("run_sql").last.input,
                     "expected_output": scenario.field("golden_sql"),
                     "expected_contexts": scenario.field("table_schema"),
                 },
@@ -31,45 +32,47 @@ Example:
     ```
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-EvaluatorMappingSourceId = Literal["conversation", "scenario", "trace"]
+if TYPE_CHECKING:
+    from scenario.scenario_state import ScenarioState
 
 EvaluationStatus = Literal["passed", "failed", "scored", "skipped", "error"]
 
+#: A literal an evaluator input takes as a constant.
+EvaluatorMappingLiteral = Union[str, int, float, bool]
 
-class EvaluatorMapping(BaseModel):
+#: Where one evaluator input reads its value from: a function of the scenario
+#: state, sync or async, or a literal. Returning ``None`` or an empty list
+#: skips the evaluator; raising reports an error result.
+EvaluatorMapping = Union[
+    Callable[["ScenarioState"], Any],
+    Callable[["ScenarioState"], Awaitable[Any]],
+    EvaluatorMappingLiteral,
+]
+
+
+class StateMapping:
     """
-    Where one evaluator input reads its value from.
+    A mapping helper: a function of the state that names its expression.
 
-    A ``source`` mapping names a source and a path:
-
-    - conversation: ``["first_user_message"]``, ``["last_agent_message"]``,
-      ``["transcript"]`` or ``["messages"]``
-    - scenario: ``["situation"]``, ``["criteria"]`` or ``["fields", <name>]``
-    - trace: ``["contexts"]`` or ``["tool_calls", <tool name>, "input" | "output"]``
-
-    A ``value`` mapping carries a literal.
+    Attributes:
+        expression: The state expression the helper stands for, for example
+            ``state.field("golden_sql")``.
     """
 
-    type: Literal["source", "value"]
-    source_id: Optional[EvaluatorMappingSourceId] = None
-    path: List[str] = Field(default_factory=list)
-    value: Optional[str] = None
+    def __init__(self, expression: str, read: Callable[["ScenarioState"], Any]) -> None:
+        self.expression = expression
+        self._read = read
+        self.__doc__ = expression
 
-    def to_wire(self) -> Dict[str, Any]:
-        if self.type == "value":
-            return {"type": "value", "value": self.value}
-        return {"type": "source", "sourceId": self.source_id, "path": list(self.path)}
+    def __call__(self, state: "ScenarioState") -> Any:
+        return self._read(state)
 
-
-class ToolCallMapping(BaseModel):
-    """The input and the output of one tool call, as evaluator mappings."""
-
-    input: EvaluatorMapping
-    output: EvaluatorMapping
+    def __repr__(self) -> str:
+        return f"<mapping {self.expression}>"
 
 
 class ScenarioEvaluator(BaseModel):
@@ -83,15 +86,17 @@ class ScenarioEvaluator(BaseModel):
         required: Whether a failing verdict fails the scenario. Defaults to
             True for an evaluator that answers pass or fail, and to False for a
             score-only one. A score never fails the scenario.
-        mappings: Where each evaluator input reads from, keyed by input name.
-            An input without a mapping is inferred from its name; a tool call
-            is never inferred.
+        mappings: Where each evaluator input reads from, keyed by input name:
+            a function of the scenario state or a literal. An input without a
+            mapping is inferred from its name; a tool call is never inferred.
         settings: Per-run overrides of the evaluator settings.
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     evaluator: str
     required: Optional[bool] = None
-    mappings: Dict[str, EvaluatorMapping] = Field(default_factory=dict)
+    mappings: Dict[str, Any] = Field(default_factory=dict)
     settings: Optional[Dict[str, Any]] = None
 
 
@@ -114,7 +119,8 @@ class EvaluationResult(BaseModel):
         score: The score, when the evaluator answers one.
         label: The label, when the evaluator answers one.
         details: The reason: judge details, "no golden_sql on this scenario",
-            "no run_sql call in the trace".
+            "no run_sql call in the trace", "the mapping returned nothing",
+            or the error.
         cost: What running the evaluator cost.
         inputs: The resolved input values, each cut to 2000 characters.
     """
@@ -147,48 +153,83 @@ class EvaluationResult(BaseModel):
         return wire
 
 
-def _source(source_id: EvaluatorMappingSourceId, path: List[str]) -> EvaluatorMapping:
-    return EvaluatorMapping(type="source", source_id=source_id, path=path)
-
-
 class _Conversation:
     """Inputs that read the conversation of the run."""
 
-    #: The first message the simulated user sent.
-    first_user_message = _source("conversation", ["first_user_message"])
-    #: The last message the agent under test sent.
-    last_agent_message = _source("conversation", ["last_agent_message"])
-    #: The whole conversation as ``role: content`` lines.
-    transcript = _source("conversation", ["transcript"])
-    #: The whole conversation as a JSON list of messages.
-    messages = _source("conversation", ["messages"])
+    #: ``state.first_user_message() or None``: the text of the first message the simulated user sent.
+    first_user_message = StateMapping(
+        "state.first_user_message() or None", lambda state: state.first_user_message() or None
+    )
+    #: ``state.last_agent_message() or None``: the text of the last message the agent under test sent.
+    last_agent_message = StateMapping(
+        "state.last_agent_message() or None", lambda state: state.last_agent_message() or None
+    )
+    #: ``state.transcript()``: the whole conversation as ``role: content`` lines.
+    transcript = StateMapping("state.transcript()", lambda state: state.transcript())
+    #: ``state.messages``: the whole conversation as a list of messages.
+    messages = StateMapping("state.messages", lambda state: list(state.messages))
 
 
 class _ScenarioSource:
     """Inputs that read the scenario definition."""
 
-    #: The scenario description.
-    situation = _source("scenario", ["situation"])
-    #: The judge criteria, one per line.
-    criteria = _source("scenario", ["criteria"])
+    #: ``state.description``: the scenario description.
+    situation = StateMapping("state.description", lambda state: state.description)
+    #: ``"\\n".join(state.criteria)``: the judge criteria, one per line.
+    criteria = StateMapping('"\\n".join(state.criteria)', lambda state: "\n".join(state.criteria))
+
+
+class ToolCallPick:
+    """The input and the output of one tool call pick."""
+
+    def __init__(self, calls: str, pick: str, name: str) -> None:
+        #: The arguments of the call.
+        self.input = StateMapping(
+            f"{calls}.{pick}.input", lambda state: getattr(state.tool_calls(name), pick).input
+        )
+        #: The result of the call.
+        self.output = StateMapping(
+            f"{calls}.{pick}.output", lambda state: getattr(state.tool_calls(name), pick).output
+        )
+
+
+class ToolCallsMapping:
+    """
+    The picks and columns over the calls of one tool.
+
+    Attributes:
+        first: ``state.tool_calls(name).first``, the first call of the tool.
+        last: ``state.tool_calls(name).last``, the last call of the tool.
+        inputs: ``state.tool_calls(name).inputs``, the arguments of every call.
+        outputs: ``state.tool_calls(name).outputs``, the result of every call.
+    """
+
+    def __init__(self, name: str) -> None:
+        calls = f"state.tool_calls({name!r})"
+        self.first = ToolCallPick(calls, "first", name)
+        self.last = ToolCallPick(calls, "last", name)
+        self.inputs = StateMapping(f"{calls}.inputs", lambda state: state.tool_calls(name).inputs)
+        self.outputs = StateMapping(f"{calls}.outputs", lambda state: state.tool_calls(name).outputs)
 
 
 class _Trace:
-    """Inputs that read evidence from the trace of the run."""
+    """Inputs that read evidence from the traces of the run."""
 
-    #: The contexts retrieved by the agent, concatenated.
-    contexts = _source("trace", ["contexts"])
+    #: ``state.contexts``: every chunk the agent retrieved, across the run.
+    contexts = StateMapping("state.contexts", lambda state: state.contexts)
+    #: ``state.spans``: every span of every trace of the run, in start order.
+    spans = StateMapping("state.spans", lambda state: state.spans)
 
     @staticmethod
-    def tool_call(name: str) -> ToolCallMapping:
+    def tool_calls(name: str) -> ToolCallsMapping:
         """
-        The last call to a tool, for example ``trace.tool_call("run_sql").input``.
-        A run without that call fails the evaluator with a reason.
+        ``state.tool_calls(name)``: the calls of one tool across the run, from
+        the assistant messages and the tool spans.
+        ``tool_calls("run_sql").last.input`` is the arguments of the last
+        call; a run without that call skips the evaluator with the reason
+        ``no run_sql call in the trace``.
         """
-        return ToolCallMapping(
-            input=_source("trace", ["tool_calls", name, "input"]),
-            output=_source("trace", ["tool_calls", name, "output"]),
-        )
+        return ToolCallsMapping(name)
 
 
 conversation = _Conversation()
@@ -196,18 +237,21 @@ scenario_source = _ScenarioSource()
 trace = _Trace()
 
 
-def field(name: str) -> EvaluatorMapping:
+def field(name: str) -> StateMapping:
     """
-    An input that reads one field of the scenario, for example
+    ``state.field(name)``: one field of the scenario, for example
     ``field("golden_sql")``. A scenario that leaves the field blank skips the
-    evaluator with a reason.
+    evaluator with the reason ``no golden_sql on this scenario``.
     """
-    return _source("scenario", ["fields", name])
+    return StateMapping(f"state.field({name!r})", lambda state: state.field(name))
 
 
-def value(literal: str) -> EvaluatorMapping:
-    """An input that takes a literal value."""
-    return EvaluatorMapping(type="value", value=literal)
+def value(literal: EvaluatorMappingLiteral) -> StateMapping:
+    """
+    An input that takes a literal value. A literal can also be written
+    directly in the mappings; the helper is for symmetry with the others.
+    """
+    return StateMapping(repr(literal), lambda state: literal)
 
 
 def evaluator(
@@ -225,8 +269,8 @@ def evaluator(
             a saved evaluator as ``evaluators/<slug>``.
         required: Whether a failing verdict fails the scenario. Defaults to
             True for an evaluator that answers pass or fail.
-        mappings: Where each input reads from. Unmapped inputs are inferred
-            from their names.
+        mappings: Where each input reads from: a function of the scenario
+            state or a literal. Unmapped inputs are inferred from their names.
         settings: Per-run overrides of the evaluator settings.
 
     Example:
@@ -235,7 +279,7 @@ def evaluator(
             "ragas/sql_query_equivalence",
             required=True,
             mappings={
-                "output": scenario.trace.tool_call("run_sql").input,
+                "output": lambda state: state.tool_calls("run_sql").last.input,
                 "expected_output": scenario.field("golden_sql"),
             },
         )
@@ -256,8 +300,11 @@ __all__ = [
     "EvaluationResult",
     "EvaluationStatus",
     "EvaluatorMapping",
+    "EvaluatorMappingLiteral",
     "ScenarioEvaluator",
-    "ToolCallMapping",
+    "StateMapping",
+    "ToolCallPick",
+    "ToolCallsMapping",
     "conversation",
     "evaluator",
     "field",

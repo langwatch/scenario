@@ -3,7 +3,6 @@
  * applies their results to the run: a required evaluator that fails fails
  * the scenario, a score only reports.
  */
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import type {
   EvaluationResult,
   EvaluatorMapping,
@@ -12,19 +11,15 @@ import type {
 } from "../domain";
 import type { EvaluateApiResponse, EvaluatorSpec } from "./evaluations-api";
 import { inferEvaluatorMappings } from "./inference";
-import {
-  displayValue,
-  readsTrace,
-  resolveInput,
-  type EvaluatorInputContext,
-  type ResolvedInput,
-} from "./resolve-inputs";
+import { resolveMapping, type EvaluatorState } from "./resolve-mapping";
+import { stringify } from "../execution/state-views";
+import { collectMessageTraceIds } from "../tracing/remote-trace-fetcher";
 import { Logger } from "../utils/logger";
 
 /** The largest `inputs` value an evaluation result carries. */
 export const EVALUATION_INPUT_MAX_CHARS = 2000;
 
-/** What the runner needs from the run and from LangWatch. */
+/** What the runner needs from LangWatch and from the run. */
 export interface RunEvaluatorsDeps {
   getEvaluatorSpec: (evaluatorRef: string) => Promise<EvaluatorSpec | undefined>;
   evaluate: (args: {
@@ -33,12 +28,10 @@ export interface RunEvaluatorsDeps {
     settings?: Record<string, unknown>;
     traceId?: string;
   }) => Promise<EvaluateApiResponse>;
-  /** Spans of the run collected so far, local and remote. */
-  getSpans: () => ReadableSpan[];
   /**
    * Fetches the remote traces of the run into the span collector, waiting
-   * the configured budget. Called at most once, only when a trace mapping
-   * found nothing in the messages and the local spans.
+   * the configured budget. Called at most once, only when a mapping read the
+   * trace and found nothing while the messages carry trace ids.
    */
   fetchRemoteTraces?: () => Promise<void>;
 }
@@ -66,39 +59,46 @@ interface ResolvedInputs {
   data: Record<string, unknown>;
   inputs: Record<string, string>;
   skipped?: string;
-  failed?: string;
+  error?: string;
+  /** A mapping read the trace and found nothing. */
+  wantsTrace: boolean;
 }
 
 /**
- * Resolves every mapping. An input that resolves to nothing reports (skip or
- * fail) when the evaluator requires it or the author mapped it by hand; an
+ * Resolves every mapping. An input that resolves to nothing reports a skip
+ * when the evaluator requires it or the author mapped it by hand; an
  * inferred optional input that resolves to nothing is left out of the call.
+ * A mapping that throws reports an error.
  */
-function resolveAll({
+async function resolveAll({
   spec,
   mappings,
   explicitIds,
-  context,
+  state,
 }: {
   spec: EvaluatorSpec;
   mappings: Record<string, EvaluatorMapping>;
   explicitIds: Set<string>;
-  context: EvaluatorInputContext;
-}): ResolvedInputs {
-  const resolved: ResolvedInputs = { data: {}, inputs: {} };
+  state: EvaluatorState;
+}): Promise<ResolvedInputs> {
+  const resolved: ResolvedInputs = { data: {}, inputs: {}, wantsTrace: false };
   const requiredIds = new Set(
     spec.inputs.filter((input) => input.required).map((input) => input.id)
   );
   for (const [inputId, mapping] of Object.entries(mappings)) {
-    const outcome: ResolvedInput = resolveInput({ mapping, context });
+    const outcome = await resolveMapping({ mapping, state });
     if (outcome.kind === "value") {
       resolved.data[inputId] = coerceDataValue({ inputId, value: outcome.value });
-      resolved.inputs[inputId] = truncate(displayValue(outcome.value));
+      resolved.inputs[inputId] = truncate(stringify(outcome.value));
       continue;
     }
+    if (outcome.kind === "error") {
+      resolved.error ??= `Mapping of ${inputId} failed: ${outcome.error.message}`;
+      continue;
+    }
+    resolved.wantsTrace ||= outcome.readTrace;
     if (!requiredIds.has(inputId) && !explicitIds.has(inputId)) continue;
-    if (outcome.kind === "skipped") resolved.skipped ??= outcome.reason;
-    else resolved.failed ??= outcome.reason;
+    resolved.skipped ??= outcome.reason;
   }
   return resolved;
 }
@@ -109,7 +109,7 @@ function fromApiResponse({
 }: {
   response: EvaluateApiResponse;
   base: Pick<EvaluationResult, "evaluatorId" | "name" | "inputs">;
-  }): Omit<EvaluationResult, "required"> {
+}): Omit<EvaluationResult, "required"> {
   if (response.status === "error") {
     return { ...base, status: "error", details: response.details };
   }
@@ -133,82 +133,106 @@ function fromApiResponse({
   };
 }
 
-async function runOne({
+interface Prepared {
+  attachment: ScenarioEvaluator;
+  spec: EvaluatorSpec;
+  required: boolean;
+  mappings: Record<string, EvaluatorMapping>;
+  explicitIds: Set<string>;
+}
+
+type PreparedOrResult = { prepared: Prepared } | { result: EvaluationResult };
+
+/** Loads the evaluator and completes its mappings. */
+async function prepare({
   attachment,
-  context,
-  traceId,
+  state,
   deps,
-  fetchOnce,
 }: {
   attachment: ScenarioEvaluator;
-  context: () => EvaluatorInputContext;
-  traceId: string | undefined;
+  state: EvaluatorState;
   deps: RunEvaluatorsDeps;
-  fetchOnce: () => Promise<void>;
-}): Promise<EvaluationResult> {
+}): Promise<PreparedOrResult> {
   const ref = attachment.evaluator;
   let spec: EvaluatorSpec | undefined;
   try {
     spec = await deps.getEvaluatorSpec(ref);
   } catch (error) {
     return {
-      evaluatorId: ref,
-      name: ref,
-      status: "error",
-      required: attachment.required ?? false,
-      details: `Could not load evaluator ${ref}: ${(error as Error).message}`,
+      result: {
+        evaluatorId: ref,
+        name: ref,
+        status: "error",
+        required: attachment.required ?? false,
+        details: `Could not load evaluator ${ref}: ${(error as Error).message}`,
+      },
     };
   }
   if (!spec) {
     return {
-      evaluatorId: ref,
-      name: ref,
-      status: "error",
-      required: attachment.required ?? false,
-      details: `Evaluator ${ref} was not found in LangWatch`,
+      result: {
+        evaluatorId: ref,
+        name: ref,
+        status: "error",
+        required: attachment.required ?? false,
+        details: `Evaluator ${ref} was not found in LangWatch`,
+      },
     };
   }
 
   const required = attachment.required ?? spec.producesPassed;
-  const base = { evaluatorId: spec.evaluatorId, name: spec.name };
   const mappings = inferEvaluatorMappings({
     inputs: spec.inputs.map((input) => input.id),
-    fieldNames: Object.keys(context().fields),
+    fieldNames: Object.keys(state.fields),
     mappings: attachment.mappings,
   });
-
   const unmapped = spec.inputs
-    .filter((input) => input.required && !mappings[input.id])
+    .filter((input) => input.required && mappings[input.id] === undefined)
     .map((input) => input.id);
   if (unmapped.length > 0) {
     return {
-      ...base,
-      status: "error",
-      required,
-      details: `No mapping for the required input${unmapped.length > 1 ? "s" : ""} ${unmapped.join(", ")} of ${spec.name}`,
+      result: {
+        evaluatorId: spec.evaluatorId,
+        name: spec.name,
+        status: "error",
+        required,
+        details: `No mapping for the required input${unmapped.length > 1 ? "s" : ""} ${unmapped.join(", ")} of ${spec.name}`,
+      },
     };
   }
+  return {
+    prepared: {
+      attachment,
+      spec,
+      required,
+      mappings,
+      explicitIds: new Set(Object.keys(attachment.mappings ?? {})),
+    },
+  };
+}
 
-  const explicitIds = new Set(Object.keys(attachment.mappings ?? {}));
-  let resolved = resolveAll({ spec, mappings, explicitIds, context: context() });
-  if (
-    resolved.failed &&
-    deps.fetchRemoteTraces &&
-    Object.values(mappings).some(readsTrace)
-  ) {
-    await fetchOnce();
-    resolved = resolveAll({ spec, mappings, explicitIds, context: context() });
+async function callEvaluator({
+  prepared,
+  resolved,
+  traceId,
+  deps,
+}: {
+  prepared: Prepared;
+  resolved: ResolvedInputs;
+  traceId: string | undefined;
+  deps: RunEvaluatorsDeps;
+}): Promise<EvaluationResult> {
+  const { spec, required, attachment } = prepared;
+  const base = { evaluatorId: spec.evaluatorId, name: spec.name };
+  if (resolved.error) {
+    return { ...base, status: "error", required, details: resolved.error, inputs: resolved.inputs };
   }
   if (resolved.skipped) {
     return { ...base, status: "skipped", required, details: resolved.skipped, inputs: resolved.inputs };
   }
-  if (resolved.failed) {
-    return { ...base, status: "failed", required, passed: false, details: resolved.failed, inputs: resolved.inputs };
-  }
-
   try {
     const response = await deps.evaluate({
-      evaluatorRef: ref,
+      evaluatorRef: attachment.evaluator,
       data: resolved.data,
       settings: attachment.settings,
       traceId,
@@ -226,37 +250,53 @@ async function runOne({
 }
 
 /**
- * Runs every evaluator of the scenario in parallel and returns one result
- * per evaluator, in the order the scenario lists them. Never throws: a
- * failure to load or call an evaluator is an `error` result.
+ * Runs every evaluator of the scenario and returns one result per
+ * evaluator, in the order the scenario lists them. Mappings resolve one
+ * evaluator at a time against the state; the evaluate calls run in
+ * parallel. Never throws: a failure to load or call an evaluator is an
+ * `error` result.
  */
 export async function runScenarioEvaluators({
   evaluators,
-  context,
+  state,
   traceId,
   deps,
 }: {
   evaluators: ScenarioEvaluator[];
-  context: Omit<EvaluatorInputContext, "spans">;
+  state: EvaluatorState;
   traceId: string | undefined;
   deps: RunEvaluatorsDeps;
 }): Promise<EvaluationResult[]> {
   let remoteFetch: Promise<void> | undefined;
+  const canFetch =
+    deps.fetchRemoteTraces !== undefined && collectMessageTraceIds(state.messages).length > 0;
   const fetchOnce = () => {
-    remoteFetch ??= (deps.fetchRemoteTraces?.() ?? Promise.resolve()).catch(
-      (error) => {
-        logger.warn(`Remote trace fetch for evaluators failed: ${(error as Error).message}`);
-      }
-    );
+    remoteFetch ??= (deps.fetchRemoteTraces?.() ?? Promise.resolve()).catch((error) => {
+      logger.warn(`Remote trace fetch for evaluators failed: ${(error as Error).message}`);
+    });
     return remoteFetch;
   };
-  const contextWithSpans = () => ({ ...context, spans: deps.getSpans() });
 
-  return Promise.all(
-    evaluators.map((attachment) =>
-      runOne({ attachment, context: contextWithSpans, traceId, deps, fetchOnce })
-    )
+  const preparedAll = await Promise.all(
+    evaluators.map((attachment) => prepare({ attachment, state, deps }))
   );
+
+  const calls: Promise<EvaluationResult>[] = [];
+  for (const entry of preparedAll) {
+    if ("result" in entry) {
+      calls.push(Promise.resolve(entry.result));
+      continue;
+    }
+    const { prepared } = entry;
+    const fetchedBefore = remoteFetch !== undefined;
+    let resolved = await resolveAll({ ...prepared, state });
+    if (resolved.wantsTrace && canFetch && !fetchedBefore) {
+      await fetchOnce();
+      resolved = await resolveAll({ ...prepared, state });
+    }
+    calls.push(callEvaluator({ prepared, resolved, traceId, deps }));
+  }
+  return Promise.all(calls);
 }
 
 /**

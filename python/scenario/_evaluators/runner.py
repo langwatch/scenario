@@ -6,29 +6,26 @@ scenario, a score only reports.
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Set
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Set, Union
 
-from opentelemetry.sdk.trace import ReadableSpan
-
+from scenario._state_views import stringify
 from scenario.evaluators import (
     EvaluationCost,
     EvaluationResult,
-    EvaluatorMapping,
     ScenarioEvaluator,
 )
+from scenario.scenario_state import ScenarioState
 from scenario.types import ScenarioResult
 
 from .api import EvaluatorSpec
 from .inference import infer_evaluator_mappings
-from .resolve_inputs import (
-    EvaluatorInputContext,
-    ResolvedFailed,
-    ResolvedSkipped,
+from .resolve_mapping import (
+    ResolvedError,
+    ResolvedNothing,
     ResolvedValue,
-    reads_trace,
-    resolve_input,
-    stringify,
+    distinct_message_trace_ids,
+    resolve_mapping,
 )
 
 logger = logging.getLogger("scenario.evaluators.runner")
@@ -39,15 +36,13 @@ EVALUATION_INPUT_MAX_CHARS = 2000
 
 @dataclass
 class RunEvaluatorsDeps:
-    """What the runner needs from the run and from LangWatch."""
+    """What the runner needs from LangWatch and from the run."""
 
     get_evaluator_spec: Callable[[str], Awaitable[Optional[EvaluatorSpec]]]
     evaluate: Callable[..., Awaitable[Dict[str, Any]]]
-    #: Spans of the run collected so far, local and remote.
-    get_spans: Callable[[], List[ReadableSpan]]
     #: Fetches the remote traces of the run into the span collector, waiting
-    #: the configured budget. Called at most once, only when a trace mapping
-    #: found nothing in the messages and the local spans.
+    #: the configured budget. Called at most once, only when a mapping read
+    #: the trace and found nothing while the messages carry trace ids.
     fetch_remote_traces: Optional[Callable[[], Awaitable[None]]] = None
 
 
@@ -67,39 +62,45 @@ def _coerce_data_value(input_id: str, value: Any) -> Any:
 
 @dataclass
 class _ResolvedInputs:
-    data: Dict[str, Any]
-    inputs: Dict[str, str]
+    data: Dict[str, Any] = field(default_factory=dict)
+    inputs: Dict[str, str] = field(default_factory=dict)
     skipped: Optional[str] = None
-    failed: Optional[str] = None
+    error: Optional[str] = None
+    #: A mapping read the trace and found nothing.
+    wants_trace: bool = False
 
 
-def _resolve_all(
-    *,
-    spec: EvaluatorSpec,
-    mappings: Dict[str, EvaluatorMapping],
-    explicit_ids: Set[str],
-    context: EvaluatorInputContext,
-) -> _ResolvedInputs:
+@dataclass
+class _Prepared:
+    attachment: ScenarioEvaluator
+    spec: EvaluatorSpec
+    required: bool
+    mappings: Dict[str, Any]
+    explicit_ids: Set[str]
+
+
+async def _resolve_all(*, prepared: _Prepared, state: ScenarioState) -> _ResolvedInputs:
     """
-    Resolves every mapping. An input that resolves to nothing reports (skip
-    or fail) when the evaluator requires it or the author mapped it by hand;
-    an inferred optional input that resolves to nothing is left out of the
-    call.
+    Resolves every mapping. An input that resolves to nothing reports a
+    skip when the evaluator requires it or the author mapped it by hand; an
+    inferred optional input that resolves to nothing is left out of the
+    call. A mapping that raises reports an error.
     """
-    resolved = _ResolvedInputs(data={}, inputs={})
-    required_ids = {spec_input.id for spec_input in spec.inputs if spec_input.required}
-    for input_id, mapping in mappings.items():
-        outcome = resolve_input(mapping=mapping, context=context)
+    resolved = _ResolvedInputs()
+    required_ids = {spec_input.id for spec_input in prepared.spec.inputs if spec_input.required}
+    for input_id, mapping in prepared.mappings.items():
+        outcome = await resolve_mapping(mapping=mapping, state=state)
         if isinstance(outcome, ResolvedValue):
             resolved.data[input_id] = _coerce_data_value(input_id, outcome.value)
             resolved.inputs[input_id] = _truncate(stringify(outcome.value))
             continue
-        if input_id not in required_ids and input_id not in explicit_ids:
+        if isinstance(outcome, ResolvedError):
+            resolved.error = resolved.error or f"Mapping of {input_id} failed: {outcome.error}"
             continue
-        if isinstance(outcome, ResolvedSkipped):
-            resolved.skipped = resolved.skipped or outcome.reason
-        elif isinstance(outcome, ResolvedFailed):
-            resolved.failed = resolved.failed or outcome.reason
+        resolved.wants_trace = resolved.wants_trace or outcome.read_trace
+        if input_id not in required_ids and input_id not in prepared.explicit_ids:
+            continue
+        resolved.skipped = resolved.skipped or outcome.reason
     return resolved
 
 
@@ -158,14 +159,10 @@ def _from_api_response(
     )
 
 
-async def _run_one(
-    *,
-    attachment: ScenarioEvaluator,
-    context: Callable[[], EvaluatorInputContext],
-    trace_id: Optional[str],
-    deps: RunEvaluatorsDeps,
-    fetch_once: Callable[[], Awaitable[None]],
-) -> EvaluationResult:
+async def _prepare(
+    *, attachment: ScenarioEvaluator, state: ScenarioState, deps: RunEvaluatorsDeps
+) -> Union[_Prepared, EvaluationResult]:
+    """Loads the evaluator and completes its mappings."""
     ref = attachment.evaluator
     try:
         spec = await deps.get_evaluator_spec(ref)
@@ -189,10 +186,9 @@ async def _run_one(
     required = spec.produces_passed if attachment.required is None else attachment.required
     mappings = infer_evaluator_mappings(
         inputs=[spec_input.id for spec_input in spec.inputs],
-        field_names=list(context().fields.keys()),
+        field_names=list(state.fields.keys()),
         mappings=attachment.mappings,
     )
-
     unmapped = [
         spec_input.id
         for spec_input in spec.inputs
@@ -207,45 +203,46 @@ async def _run_one(
             required=required,
             details=f"No mapping for the required input{plural} {', '.join(unmapped)} of {spec.name}",
         )
-
-    explicit_ids = set(attachment.mappings.keys())
-    resolved = _resolve_all(
-        spec=spec, mappings=mappings, explicit_ids=explicit_ids, context=context()
+    return _Prepared(
+        attachment=attachment,
+        spec=spec,
+        required=required,
+        mappings=mappings,
+        explicit_ids=set(attachment.mappings.keys()),
     )
-    if (
-        resolved.failed
-        and deps.fetch_remote_traces is not None
-        and any(reads_trace(mapping) for mapping in mappings.values())
-    ):
-        await fetch_once()
-        resolved = _resolve_all(
-            spec=spec, mappings=mappings, explicit_ids=explicit_ids, context=context()
+
+
+async def _call_evaluator(
+    *,
+    prepared: _Prepared,
+    resolved: _ResolvedInputs,
+    trace_id: Optional[str],
+    deps: RunEvaluatorsDeps,
+) -> EvaluationResult:
+    spec = prepared.spec
+    if resolved.error:
+        return EvaluationResult(
+            evaluator_id=spec.evaluator_id,
+            name=spec.name,
+            status="error",
+            required=prepared.required,
+            details=resolved.error,
+            inputs=resolved.inputs,
         )
     if resolved.skipped:
         return EvaluationResult(
             evaluator_id=spec.evaluator_id,
             name=spec.name,
             status="skipped",
-            required=required,
+            required=prepared.required,
             details=resolved.skipped,
             inputs=resolved.inputs,
         )
-    if resolved.failed:
-        return EvaluationResult(
-            evaluator_id=spec.evaluator_id,
-            name=spec.name,
-            status="failed",
-            required=required,
-            passed=False,
-            details=resolved.failed,
-            inputs=resolved.inputs,
-        )
-
     try:
         response = await deps.evaluate(
-            evaluator_ref=ref,
+            evaluator_ref=prepared.attachment.evaluator,
             data=resolved.data,
-            settings=attachment.settings,
+            settings=prepared.attachment.settings,
             trace_id=trace_id,
         )
     except Exception as error:
@@ -253,7 +250,7 @@ async def _run_one(
             evaluator_id=spec.evaluator_id,
             name=spec.name,
             status="error",
-            required=required,
+            required=prepared.required,
             details=str(error),
             inputs=resolved.inputs,
         )
@@ -261,7 +258,7 @@ async def _run_one(
         response=response,
         evaluator_id=spec.evaluator_id,
         name=spec.name,
-        required=required,
+        required=prepared.required,
         inputs=resolved.inputs,
     )
 
@@ -269,16 +266,21 @@ async def _run_one(
 async def run_scenario_evaluators(
     *,
     evaluators: Sequence[ScenarioEvaluator],
-    context: EvaluatorInputContext,
+    state: ScenarioState,
     trace_id: Optional[str],
     deps: RunEvaluatorsDeps,
 ) -> List[EvaluationResult]:
     """
-    Runs every evaluator of the scenario in parallel and returns one result
-    per evaluator, in the order the scenario lists them. Never raises: a
-    failure to load or call an evaluator is an ``error`` result.
+    Runs every evaluator of the scenario and returns one result per
+    evaluator, in the order the scenario lists them. Mappings resolve one
+    evaluator at a time against the state; the evaluate calls run in
+    parallel. Never raises: a failure to load or call an evaluator is an
+    ``error`` result.
     """
     remote_fetch: Optional[asyncio.Future[None]] = None
+    can_fetch = deps.fetch_remote_traces is not None and bool(
+        distinct_message_trace_ids(state.messages)
+    )
 
     async def fetch_remote() -> None:
         if deps.fetch_remote_traces is None:
@@ -294,29 +296,22 @@ async def run_scenario_evaluators(
             remote_fetch = asyncio.ensure_future(fetch_remote())
         await remote_fetch
 
-    def context_with_spans() -> EvaluatorInputContext:
-        return EvaluatorInputContext(
-            messages=context.messages,
-            description=context.description,
-            criteria=context.criteria,
-            fields=context.fields,
-            spans=deps.get_spans(),
-        )
-
-    return list(
-        await asyncio.gather(
-            *[
-                _run_one(
-                    attachment=attachment,
-                    context=context_with_spans,
-                    trace_id=trace_id,
-                    deps=deps,
-                    fetch_once=fetch_once,
-                )
-                for attachment in evaluators
-            ]
-        )
+    prepared_all = await asyncio.gather(
+        *[_prepare(attachment=attachment, state=state, deps=deps) for attachment in evaluators]
     )
+
+    calls: List[Awaitable[EvaluationResult]] = []
+    for entry in prepared_all:
+        if isinstance(entry, EvaluationResult):
+            calls.append(asyncio.sleep(0, result=entry))
+            continue
+        fetched_before = remote_fetch is not None
+        resolved = await _resolve_all(prepared=entry, state=state)
+        if resolved.wants_trace and can_fetch and not fetched_before:
+            await fetch_once()
+            resolved = await _resolve_all(prepared=entry, state=state)
+        calls.append(_call_evaluator(prepared=entry, resolved=resolved, trace_id=trace_id, deps=deps))
+    return list(await asyncio.gather(*calls))
 
 
 def apply_evaluations_to_result(

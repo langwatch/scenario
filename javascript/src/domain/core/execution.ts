@@ -1,3 +1,4 @@
+import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import {
   AssistantModelMessage,
   ModelMessage,
@@ -5,12 +6,17 @@ import {
   UserModelMessage,
 } from "ai";
 import type {
+  ToolCalls,
+  TraceView,
+  TurnView,
+} from "../../execution/state-views";
+import type {
   LatencyMetrics,
   VoiceEvent,
   VoiceRecording,
 } from "../../voice/recording.types";
 import type { ScenarioConfig } from "../scenarios";
-import type { EvaluationResult } from "./evaluations";
+import type { EvaluationResult, ScenarioFieldValue } from "./evaluations";
 
 /**
  * Represents the result of a scenario execution.
@@ -156,6 +162,63 @@ export interface ScenarioExecutionStateLike {
    * @returns True if the tool call exists, false otherwise.
    */
   hasToolCall(toolName: string): boolean;
+
+  /**
+   * The fields the scenario carries next to its description, its data row.
+   */
+  readonly fields: Record<string, ScenarioFieldValue>;
+
+  /**
+   * One field of the scenario. Nothing when the scenario does not set it or
+   * leaves it blank; `0` and `false` are values.
+   */
+  field(name: string): ScenarioFieldValue | undefined;
+
+  /**
+   * The judge criteria of the scenario, in order.
+   */
+  readonly criteria: string[];
+
+  /**
+   * The text of the first message the simulated user sent, or an empty
+   * string before the first user message.
+   */
+  firstUserMessage(): string;
+
+  /**
+   * The conversation so far as one `role: content` line per message.
+   */
+  transcript(): string;
+
+  /**
+   * Every call of a tool across the run so far, in start order, merged from
+   * the tool calls of the assistant messages and the tool spans of the
+   * traces. `toolCalls("run_sql").last?.input` is the arguments of the last
+   * call. Without a name, every tool call of the run.
+   */
+  toolCalls(name?: string): ToolCalls;
+
+  /**
+   * Every chunk the agent retrieved across the run so far, from the rag
+   * spans of the traces.
+   */
+  readonly contexts: string[];
+
+  /**
+   * Every span of every trace of the run collected so far, in start order.
+   * Never fetches: a script step reads what the collector holds.
+   */
+  readonly spans: ReadableSpan[];
+
+  /**
+   * One entry per trace id the messages carry, in first-seen order.
+   */
+  readonly traces: TraceView[];
+
+  /**
+   * One entry per turn, with the messages added during it.
+   */
+  readonly turns: TurnView[];
 
   /**
    * Remove all messages from position `index` onward.

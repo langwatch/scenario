@@ -83,8 +83,8 @@ export type ScenarioRunAgent = z.infer<typeof scenarioRunAgentSchema>;
 /**
  * Scenario Run Started Event Schema
  * Captures the initiation of a scenario run with metadata about the scenario being executed.
- * Contains the scenario name, an optional description for identification purposes, and the
- * agents that the run uses.
+ * Contains the scenario name, an optional description for identification purposes, the
+ * agents that the run uses and the fields the scenario carries.
  */
 export const scenarioRunStartedSchema = baseScenarioEventSchema.extend({
   type: z.literal(ScenarioEventType.RUN_STARTED),
@@ -92,6 +92,9 @@ export const scenarioRunStartedSchema = baseScenarioEventSchema.extend({
     name: z.string().optional(),
     description: z.string().optional(),
     agents: z.array(scenarioRunAgentSchema).optional(),
+    fields: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+      .optional(),
   }).catchall(z.unknown()),
 });
 

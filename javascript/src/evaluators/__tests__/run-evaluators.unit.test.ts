@@ -1,7 +1,14 @@
 // Ref: specs/scenario-evaluators.feature
-import type { ModelMessage } from "ai";
 import { describe, it, expect, vi } from "vitest";
 import type { ScenarioResult } from "../../domain";
+import {
+  messagesWithToolCall,
+  span,
+  stateWith,
+  SQL_INPUT,
+  type StampedMessage,
+} from "../../execution/__tests__/state-fixture";
+import type { ScenarioExecutionState } from "../../execution/scenario-execution-state";
 import type { EvaluateApiResponse, EvaluatorSpec } from "../evaluations-api";
 import { evaluator, field, trace } from "../mappings";
 import {
@@ -31,23 +38,10 @@ const scoreJudge: EvaluatorSpec = {
   producesPassed: false,
 };
 
-const messages: ModelMessage[] = [
-  { role: "user", content: "Chargebacks per quarter for ACME Travel?" },
-  {
-    role: "assistant",
-    content: [
-      {
-        type: "tool-call",
-        toolCallId: "call_1",
-        toolName: "run_sql",
-        input: { sql: "SELECT quarter, count(*) FROM chargebacks GROUP BY 1" },
-      },
-    ],
-  },
-  { role: "assistant", content: "Here are the totals per quarter." },
-];
-(messages[2] as ModelMessage & { traceId?: string }).traceId = "trace-last";
-(messages[1] as ModelMessage & { traceId?: string }).traceId = "trace-last";
+const FIELDS = {
+  golden_sql: "SELECT quarter, count(*) FROM chargebacks GROUP BY 1",
+  table_schema: "CREATE TABLE chargebacks (...)",
+};
 
 function depsWith({
   specs,
@@ -65,22 +59,18 @@ function depsWith({
   return {
     getEvaluatorSpec: async (ref) => specs[ref],
     evaluate,
-    getSpans: () => [],
     fetchRemoteTraces,
   };
 }
 
-const context = {
-  messages,
-  description: "A fraud analyst asks for chargebacks per quarter.",
-  criteria: [],
-  fields: { golden_sql: "SELECT quarter, count(*) FROM chargebacks GROUP BY 1", table_schema: "CREATE TABLE chargebacks (...)" },
-};
+function fullState(overrides: Parameters<typeof stateWith>[0] = {}): ScenarioExecutionState {
+  return stateWith({ messages: messagesWithToolCall, fields: FIELDS, ...overrides });
+}
 
 const judgeSuccess: ScenarioResult = {
   runId: "run_1",
   success: true,
-  messages,
+  messages: [],
   reasoning: "All criteria passed",
   metCriteria: ["Reports totals"],
   unmetCriteria: [],
@@ -91,9 +81,9 @@ describe("running scenario evaluators", () => {
     const attachment = evaluator("ragas/sql_query_equivalence", {
       required: true,
       mappings: {
-        output: trace.toolCall("run_sql").input,
+        output: (state) => state.toolCalls("run_sql").last?.input,
         expected_output: field("golden_sql"),
-        expected_contexts: field("table_schema"),
+        expected_contexts: (state) => state.field("table_schema"),
       },
     });
 
@@ -103,20 +93,20 @@ describe("running scenario evaluators", () => {
         const deps = depsWith({ specs: { "ragas/sql_query_equivalence": sqlEquivalence } });
         const [result] = await runScenarioEvaluators({
           evaluators: [attachment],
-          context,
-          traceId: "trace-last",
+          state: fullState(),
+          traceId: "trace-1",
           deps,
         });
 
         expect(deps.evaluate).toHaveBeenCalledWith({
           evaluatorRef: "ragas/sql_query_equivalence",
           data: {
-            output: { sql: "SELECT quarter, count(*) FROM chargebacks GROUP BY 1" },
-            expected_output: "SELECT quarter, count(*) FROM chargebacks GROUP BY 1",
-            expected_contexts: ["CREATE TABLE chargebacks (...)"],
+            output: SQL_INPUT,
+            expected_output: FIELDS.golden_sql,
+            expected_contexts: [FIELDS.table_schema],
           },
           settings: undefined,
-          traceId: "trace-last",
+          traceId: "trace-1",
         });
         expect(result).toMatchObject({
           evaluatorId: "ragas/sql_query_equivalence",
@@ -126,19 +116,18 @@ describe("running scenario evaluators", () => {
           passed: true,
           details: "ok",
         });
-        expect(result.inputs?.expected_output).toBe(
-          "SELECT quarter, count(*) FROM chargebacks GROUP BY 1"
-        );
-        expect(result.inputs?.output).toContain("SELECT quarter");
+        expect(result.inputs?.expected_output).toBe(FIELDS.golden_sql);
+        expect(result.inputs?.output).toBe(JSON.stringify(SQL_INPUT));
       });
 
+      // Scenario: A tool call input resolves from the message tool calls
       it("does not fetch the remote trace when the messages carry the tool call", async () => {
         const fetchRemoteTraces = vi.fn(async () => {});
         const deps = depsWith({
           specs: { "ragas/sql_query_equivalence": sqlEquivalence },
           fetchRemoteTraces,
         });
-        await runScenarioEvaluators({ evaluators: [attachment], context, traceId: "trace-last", deps });
+        await runScenarioEvaluators({ evaluators: [attachment], state: fullState(), traceId: "trace-1", deps });
         expect(fetchRemoteTraces).not.toHaveBeenCalled();
       });
     });
@@ -152,8 +141,8 @@ describe("running scenario evaluators", () => {
         });
         const evaluations = await runScenarioEvaluators({
           evaluators: [attachment],
-          context,
-          traceId: "trace-last",
+          state: fullState(),
+          traceId: "trace-1",
           deps,
         });
         const result = applyEvaluationsToResult({ result: judgeSuccess, evaluations });
@@ -168,14 +157,14 @@ describe("running scenario evaluators", () => {
       });
     });
 
-    // Scenario: A blank field skips the evaluator with a reason
+    // Scenario: A blank field skips the evaluator with the field name
     describe("when the scenario does not set golden_sql", () => {
       it("skips the evaluator without calling the endpoint", async () => {
         const deps = depsWith({ specs: { "ragas/sql_query_equivalence": sqlEquivalence } });
         const [result] = await runScenarioEvaluators({
           evaluators: [attachment],
-          context: { ...context, fields: { table_schema: "CREATE TABLE chargebacks (...)" } },
-          traceId: "trace-last",
+          state: fullState({ fields: { table_schema: FIELDS.table_schema } }),
+          traceId: "trace-1",
           deps,
         });
         expect(result).toMatchObject({
@@ -187,41 +176,160 @@ describe("running scenario evaluators", () => {
       });
     });
 
-    // Scenario: A missing tool call fails the evaluator with a reason
+    // Scenario: A missing tool call skips the evaluator with the tool name
+    // Scenario: A mapping that read the trace and found nothing fetches the remote traces once
     describe("when the messages and the trace carry no run_sql call", () => {
-      it("fails the evaluator with the reason after one remote fetch", async () => {
+      const noCall: StampedMessage[] = [{ role: "assistant", content: "Done.", traceId: "trace-1" }];
+
+      it("fetches the remote traces once, calls the mappings again and skips with the reason", async () => {
+        const state = fullState({ messages: noCall });
+        const calls: string[] = [];
+        const fetchRemoteTraces = vi.fn(async () => {
+          calls.push("fetch");
+        });
+        const deps = depsWith({
+          specs: { "ragas/sql_query_equivalence": sqlEquivalence },
+          fetchRemoteTraces,
+        });
+        const [result] = await runScenarioEvaluators({
+          evaluators: [
+            evaluator("ragas/sql_query_equivalence", {
+              mappings: {
+                output: (s) => {
+                  calls.push("output");
+                  return s.toolCalls("run_sql").last?.input;
+                },
+                expected_output: field("golden_sql"),
+                expected_contexts: trace.toolCalls("run_sql").last.output,
+              },
+            }),
+          ],
+          state,
+          traceId: "trace-1",
+          deps,
+        });
+        expect(result).toMatchObject({
+          status: "skipped",
+          required: true,
+          details: "no run_sql call in the trace",
+        });
+        expect(fetchRemoteTraces).toHaveBeenCalledTimes(1);
+        expect(calls).toEqual(["output", "fetch", "output"]);
+        expect(deps.evaluate).not.toHaveBeenCalled();
+      });
+
+      it("finds the call the fetch brought in", async () => {
+        let spans: ReturnType<typeof span>[] = [];
+        const state = fullState({ messages: noCall });
+        state.setSpanProvider(() => spans);
+        const deps = depsWith({
+          specs: { "ragas/sql_query_equivalence": sqlEquivalence },
+          fetchRemoteTraces: async () => {
+            spans = [
+              span({
+                name: "run_sql",
+                attributes: { "langwatch.span.type": "tool", "langwatch.input": '{"sql":"SELECT 1"}' },
+              }),
+            ];
+          },
+        });
+        const [result] = await runScenarioEvaluators({ evaluators: [attachment], state, traceId: "trace-1", deps });
+        expect(result.status).toBe("passed");
+        expect(deps.evaluate).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ output: '{"sql":"SELECT 1"}' }) })
+        );
+      });
+
+      it("fetches once for two evaluators that read the trace", async () => {
+        const fetchRemoteTraces = vi.fn(async () => {});
+        const deps = depsWith({
+          specs: { "ragas/sql_query_equivalence": sqlEquivalence },
+          fetchRemoteTraces,
+        });
+        await runScenarioEvaluators({
+          evaluators: [attachment, attachment],
+          state: fullState({ messages: noCall }),
+          traceId: "trace-1",
+          deps,
+        });
+        expect(fetchRemoteTraces).toHaveBeenCalledTimes(1);
+      });
+
+      it("does not fetch when the messages carry no trace id", async () => {
+        const fetchRemoteTraces = vi.fn(async () => {});
+        const deps = depsWith({
+          specs: { "ragas/sql_query_equivalence": sqlEquivalence },
+          fetchRemoteTraces,
+        });
+        await runScenarioEvaluators({
+          evaluators: [attachment],
+          state: fullState({ messages: [{ role: "assistant", content: "Done." }] }),
+          traceId: undefined,
+          deps,
+        });
+        expect(fetchRemoteTraces).not.toHaveBeenCalled();
+      });
+
+      it("keeps the run as the judge decided", async () => {
+        const deps = depsWith({ specs: { "ragas/sql_query_equivalence": sqlEquivalence } });
+        const evaluations = await runScenarioEvaluators({
+          evaluators: [attachment],
+          state: fullState({ messages: noCall }),
+          traceId: undefined,
+          deps,
+        });
+        const result = applyEvaluationsToResult({ result: judgeSuccess, evaluations });
+        expect(result.success).toBe(true);
+      });
+    });
+
+    // Scenario: A mapping that returns nothing skips the evaluator
+    // Scenario: A mapping that did not read the trace never fetches the remote traces
+    describe("when a mapping returns nothing without reading the trace", () => {
+      it("skips with the generic reason and never fetches", async () => {
         const fetchRemoteTraces = vi.fn(async () => {});
         const deps = depsWith({
           specs: { "ragas/sql_query_equivalence": sqlEquivalence },
           fetchRemoteTraces,
         });
         const [result] = await runScenarioEvaluators({
-          evaluators: [attachment],
-          context: { ...context, messages: [{ role: "assistant", content: "Done." }] },
-          traceId: "trace-last",
+          evaluators: [
+            evaluator("ragas/sql_query_equivalence", {
+              mappings: { ...attachment.mappings, output: () => undefined },
+            }),
+          ],
+          state: fullState(),
+          traceId: "trace-1",
           deps,
         });
-        expect(result).toMatchObject({
-          status: "failed",
-          required: true,
-          passed: false,
-          details: "no run_sql call in the trace",
-        });
-        expect(fetchRemoteTraces).toHaveBeenCalledTimes(1);
+        expect(result).toMatchObject({ status: "skipped", details: "the mapping returned nothing" });
+        expect(fetchRemoteTraces).not.toHaveBeenCalled();
         expect(deps.evaluate).not.toHaveBeenCalled();
       });
+    });
 
-      it("fails the run when the evaluator is required", async () => {
+    // Scenario: A mapping that raises errors the evaluator
+    describe("when a mapping throws", () => {
+      it("reports an error with the message and does not call the endpoint", async () => {
         const deps = depsWith({ specs: { "ragas/sql_query_equivalence": sqlEquivalence } });
-        const evaluations = await runScenarioEvaluators({
-          evaluators: [attachment],
-          context: { ...context, messages: [{ role: "assistant", content: "Done." }] },
-          traceId: undefined,
+        const [result] = await runScenarioEvaluators({
+          evaluators: [
+            evaluator("ragas/sql_query_equivalence", {
+              mappings: {
+                ...attachment.mappings,
+                output: () => {
+                  throw new Error("no SQL found");
+                },
+              },
+            }),
+          ],
+          state: fullState(),
+          traceId: "trace-1",
           deps,
         });
-        const result = applyEvaluationsToResult({ result: judgeSuccess, evaluations });
-        expect(result.success).toBe(false);
-        expect(result.reasoning).toContain("no run_sql call in the trace");
+        expect(result.status).toBe("error");
+        expect(result.details).toBe("Mapping of output failed: no SQL found");
+        expect(deps.evaluate).not.toHaveBeenCalled();
       });
     });
 
@@ -234,8 +342,8 @@ describe("running scenario evaluators", () => {
         });
         const evaluations = await runScenarioEvaluators({
           evaluators: [attachment],
-          context,
-          traceId: "trace-last",
+          state: fullState(),
+          traceId: "trace-1",
           deps,
         });
         const result = applyEvaluationsToResult({ result: judgeSuccess, evaluations });
@@ -258,8 +366,8 @@ describe("running scenario evaluators", () => {
       });
       const evaluations = await runScenarioEvaluators({
         evaluators: [evaluator("evaluators/answer-quality", { required: true })],
-        context,
-        traceId: "trace-last",
+        state: fullState(),
+        traceId: "trace-1",
         deps,
       });
       const result = applyEvaluationsToResult({ result: judgeSuccess, evaluations });
@@ -268,8 +376,8 @@ describe("running scenario evaluators", () => {
         expect.objectContaining({
           evaluatorRef: "evaluators/answer-quality",
           data: {
-            input: "Chargebacks per quarter for ACME Travel?",
-            output: "Here are the totals per quarter.",
+            input: "How many chargebacks last quarter?",
+            output: "There were 12 chargebacks.",
           },
         })
       );
@@ -290,11 +398,37 @@ describe("running scenario evaluators", () => {
       });
       const [result] = await runScenarioEvaluators({
         evaluators: [evaluator("evaluators/answer-quality")],
-        context,
+        state: fullState(),
         traceId: undefined,
         deps,
       });
       expect(result.required).toBe(false);
+    });
+
+    it("leaves an inferred optional input that resolves to nothing out of the call", async () => {
+      const deps = depsWith({ specs: { "evaluators/answer-quality": scoreJudge } });
+      await runScenarioEvaluators({
+        evaluators: [evaluator("evaluators/answer-quality")],
+        state: fullState({ messages: [{ role: "user", content: "Hi", traceId: "trace-1" }] }),
+        traceId: undefined,
+        deps,
+      });
+      expect(deps.evaluate).toHaveBeenCalledWith(expect.objectContaining({ data: { input: "Hi" } }));
+    });
+  });
+
+  describe("given a literal mapping", () => {
+    it("sends the literal as the input", async () => {
+      const deps = depsWith({ specs: { "evaluators/answer-quality": scoreJudge } });
+      await runScenarioEvaluators({
+        evaluators: [evaluator("evaluators/answer-quality", { mappings: { output: "fixed answer" } })],
+        state: fullState(),
+        traceId: undefined,
+        deps,
+      });
+      expect(deps.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ output: "fixed answer" }) })
+      );
     });
   });
 
@@ -303,7 +437,7 @@ describe("running scenario evaluators", () => {
       const deps = depsWith({ specs: {} });
       const [result] = await runScenarioEvaluators({
         evaluators: [evaluator("langevals/nope")],
-        context,
+        state: fullState(),
         traceId: undefined,
         deps,
       });
@@ -324,7 +458,7 @@ describe("running scenario evaluators", () => {
       });
       const [result] = await runScenarioEvaluators({
         evaluators: [evaluator("ragas/sql_query_equivalence")],
-        context: { ...context, fields: {} },
+        state: fullState({ fields: {} }),
         traceId: undefined,
         deps,
       });

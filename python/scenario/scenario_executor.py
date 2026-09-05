@@ -64,7 +64,6 @@ from .types import (
 from ._error_messages import agent_response_not_awaitable
 from ._evaluators import (
     EvaluationsApiClient,
-    EvaluatorInputContext,
     RunEvaluatorsDeps,
     apply_evaluations_to_result,
     distinct_message_trace_ids,
@@ -78,6 +77,7 @@ from .connected_agent import AgentLike, resolve_agents
 from .script import proceed
 from pksuid import PKSUID
 from .scenario_state import ScenarioState
+from scenario._generated.langwatch_api_client.lang_watch_api_client.types import UNSET
 from ._events import (
     ScenarioEventBus,
     ScenarioEvent,
@@ -397,6 +397,7 @@ class ScenarioExecutor:
         message = cast(ChatCompletionMessageParamWithTrace, message)
         message["trace_id"] = self._trace.trace_id
         self._state.messages.append(message)
+        self._state.record_turn(message)
 
         # Broadcast the message to other agents
         for idx, _ in enumerate(self.agents):
@@ -859,26 +860,19 @@ class ScenarioExecutor:
 
     async def _run_evaluators(self) -> List[EvaluationResult]:
         """
-        Runs the evaluators against the run state. Tool calls and contexts
-        come from the messages and the spans already collected; when a trace
-        mapping finds nothing there, the remote traces of the run are fetched
-        once, waiting the same budget the judge uses.
+        Runs the evaluators against the run state. Each mapping reads the
+        state a script step reads: the messages, the fields and the spans
+        already collected. When a mapping read the trace and found nothing,
+        the remote traces of the run are fetched once, waiting the same
+        budget the judge uses, and the mapping is called again.
         """
         from ._tracing import judge_span_collector, remote_trace_fetcher
         from ._tracing.remote_trace_fetcher import DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS
-        from .judge_agent import JudgeAgent
 
         auth = resolve_evaluations_api_auth()
         api = EvaluationsApiClient(auth)
         thread_id = self._state.thread_id
-        messages = list(self._state.messages)
-        criteria = [
-            criterion
-            for agent in self.agents
-            if isinstance(agent, JudgeAgent)
-            for criterion in (agent.criteria or [])
-        ]
-        trace_ids = distinct_message_trace_ids(messages)
+        trace_ids = distinct_message_trace_ids(self._state.messages)
 
         async def fetch_remote_traces() -> None:
             if not trace_ids or not auth.api_key:
@@ -893,17 +887,11 @@ class ScenarioExecutor:
 
         return await run_scenario_evaluators(
             evaluators=self.evaluators,
-            context=EvaluatorInputContext(
-                messages=messages,
-                description=self.description,
-                criteria=criteria,
-                fields=self.fields,
-            ),
+            state=self._state,
             trace_id=trace_ids[-1] if trace_ids else None,
             deps=RunEvaluatorsDeps(
                 get_evaluator_spec=api.get_evaluator_spec,
                 evaluate=api.evaluate,
-                get_spans=lambda: judge_span_collector.get_spans_for_thread(thread_id),
                 fetch_remote_traces=fetch_remote_traces,
             ),
         )
@@ -1958,10 +1946,11 @@ class ScenarioExecutor:
             name=self.name,
             description=self.description,
             agents=agents,
+            fields=dict(self.fields) if self.fields else UNSET,
         )
         if self.metadata:
             for key, value in self.metadata.items():
-                if key not in ("name", "description", "agents"):
+                if key not in ("name", "description", "agents", "fields"):
                     metadata.additional_properties[key] = value
 
         event = ScenarioRunStartedEvent(

@@ -1,8 +1,8 @@
 """
-Infers where an unmapped evaluator input reads from, by its name. Mirrors
-the rules the LangWatch platform applies when an evaluator is attached to a
-test suite, so a scenario in code and a scenario on the platform map the same
-inputs the same way.
+Infers where an unmapped evaluator input reads from, by its name, and
+produces the state callable that reads it. Mirrors the rules the LangWatch
+platform applies when an evaluator is attached to a test suite, so a scenario
+in code and a scenario on the platform map the same inputs the same way.
 
 - ``input``, ``question``, ``user_input`` read the first user message
 - ``output``, ``response``, ``answer`` read the last agent message
@@ -14,11 +14,11 @@ inputs the same way.
 """
 
 import re
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
-from scenario.evaluators import EvaluatorMapping, conversation, field, trace
+from scenario.evaluators import StateMapping, conversation, field, trace
 
-_CONVERSATION_INPUTS: Dict[str, EvaluatorMapping] = {
+_CONVERSATION_INPUTS: Dict[str, StateMapping] = {
     "input": conversation.first_user_message,
     "question": conversation.first_user_message,
     "user_input": conversation.first_user_message,
@@ -59,7 +59,7 @@ def _words(identifier: str) -> List[str]:
     return [word for word in re.split(r"[^a-z0-9]+", identifier.lower()) if word]
 
 
-def _infer_field(input_id: str, field_names: Sequence[str]) -> Optional[EvaluatorMapping]:
+def _infer_field(input_id: str, field_names: Sequence[str]) -> Optional[StateMapping]:
     if not field_names:
         return None
     if len(field_names) == 1:
@@ -78,14 +78,14 @@ def infer_evaluator_mappings(
     *,
     inputs: Sequence[str],
     field_names: Sequence[str],
-    mappings: Optional[Dict[str, EvaluatorMapping]] = None,
-) -> Dict[str, EvaluatorMapping]:
+    mappings: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Completes the mappings of an evaluator: explicit mappings stay as they
     are, every other input the evaluator declares is inferred from its name,
     and an input that cannot be inferred stays unmapped.
     """
-    result: Dict[str, EvaluatorMapping] = dict(mappings or {})
+    result: Dict[str, Any] = dict(mappings or {})
     for input_id in inputs:
         if input_id in result:
             continue

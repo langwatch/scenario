@@ -1,34 +1,36 @@
 /**
- * Evaluators on scenario runs: the mapping shape, the evaluator attachment
- * and the result one evaluator produces. The mapping shape is the one the
- * LangWatch platform stores on a test suite, so a scenario defined in code
- * and a scenario defined on the platform describe the same thing.
+ * Evaluators on scenario runs: the mapping type, the evaluator attachment and
+ * the result one evaluator produces. A mapping is a function of the scenario
+ * state, so an evaluator reads the run through the same object a script step
+ * does.
  */
 
-export const EVALUATOR_MAPPING_SOURCE_IDS = [
-  "conversation",
-  "scenario",
-  "trace",
-] as const;
-export type EvaluatorMappingSourceId =
-  (typeof EVALUATOR_MAPPING_SOURCE_IDS)[number];
+import type { ScenarioExecutionStateLike } from "./execution";
+
+/** A literal an evaluator input takes as a constant. */
+export type EvaluatorMappingLiteral = string | number | boolean;
 
 /**
- * Where one evaluator input reads its value from.
+ * Where one evaluator input reads its value from: a function of the scenario
+ * state, the same object a script step receives, sync or async; or a literal.
  *
- * Source paths:
- * - conversation: `["first_user_message"]`, `["last_agent_message"]`,
- *   `["transcript"]` or `["messages"]`
- * - scenario: `["situation"]`, `["criteria"]` or `["fields", <name>]`
- * - trace: `["contexts"]` or `["tool_calls", <tool name>, "input" | "output"]`
+ * The function runs once the scenario has a verdict. What it returns is the
+ * input value. Returning nothing (`undefined`, `null` or an empty list) skips
+ * the evaluator; throwing reports an error result.
+ *
+ * @example
+ * ```typescript
+ * mappings: {
+ *   output: (state) => state.toolCalls("run_sql").last?.input,
+ *   expected_output: (state) => state.field("golden_sql"),
+ *   contexts: (state) => state.spans.filter((span) => span.attributes["langwatch.span.type"] === "rag"),
+ *   language: "en",
+ * }
+ * ```
  */
 export type EvaluatorMapping =
-  | {
-      type: "source";
-      sourceId: EvaluatorMappingSourceId;
-      path: string[];
-    }
-  | { type: "value"; value: string };
+  | EvaluatorMappingLiteral
+  | ((state: ScenarioExecutionStateLike) => unknown);
 
 /**
  * One evaluator attached to a scenario run.
@@ -47,9 +49,9 @@ export interface ScenarioEvaluator {
    */
   required?: boolean;
   /**
-   * Where each evaluator input reads from, keyed by input name. An input
-   * without a mapping is inferred from its name; a tool call is never
-   * inferred.
+   * Where each evaluator input reads from, keyed by input name: a function of
+   * the scenario state or a literal. An input without a mapping is inferred
+   * from its name; a tool call is never inferred.
    */
   mappings?: Record<string, EvaluatorMapping>;
   /**
@@ -80,7 +82,10 @@ export interface EvaluationResult {
   passed?: boolean;
   score?: number;
   label?: string;
-  /** The reason: judge details, "no golden_sql on this scenario", "no run_sql call in the trace". */
+  /**
+   * The reason: judge details, "no golden_sql on this scenario", "no run_sql
+   * call in the trace", "the mapping returned nothing", or the error.
+   */
   details?: string;
   cost?: { currency: string; amount: number };
   /** The resolved input values, each cut to 2000 characters. */

@@ -1,30 +1,27 @@
 """
 Ref: specs/scenario-evaluators.feature
 
-Evaluators on scenario runs: mapping inference, input resolution, the gate a
-required evaluator applies to the run, and the evaluations on the run
-finished event.
+Evaluators on scenario runs: mappings as functions of the state, inference,
+resolution, the gate a required evaluator applies to the run, and the
+evaluations on the run events.
 """
 
 from typing import Any, Dict, List, Optional
 
 import pytest
-from opentelemetry.sdk.trace import ReadableSpan
-from opentelemetry.trace import SpanContext, TraceFlags
 
 from scenario import JudgeAgent, UserSimulatorAgent, agent, judge, user
 from scenario._evaluators import (
     EvaluatorInput,
-    EvaluatorInputContext,
     EvaluatorSpec,
-    ResolvedFailed,
-    ResolvedSkipped,
+    ResolvedError,
+    ResolvedNothing,
     ResolvedValue,
     RunEvaluatorsDeps,
     apply_evaluations_to_result,
     infer_evaluator_mappings,
     is_expected_like_input,
-    resolve_input,
+    resolve_mapping,
     run_scenario_evaluators,
 )
 from scenario._events import (
@@ -32,6 +29,7 @@ from scenario._events import (
     ScenarioEvent,
     ScenarioEventBus,
     ScenarioRunFinishedEvent,
+    ScenarioRunStartedEvent,
 )
 from scenario.agent_adapter import AgentAdapter
 from scenario.evaluators import (
@@ -43,53 +41,16 @@ from scenario.evaluators import (
     value,
 )
 from scenario.scenario_executor import ScenarioExecutor
+from scenario.scenario_state import ScenarioState
 from scenario.types import AgentInput, ScenarioResult
-
-
-def _span(name: str, attributes: Dict[str, Any]) -> ReadableSpan:
-    return ReadableSpan(
-        name=name,
-        context=SpanContext(
-            trace_id=1, span_id=hash(name) & 0xFFFFFFFFFFFFFFFF, is_remote=False,
-            trace_flags=TraceFlags(TraceFlags.SAMPLED),
-        ),
-        attributes=attributes,
-    )
-
-
-MESSAGES_WITH_TOOL_CALL: List[Dict[str, Any]] = [
-    {"role": "user", "content": "How many chargebacks last quarter?", "trace_id": "trace-1"},
-    {
-        "role": "assistant",
-        "content": None,
-        "trace_id": "trace-2",
-        "tool_calls": [
-            {
-                "id": "call_1",
-                "type": "function",
-                "function": {
-                    "name": "run_sql",
-                    "arguments": '{"sql": "SELECT count(*) FROM chargebacks"}',
-                },
-            }
-        ],
-    },
-    {"role": "tool", "tool_call_id": "call_1", "content": '{"count": 12}', "trace_id": "trace-2"},
-    {"role": "assistant", "content": "There were 12 chargebacks.", "trace_id": "trace-2"},
-]
-
-
-def _context(**overrides: Any) -> EvaluatorInputContext:
-    base: Dict[str, Any] = dict(
-        messages=[],
-        description="A fraud analyst asks for chargebacks.",
-        criteria=["Reports the count"],
-        fields={},
-        spans=[],
-    )
-    base.update(overrides)
-    return EvaluatorInputContext(**base)
-
+from tests.helpers.state_fixture import (
+    SQL_INPUT,
+    TRACE_1,
+    TRACE_2,
+    messages_with_tool_call,
+    span,
+    state_with,
+)
 
 SQL_EQUIVALENCE = EvaluatorSpec(
     evaluator_id="ragas/sql_query_equivalence",
@@ -109,6 +70,21 @@ SCORE_JUDGE = EvaluatorSpec(
     produces_passed=False,
 )
 
+FIELDS = {
+    "golden_sql": "SELECT count(*) FROM chargebacks",
+    "table_schema": "CREATE TABLE chargebacks (...)",
+}
+
+SQL_ATTACHMENT = evaluator(
+    "ragas/sql_query_equivalence",
+    required=True,
+    mappings={
+        "output": lambda state: state.tool_calls("run_sql").last.input,
+        "expected_output": field("golden_sql"),
+        "expected_contexts": lambda state: state.field("table_schema"),
+    },
+)
+
 
 class _FakeDeps:
     def __init__(
@@ -117,16 +93,17 @@ class _FakeDeps:
         response: Optional[Dict[str, Any]] = None,
         error: Optional[Exception] = None,
         fetch_remote_traces: bool = False,
+        on_fetch: Optional[Any] = None,
     ) -> None:
         self.specs = specs
         self.response = response or {"status": "processed", "passed": True, "details": "ok"}
         self.error = error
         self.calls: List[Dict[str, Any]] = []
         self.fetches = 0
+        self.on_fetch = on_fetch
         self.deps = RunEvaluatorsDeps(
             get_evaluator_spec=self._spec,
             evaluate=self._evaluate,
-            get_spans=lambda: [],
             fetch_remote_traces=self._fetch if fetch_remote_traces else None,
         )
 
@@ -141,22 +118,14 @@ class _FakeDeps:
 
     async def _fetch(self) -> None:
         self.fetches += 1
+        if self.on_fetch is not None:
+            self.on_fetch()
 
 
-FIELDS = {
-    "golden_sql": "SELECT count(*) FROM chargebacks",
-    "table_schema": "CREATE TABLE chargebacks (...)",
-}
-
-SQL_ATTACHMENT = evaluator(
-    "ragas/sql_query_equivalence",
-    required=True,
-    mappings={
-        "output": trace.tool_call("run_sql").input,
-        "expected_output": field("golden_sql"),
-        "expected_contexts": field("table_schema"),
-    },
-)
+def _full_state(**overrides: Any) -> ScenarioState:
+    options: Dict[str, Any] = dict(messages=messages_with_tool_call(), fields=FIELDS)
+    options.update(overrides)
+    return state_with(**options)
 
 
 def _judge_success() -> ScenarioResult:
@@ -168,36 +137,111 @@ def _judge_success() -> ScenarioResult:
     )
 
 
-class TestMappingHelpers:
-    """Scenario: Mapping helpers build the platform mapping shape."""
+class TestMappingsAreStateCallables:
+    @pytest.mark.asyncio
+    async def test_a_mapping_is_a_function_of_the_state(self):
+        """Scenario: A mapping is a function of the scenario state."""
+        state = _full_state()
+        seen: List[Any] = []
 
-    def test_helpers_build_the_platform_shape(self):
-        assert conversation.first_user_message.to_wire() == {
-            "type": "source",
-            "sourceId": "conversation",
-            "path": ["first_user_message"],
-        }
-        assert field("golden_sql").to_wire() == {
-            "type": "source",
-            "sourceId": "scenario",
-            "path": ["fields", "golden_sql"],
-        }
-        assert trace.tool_call("run_sql").input.path == ["tool_calls", "run_sql", "input"]
-        assert trace.tool_call("run_sql").output.path == ["tool_calls", "run_sql", "output"]
-        assert trace.contexts.path == ["contexts"]
-        assert value("42").to_wire() == {"type": "value", "value": "42"}
+        def read(s: ScenarioState) -> Any:
+            seen.append(s)
+            return s.field("golden_sql")
+
+        resolved = await resolve_mapping(mapping=read, state=state)
+        assert seen == [state]
+        assert resolved == ResolvedValue(value=FIELDS["golden_sql"])
+
+    @pytest.mark.asyncio
+    async def test_an_async_mapping_is_awaited(self):
+        """Scenario: An async mapping is awaited."""
+
+        async def read(s: ScenarioState) -> str:
+            return s.first_user_message()
+
+        resolved = await resolve_mapping(mapping=read, state=_full_state())
+        assert resolved == ResolvedValue(value="How many chargebacks last quarter?")
+
+    @pytest.mark.asyncio
+    async def test_a_literal_is_a_constant(self):
+        """Scenario: A literal mapping is a constant."""
+        state = _full_state()
+        assert await resolve_mapping(mapping="en", state=state) == ResolvedValue(value="en")
+        assert await resolve_mapping(mapping=3, state=state) == ResolvedValue(value=3)
+        assert await resolve_mapping(mapping=False, state=state) == ResolvedValue(value=False)
+
+    @pytest.mark.asyncio
+    async def test_a_mapping_that_raises_reports_the_error(self):
+        """Scenario: A mapping that raises errors the evaluator."""
+
+        def read(_: ScenarioState) -> Any:
+            raise ValueError("boom")
+
+        resolved = await resolve_mapping(mapping=read, state=_full_state())
+        assert isinstance(resolved, ResolvedError)
+        assert str(resolved.error) == "boom"
+
+    def test_helpers_name_their_expression(self):
+        """Scenario: The declarative helpers are state callables."""
+        assert conversation.first_user_message.expression == "state.first_user_message() or None"
+        assert conversation.last_agent_message.expression == "state.last_agent_message() or None"
+        assert field("golden_sql").expression == "state.field('golden_sql')"
+        assert trace.tool_calls("run_sql").last.input.expression == "state.tool_calls('run_sql').last.input"
+        assert trace.tool_calls("run_sql").first.output.expression == "state.tool_calls('run_sql').first.output"
+        assert trace.contexts.expression == "state.contexts"
+        assert trace.spans.expression == "state.spans"
+        assert value("42").expression == "'42'"
+        assert callable(field("golden_sql"))
+
+    def test_helpers_give_the_same_value_as_the_expression(self):
+        state = _full_state(criteria=["Reports the count", "Names the quarter"])
+        assert conversation.first_user_message(state) == state.first_user_message()
+        assert conversation.last_agent_message(state) == "There were 12 chargebacks."
+        assert conversation.transcript(state) == state.transcript()
+        assert conversation.messages(state) == list(state.messages)
+        assert scenario_source.situation(state) == state.description
+        assert scenario_source.criteria(state) == "Reports the count\nNames the quarter"
+        assert field("golden_sql")(state) == FIELDS["golden_sql"]
+        assert trace.tool_calls("run_sql").last.input(state) == SQL_INPUT
+        assert trace.tool_calls("run_sql").last.output(state) == '{"count": 12}'
+        assert trace.tool_calls("run_sql").inputs(state) == [SQL_INPUT]
+        assert value("x")(state) == "x"
+
+    @pytest.mark.asyncio
+    async def test_first_and_last_name_the_pick(self):
+        """Scenario: A tool call pick names the call with first or last."""
+        messages = [
+            *messages_with_tool_call(),
+            {
+                "role": "assistant",
+                "content": None,
+                "trace_id": TRACE_2,
+                "turn": 2,
+                "tool_calls": [
+                    {"id": "call_2", "type": "function", "function": {"name": "run_sql", "arguments": '{"sql": "SELECT 2"}'}}
+                ],
+            },
+        ]
+        state = state_with(messages=messages)
+        assert await resolve_mapping(mapping=trace.tool_calls("run_sql").last.input, state=state) == ResolvedValue(
+            value={"sql": "SELECT 2"}
+        )
+        assert await resolve_mapping(mapping=trace.tool_calls("run_sql").first.input, state=state) == ResolvedValue(
+            value=SQL_INPUT
+        )
+        # Scenario: A turn narrows the tool calls
+        assert await resolve_mapping(
+            mapping=lambda s: s.turns[1].tool_calls("run_sql").inputs, state=state
+        ) == ResolvedValue(value=[{"sql": "SELECT 2"}])
 
 
 class TestInference:
-    """Scenario: Unmapped conversation inputs are inferred by name."""
-
     def test_conversation_inputs_are_inferred(self):
-        mappings = infer_evaluator_mappings(
-            inputs=["input", "output", "contexts"], field_names=[]
-        )
-        assert mappings["input"] == conversation.first_user_message
-        assert mappings["output"] == conversation.last_agent_message
-        assert mappings["contexts"] == trace.contexts
+        """Scenario: Unmapped conversation inputs are inferred by name."""
+        mappings = infer_evaluator_mappings(inputs=["input", "output", "contexts"], field_names=[])
+        assert mappings["input"] is conversation.first_user_message
+        assert mappings["output"] is conversation.last_agent_message
+        assert mappings["contexts"] is trace.contexts
 
     def test_expected_like_inputs_map_to_fields_by_name_words(self):
         """Scenario: An expected-like input is inferred to a field by its name words."""
@@ -205,28 +249,29 @@ class TestInference:
             inputs=["output", "expected_output", "expected_contexts"],
             field_names=["golden_sql", "table_schema"],
         )
-        assert mappings["expected_output"] == field("golden_sql")
-        assert mappings["expected_contexts"] == field("table_schema")
+        assert mappings["expected_output"].expression == field("golden_sql").expression
+        assert mappings["expected_contexts"].expression == field("table_schema").expression
 
     def test_several_candidate_fields_stay_unmapped(self):
         """Scenario: An expected-like input with several candidate fields stays unmapped."""
-        mappings = infer_evaluator_mappings(
-            inputs=["expected_output"], field_names=["golden_sql", "reference_sql"]
-        )
+        mappings = infer_evaluator_mappings(inputs=["expected_output"], field_names=["golden_sql", "reference_sql"])
         assert "expected_output" not in mappings
 
     def test_a_tool_call_is_never_inferred(self):
         """Scenario: A tool call source is never inferred."""
         mappings = infer_evaluator_mappings(inputs=["output"], field_names=[])
-        assert mappings["output"] == conversation.last_agent_message
+        assert mappings["output"] is conversation.last_agent_message
 
     def test_an_explicit_mapping_wins(self):
         """Scenario: An explicit mapping wins over inference."""
-        explicit = trace.tool_call("run_sql").input
-        mappings = infer_evaluator_mappings(
-            inputs=["output"], field_names=[], mappings={"output": explicit}
-        )
+
+        def explicit(state: ScenarioState) -> Any:
+            return state.tool_calls("run_sql").last.input
+
+        mappings = infer_evaluator_mappings(inputs=["output"], field_names=[], mappings={"output": explicit})
         assert mappings["output"] is explicit
+        literal = infer_evaluator_mappings(inputs=["language"], field_names=[], mappings={"language": "en"})
+        assert literal["language"] == "en"
 
     def test_recognizes_expected_like_inputs(self):
         assert is_expected_like_input("expected_output")
@@ -236,85 +281,78 @@ class TestInference:
 
 
 class TestResolution:
-    """Scenario: A tool call input resolves from the message tool calls."""
-
-    def test_tool_call_input_comes_from_the_message_tool_calls(self):
-        resolved = resolve_input(
-            mapping=trace.tool_call("run_sql").input,
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL),
+    @pytest.mark.asyncio
+    async def test_tool_call_comes_from_the_message_tool_calls(self):
+        """Scenario: A tool call input resolves from the message tool calls."""
+        state = _full_state()
+        assert await resolve_mapping(mapping=trace.tool_calls("run_sql").last.input, state=state) == ResolvedValue(
+            value=SQL_INPUT
         )
-        assert resolved == ResolvedValue(value={"sql": "SELECT count(*) FROM chargebacks"})
-
-    def test_tool_call_output_comes_from_the_tool_message(self):
-        resolved = resolve_input(
-            mapping=trace.tool_call("run_sql").output,
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL),
+        assert await resolve_mapping(mapping=trace.tool_calls("run_sql").last.output, state=state) == ResolvedValue(
+            value='{"count": 12}'
         )
-        assert resolved == ResolvedValue(value='{"count": 12}')
 
-    def test_conversation_sources(self):
-        context = _context(messages=MESSAGES_WITH_TOOL_CALL)
-        assert resolve_input(mapping=conversation.first_user_message, context=context) == ResolvedValue(
-            value="How many chargebacks last quarter?"
-        )
-        assert resolve_input(mapping=conversation.last_agent_message, context=context) == ResolvedValue(
-            value="There were 12 chargebacks."
-        )
-        transcript = resolve_input(mapping=conversation.transcript, context=context)
-        assert isinstance(transcript, ResolvedValue)
-        assert "user: How many chargebacks last quarter?" in transcript.value
-        assert "run_sql" in transcript.value
-
-    def test_tool_call_comes_from_the_trace_spans_when_the_messages_carry_none(self):
+    @pytest.mark.asyncio
+    async def test_tool_call_comes_from_the_trace_spans_when_the_messages_carry_none(self):
         """Scenario: A tool call resolves from the trace spans when the messages carry none."""
-        context = _context(
-            messages=[{"role": "assistant", "content": "Done."}],
+        state = state_with(
+            messages=[{"role": "assistant", "content": "Done.", "trace_id": TRACE_1}],
             spans=[
-                _span("run_sql", {"langwatch.span.type": "tool", "langwatch.input": '{"sql":"SELECT 1"}', "langwatch.output": "[[1]]"}),
-                _span("llm", {"langwatch.span.type": "llm"}),
+                span("run_sql", {"langwatch.span.type": "tool", "langwatch.input": '{"sql":"SELECT 1"}', "langwatch.output": "[[1]]"}),
+                span("llm", {"langwatch.span.type": "llm"}),
             ],
         )
-        assert resolve_input(mapping=trace.tool_call("run_sql").input, context=context) == ResolvedValue(
+        assert await resolve_mapping(mapping=trace.tool_calls("run_sql").last.input, state=state) == ResolvedValue(
             value='{"sql":"SELECT 1"}'
         )
-        assert resolve_input(mapping=trace.tool_call("run_sql").output, context=context) == ResolvedValue(
+        assert await resolve_mapping(mapping=trace.tool_calls("run_sql").last.output, state=state) == ResolvedValue(
             value="[[1]]"
         )
 
-    def test_missing_tool_call_fails_with_a_reason(self):
-        """Scenario: A missing tool call fails the evaluator with a reason."""
-        resolved = resolve_input(
-            mapping=trace.tool_call("run_sql").input,
-            context=_context(messages=[{"role": "assistant", "content": "Done."}]),
+    @pytest.mark.asyncio
+    async def test_nothing_carries_the_most_specific_reason(self):
+        state = state_with(messages=[{"role": "assistant", "content": "Done.", "trace_id": TRACE_1}])
+        # Scenario: A mapping that returns nothing skips the evaluator
+        assert await resolve_mapping(mapping=lambda s: None, state=state) == ResolvedNothing(
+            reason="the mapping returned nothing", read_trace=False
         )
-        assert resolved == ResolvedFailed(reason="no run_sql call in the trace")
-
-    def test_blank_field_skips_with_a_reason(self):
-        """Scenario: A blank field skips the evaluator with a reason."""
-        assert resolve_input(mapping=field("golden_sql"), context=_context()) == ResolvedSkipped(
-            reason="no golden_sql on this scenario"
+        assert await resolve_mapping(mapping=lambda s: [], state=state) == ResolvedNothing(
+            reason="the mapping returned nothing", read_trace=False
         )
-        assert resolve_input(
-            mapping=field("golden_sql"), context=_context(fields={"golden_sql": ""})
-        ) == ResolvedSkipped(reason="no golden_sql on this scenario")
-        assert resolve_input(
-            mapping=field("golden_sql"), context=_context(fields={"golden_sql": "SELECT 1"})
-        ) == ResolvedValue(value="SELECT 1")
+        # Scenario: A blank field skips the evaluator with the field name
+        assert await resolve_mapping(mapping=field("golden_sql"), state=state) == ResolvedNothing(
+            reason="no golden_sql on this scenario", read_trace=False
+        )
+        assert await resolve_mapping(mapping=field("golden_sql"), state=state_with(fields={"golden_sql": ""})) == ResolvedNothing(
+            reason="no golden_sql on this scenario", read_trace=False
+        )
+        # Scenario: A missing tool call skips the evaluator with the tool name
+        assert await resolve_mapping(mapping=trace.tool_calls("run_sql").last.input, state=state) == ResolvedNothing(
+            reason="no run_sql call in the trace", read_trace=True
+        )
+        assert await resolve_mapping(mapping=trace.contexts, state=state) == ResolvedNothing(
+            reason="no retrieved contexts in the trace", read_trace=True
+        )
+        assert await resolve_mapping(mapping=lambda s: [x for x in s.spans if False], state=state) == ResolvedNothing(
+            reason="the mapping returned nothing", read_trace=True
+        )
 
-    def test_scenario_definition_and_literal_sources(self):
-        context = _context()
-        assert resolve_input(mapping=scenario_source.situation, context=context) == ResolvedValue(
+    @pytest.mark.asyncio
+    async def test_scenario_definition_and_literal_sources(self):
+        state = _full_state(criteria=["Reports the count"])
+        assert await resolve_mapping(mapping=scenario_source.situation, state=state) == ResolvedValue(
             value="A fraud analyst asks for chargebacks."
         )
-        assert resolve_input(mapping=scenario_source.criteria, context=context) == ResolvedValue(
+        assert await resolve_mapping(mapping=scenario_source.criteria, state=state) == ResolvedValue(
             value="Reports the count"
         )
-        assert resolve_input(mapping=value("x"), context=context) == ResolvedValue(value="x")
+        assert await resolve_mapping(mapping=value("x"), state=state) == ResolvedValue(value="x")
 
-    def test_contexts_come_from_rag_spans(self):
-        context = _context(
+    @pytest.mark.asyncio
+    async def test_contexts_come_from_rag_spans(self):
+        state = state_with(
             spans=[
-                _span(
+                span(
                     "retrieve",
                     {
                         "langwatch.span.type": "rag",
@@ -323,36 +361,29 @@ class TestResolution:
                 )
             ]
         )
-        assert resolve_input(mapping=trace.contexts, context=context) == ResolvedValue(
+        assert await resolve_mapping(mapping=trace.contexts, state=state) == ResolvedValue(
             value=["Table chargebacks", "plain text"]
-        )
-        assert resolve_input(mapping=trace.contexts, context=_context()) == ResolvedFailed(
-            reason="no retrieved contexts in the trace"
         )
 
 
 class TestRunner:
-    """Scenario: The evaluate call carries the resolved inputs and the trace id of the last turn."""
-
     @pytest.mark.asyncio
     async def test_evaluate_receives_the_resolved_data_and_the_last_trace_id(self):
+        """Scenario: The evaluate call carries the resolved inputs and the trace id of the last turn."""
         fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE}, fetch_remote_traces=True)
         [result] = await run_scenario_evaluators(
-            evaluators=[SQL_ATTACHMENT],
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL, fields=FIELDS),
-            trace_id="trace-2",
-            deps=fake.deps,
+            evaluators=[SQL_ATTACHMENT], state=_full_state(), trace_id=TRACE_1, deps=fake.deps
         )
         assert fake.calls == [
             {
                 "evaluator_ref": "ragas/sql_query_equivalence",
                 "data": {
-                    "output": {"sql": "SELECT count(*) FROM chargebacks"},
-                    "expected_output": "SELECT count(*) FROM chargebacks",
-                    "expected_contexts": ["CREATE TABLE chargebacks (...)"],
+                    "output": SQL_INPUT,
+                    "expected_output": FIELDS["golden_sql"],
+                    "expected_contexts": [FIELDS["table_schema"]],
                 },
                 "settings": None,
-                "trace_id": "trace-2",
+                "trace_id": TRACE_1,
             }
         ]
         assert fake.fetches == 0
@@ -363,7 +394,8 @@ class TestRunner:
         assert result.passed is True
         assert result.details == "ok"
         assert result.inputs is not None
-        assert result.inputs["expected_output"] == "SELECT count(*) FROM chargebacks"
+        assert result.inputs["expected_output"] == FIELDS["golden_sql"]
+        assert result.inputs["output"] == '{"sql": "SELECT count(*) FROM chargebacks"}'
 
     @pytest.mark.asyncio
     async def test_a_required_evaluator_that_fails_fails_the_run(self):
@@ -373,10 +405,7 @@ class TestRunner:
             response={"status": "processed", "passed": False, "details": "Different grouping"},
         )
         evaluations = await run_scenario_evaluators(
-            evaluators=[SQL_ATTACHMENT],
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL, fields=FIELDS),
-            trace_id="trace-2",
-            deps=fake.deps,
+            evaluators=[SQL_ATTACHMENT], state=_full_state(), trace_id=TRACE_1, deps=fake.deps
         )
         result = apply_evaluations_to_result(result=_judge_success(), evaluations=evaluations)
         assert evaluations[0].status == "failed"
@@ -394,8 +423,8 @@ class TestRunner:
         )
         evaluations = await run_scenario_evaluators(
             evaluators=[evaluator("evaluators/answer-quality", required=True)],
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL, fields=FIELDS),
-            trace_id="trace-2",
+            state=_full_state(),
+            trace_id=TRACE_1,
             deps=fake.deps,
         )
         result = apply_evaluations_to_result(result=_judge_success(), evaluations=evaluations)
@@ -412,21 +441,40 @@ class TestRunner:
     async def test_required_defaults_to_false_for_a_score_only_evaluator(self):
         fake = _FakeDeps({"evaluators/answer-quality": SCORE_JUDGE}, response={"status": "processed", "score": 0.9})
         [result] = await run_scenario_evaluators(
-            evaluators=[evaluator("evaluators/answer-quality")],
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL),
-            trace_id=None,
-            deps=fake.deps,
+            evaluators=[evaluator("evaluators/answer-quality")], state=_full_state(), trace_id=None, deps=fake.deps
         )
         assert result.required is False
 
     @pytest.mark.asyncio
+    async def test_an_inferred_optional_input_that_resolves_to_nothing_is_left_out(self):
+        fake = _FakeDeps({"evaluators/answer-quality": SCORE_JUDGE})
+        await run_scenario_evaluators(
+            evaluators=[evaluator("evaluators/answer-quality")],
+            state=state_with(messages=[{"role": "user", "content": "Hi", "trace_id": TRACE_1}]),
+            trace_id=None,
+            deps=fake.deps,
+        )
+        assert fake.calls[0]["data"] == {"input": "Hi"}
+
+    @pytest.mark.asyncio
+    async def test_a_literal_mapping_is_sent_as_the_input(self):
+        fake = _FakeDeps({"evaluators/answer-quality": SCORE_JUDGE})
+        await run_scenario_evaluators(
+            evaluators=[evaluator("evaluators/answer-quality", mappings={"output": "fixed answer"})],
+            state=_full_state(),
+            trace_id=None,
+            deps=fake.deps,
+        )
+        assert fake.calls[0]["data"]["output"] == "fixed answer"
+
+    @pytest.mark.asyncio
     async def test_a_blank_field_skips_without_calling_the_endpoint(self):
-        """Scenario: A blank field skips the evaluator with a reason."""
+        """Scenario: A blank field skips the evaluator with the field name."""
         fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE})
         [result] = await run_scenario_evaluators(
             evaluators=[SQL_ATTACHMENT],
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL, fields={"table_schema": "CREATE TABLE ..."}),
-            trace_id="trace-2",
+            state=_full_state(fields={"table_schema": "CREATE TABLE ..."}),
+            trace_id=TRACE_1,
             deps=fake.deps,
         )
         assert result.status == "skipped"
@@ -435,23 +483,121 @@ class TestRunner:
         assert fake.calls == []
 
     @pytest.mark.asyncio
-    async def test_a_missing_tool_call_fails_after_one_remote_fetch(self):
-        """Scenario: A missing tool call fails the evaluator with a reason."""
-        fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE}, fetch_remote_traces=True)
+    async def test_a_missing_tool_call_fetches_once_calls_the_mappings_again_and_skips(self):
+        """Scenario: A mapping that read the trace and found nothing fetches the remote traces once."""
+        state = _full_state(messages=[{"role": "assistant", "content": "Done.", "trace_id": TRACE_1}])
+        calls: List[str] = []
+        fake = _FakeDeps(
+            {"ragas/sql_query_equivalence": SQL_EQUIVALENCE},
+            fetch_remote_traces=True,
+            on_fetch=lambda: calls.append("fetch"),
+        )
+
+        def output(s: ScenarioState) -> Any:
+            calls.append("output")
+            return s.tool_calls("run_sql").last.input
+
         evaluations = await run_scenario_evaluators(
-            evaluators=[SQL_ATTACHMENT],
-            context=_context(messages=[{"role": "assistant", "content": "Done."}], fields=FIELDS),
-            trace_id=None,
+            evaluators=[
+                evaluator(
+                    "ragas/sql_query_equivalence",
+                    mappings={
+                        "output": output,
+                        "expected_output": field("golden_sql"),
+                        "expected_contexts": trace.tool_calls("run_sql").last.output,
+                    },
+                )
+            ],
+            state=state,
+            trace_id=TRACE_1,
             deps=fake.deps,
         )
         result = apply_evaluations_to_result(result=_judge_success(), evaluations=evaluations)
-        assert evaluations[0].status == "failed"
-        assert evaluations[0].passed is False
+        # Scenario: A missing tool call skips the evaluator with the tool name
+        assert evaluations[0].status == "skipped"
         assert evaluations[0].details == "no run_sql call in the trace"
         assert fake.fetches == 1
+        assert calls == ["output", "fetch", "output"]
         assert fake.calls == []
-        assert result.success is False
-        assert "no run_sql call in the trace" in (result.reasoning or "")
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_the_fetch_brings_the_call_in(self):
+        spans: List[Any] = []
+        state = _full_state(messages=[{"role": "assistant", "content": "Done.", "trace_id": TRACE_1}])
+        state.set_span_provider(lambda: list(spans))
+        fake = _FakeDeps(
+            {"ragas/sql_query_equivalence": SQL_EQUIVALENCE},
+            fetch_remote_traces=True,
+            on_fetch=lambda: spans.append(
+                span("run_sql", {"langwatch.span.type": "tool", "langwatch.input": '{"sql":"SELECT 1"}'})
+            ),
+        )
+        [result] = await run_scenario_evaluators(
+            evaluators=[SQL_ATTACHMENT], state=state, trace_id=TRACE_1, deps=fake.deps
+        )
+        assert result.status == "passed"
+        assert fake.calls[0]["data"]["output"] == '{"sql":"SELECT 1"}'
+
+    @pytest.mark.asyncio
+    async def test_two_evaluators_that_read_the_trace_fetch_once(self):
+        fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE}, fetch_remote_traces=True)
+        await run_scenario_evaluators(
+            evaluators=[SQL_ATTACHMENT, SQL_ATTACHMENT],
+            state=_full_state(messages=[{"role": "assistant", "content": "Done.", "trace_id": TRACE_1}]),
+            trace_id=TRACE_1,
+            deps=fake.deps,
+        )
+        assert fake.fetches == 1
+
+    @pytest.mark.asyncio
+    async def test_no_fetch_without_trace_ids_on_the_messages(self):
+        fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE}, fetch_remote_traces=True)
+        await run_scenario_evaluators(
+            evaluators=[SQL_ATTACHMENT],
+            state=_full_state(messages=[{"role": "assistant", "content": "Done."}]),
+            trace_id=None,
+            deps=fake.deps,
+        )
+        assert fake.fetches == 0
+
+    @pytest.mark.asyncio
+    async def test_a_mapping_that_returns_nothing_without_reading_the_trace_never_fetches(self):
+        """Scenario: A mapping that did not read the trace never fetches the remote traces."""
+        fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE}, fetch_remote_traces=True)
+        [result] = await run_scenario_evaluators(
+            evaluators=[
+                evaluator(
+                    "ragas/sql_query_equivalence",
+                    mappings={**SQL_ATTACHMENT.mappings, "output": lambda s: None},
+                )
+            ],
+            state=_full_state(),
+            trace_id=TRACE_1,
+            deps=fake.deps,
+        )
+        assert result.status == "skipped"
+        assert result.details == "the mapping returned nothing"
+        assert fake.fetches == 0
+        assert fake.calls == []
+
+    @pytest.mark.asyncio
+    async def test_a_mapping_that_raises_is_an_error_result(self):
+        """Scenario: A mapping that raises errors the evaluator."""
+        fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE})
+
+        def output(_: ScenarioState) -> Any:
+            raise ValueError("no SQL found")
+
+        [result] = await run_scenario_evaluators(
+            evaluators=[evaluator("ragas/sql_query_equivalence", mappings={**SQL_ATTACHMENT.mappings, "output": output})],
+            state=_full_state(),
+            trace_id=TRACE_1,
+            deps=fake.deps,
+        )
+        assert result.status == "error"
+        assert result.details == "Mapping of output failed: no SQL found"
+        assert fake.calls == []
 
     @pytest.mark.asyncio
     async def test_an_endpoint_failure_is_an_error_result(self):
@@ -461,10 +607,7 @@ class TestRunner:
             error=RuntimeError("POST /api/evaluations/x/evaluate answered 500: boom"),
         )
         evaluations = await run_scenario_evaluators(
-            evaluators=[SQL_ATTACHMENT],
-            context=_context(messages=MESSAGES_WITH_TOOL_CALL, fields=FIELDS),
-            trace_id="trace-2",
-            deps=fake.deps,
+            evaluators=[SQL_ATTACHMENT], state=_full_state(), trace_id=TRACE_1, deps=fake.deps
         )
         result = apply_evaluations_to_result(result=_judge_success(), evaluations=evaluations)
         assert evaluations[0].status == "error"
@@ -476,10 +619,7 @@ class TestRunner:
     async def test_an_unknown_evaluator_is_an_error_result(self):
         fake = _FakeDeps({})
         [result] = await run_scenario_evaluators(
-            evaluators=[evaluator("langevals/nope")],
-            context=_context(),
-            trace_id=None,
-            deps=fake.deps,
+            evaluators=[evaluator("langevals/nope")], state=_full_state(), trace_id=None, deps=fake.deps
         )
         assert result.status == "error"
         assert result.details == "Evaluator langevals/nope was not found in LangWatch"
@@ -497,7 +637,7 @@ class TestRunner:
         )
         [result] = await run_scenario_evaluators(
             evaluators=[evaluator("ragas/sql_query_equivalence")],
-            context=_context(),
+            state=_full_state(fields={}),
             trace_id=None,
             deps=fake.deps,
         )
@@ -549,7 +689,7 @@ class _MockEventReporter(EventReporter):
         return {}
 
 
-class TestRunFinishedEvent:
+class TestRunEvents:
     """Scenario: The run finished event carries the evaluations."""
 
     @pytest.fixture
@@ -602,15 +742,21 @@ class TestRunFinishedEvent:
         return result, events
 
     @pytest.mark.asyncio
-    async def test_the_event_and_the_result_carry_the_evaluation(self, fake_api: List[Dict[str, Any]]):
+    async def test_the_events_and_the_result_carry_the_fields_and_the_evaluation(self, fake_api: List[Dict[str, Any]]):
         result, events = await self._run(
             [
                 evaluator(
                     "langevals/exact_match",
-                    mappings={"output": trace.tool_call("run_sql").input, "expected_output": field("golden_sql")},
+                    mappings={
+                        "output": lambda state: state.tool_calls("run_sql").last.input,
+                        "expected_output": field("golden_sql"),
+                    },
                 )
             ]
         )
+        # Scenario: The run started event carries the fields
+        started = [event for event in events if isinstance(event, ScenarioRunStartedEvent)]
+        assert started[0].to_dict()["metadata"]["fields"] == {"golden_sql": "SELECT 1"}
         finished = [event for event in events if isinstance(event, ScenarioRunFinishedEvent)]
         assert len(finished) == 1
         assert fake_api[0]["evaluator_ref"] == "langevals/exact_match"
@@ -637,7 +783,7 @@ class TestRunFinishedEvent:
             [
                 evaluator(
                     "langevals/exact_match",
-                    mappings={"output": trace.tool_call("run_sql").input, "expected_output": field("golden_sql")},
+                    mappings={"output": trace.tool_calls("run_sql").last.input, "expected_output": field("golden_sql")},
                 )
             ]
         )
@@ -647,6 +793,23 @@ class TestRunFinishedEvent:
         assert finished[0].to_dict()["status"] == "FAILED"
         assert finished[0].to_dict()["results"]["verdict"] == "failure"
         assert finished[0].to_dict()["results"]["evaluations"][0]["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_skipped_and_error_results_next_to_a_passed_one(self, fake_api: List[Dict[str, Any]]):
+        def boom(_: ScenarioState) -> Any:
+            raise ValueError("no SQL found")
+
+        result, _ = await self._run(
+            [
+                evaluator("langevals/exact_match", mappings={"output": trace.tool_calls("run_sql").last.input}),
+                evaluator("langevals/exact_match", mappings={"output": lambda state: state.tool_calls("lookup").last.input}),
+                evaluator("langevals/exact_match", mappings={"output": boom}),
+            ]
+        )
+        assert [evaluation.status for evaluation in result.evaluations] == ["passed", "skipped", "error"]
+        assert result.evaluations[1].details == "no lookup call in the trace"
+        assert result.evaluations[2].details == "Mapping of output failed: no SQL found"
+        assert len(fake_api) == 1
 
     @pytest.mark.asyncio
     async def test_a_run_without_evaluators_sends_no_evaluations(self, fake_api: List[Dict[str, Any]]):

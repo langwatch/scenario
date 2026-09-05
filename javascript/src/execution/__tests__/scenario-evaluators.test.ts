@@ -10,7 +10,11 @@ import {
 } from "../../domain";
 import { UserSimulatorAgentAdapter } from "../../domain/agents";
 import { evaluator, field, trace } from "../../evaluators/mappings";
-import { ScenarioEventType, type ScenarioRunFinishedEvent } from "../../events";
+import {
+  ScenarioEventType,
+  type ScenarioRunFinishedEvent,
+  type ScenarioRunStartedEvent,
+} from "../../events";
 import { user, agent, judge } from "../../script";
 import { ScenarioExecution } from "../scenario-execution";
 
@@ -88,13 +92,17 @@ async function runWith(evaluators?: ScenarioEvaluator[]) {
     "batch-1"
   );
   const finished: ScenarioRunFinishedEvent[] = [];
+  const started: ScenarioRunStartedEvent[] = [];
   execution.events$.subscribe((event) => {
     if (event.type === ScenarioEventType.RUN_FINISHED) {
       finished.push(event as ScenarioRunFinishedEvent);
     }
+    if (event.type === ScenarioEventType.RUN_STARTED) {
+      started.push(event as ScenarioRunStartedEvent);
+    }
   });
   const result = await execution.execute();
-  return { result, finished };
+  return { result, finished, started };
 }
 
 describe("evaluators on a scenario execution", () => {
@@ -118,15 +126,17 @@ describe("evaluators on a scenario execution", () => {
       it("sends the evaluation in the run finished event and on the result", async () => {
         evaluate.mockResolvedValue({ status: "processed", passed: true, details: "Match" });
 
-        const { result, finished } = await runWith([
+        const { result, finished, started } = await runWith([
           evaluator("langevals/exact_match", {
             mappings: {
-              output: trace.toolCall("run_sql").input,
+              output: (state) => state.toolCalls("run_sql").last?.input,
               expected_output: field("golden_sql"),
             },
           }),
         ]);
 
+        // Scenario: The run started event carries the fields
+        expect(started[0].metadata.fields).toEqual({ golden_sql: "SELECT 1" });
         expect(evaluate).toHaveBeenCalledWith(
           expect.objectContaining({
             evaluatorRef: "langevals/exact_match",
@@ -156,7 +166,7 @@ describe("evaluators on a scenario execution", () => {
         const { result, finished } = await runWith([
           evaluator("langevals/exact_match", {
             mappings: {
-              output: trace.toolCall("run_sql").input,
+              output: trace.toolCalls("run_sql").last.input,
               expected_output: field("golden_sql"),
             },
           }),
@@ -168,6 +178,37 @@ describe("evaluators on a scenario execution", () => {
         expect(finished[0].results?.verdict).toBe("failure");
         expect(finished[0].results?.evaluations?.[0].status).toBe("failed");
       });
+    });
+  });
+
+  describe("given mappings that skip and that throw", () => {
+    it("reports a skipped and an error result next to a passed one", async () => {
+      evaluate.mockResolvedValue({ status: "processed", passed: true, details: "Match" });
+
+      const { result } = await runWith([
+        evaluator("langevals/exact_match", {
+          mappings: { output: trace.toolCalls("run_sql").last.input },
+        }),
+        evaluator("langevals/exact_match", {
+          mappings: { output: (state) => state.toolCalls("lookup").last?.input },
+        }),
+        evaluator("langevals/exact_match", {
+          mappings: {
+            output: () => {
+              throw new Error("no SQL found");
+            },
+          },
+        }),
+      ]);
+
+      expect(result.evaluations?.map((evaluation) => evaluation.status)).toEqual([
+        "passed",
+        "skipped",
+        "error",
+      ]);
+      expect(result.evaluations?.[1].details).toBe("no lookup call in the trace");
+      expect(result.evaluations?.[2].details).toBe("Mapping of output failed: no SQL found");
+      expect(evaluate).toHaveBeenCalledTimes(1);
     });
   });
 
