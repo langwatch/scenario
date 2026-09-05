@@ -600,7 +600,7 @@ class TestRunner:
         assert fake.calls == []
 
     @pytest.mark.asyncio
-    async def test_an_endpoint_failure_is_an_error_result_and_fails_a_required_evaluator(self):
+    async def test_an_endpoint_failure_is_an_error_result_and_fails_a_required_evaluator(self) -> None:
         """Scenario: An evaluate endpoint failure is reported as an error.
         Scenario: A required evaluator that could not run fails the run."""
         fake = _FakeDeps(
@@ -620,7 +620,7 @@ class TestRunner:
         )
 
     @pytest.mark.asyncio
-    async def test_an_optional_evaluator_that_could_not_run_leaves_the_verdict(self):
+    async def test_an_optional_evaluator_that_could_not_run_leaves_the_verdict(self) -> None:
         """Scenario: An optional evaluator that could not run leaves the verdict."""
         fake = _FakeDeps(
             {"ragas/sql_query_equivalence": SQL_EQUIVALENCE},
@@ -636,7 +636,7 @@ class TestRunner:
         assert result.reasoning == "All criteria passed"
 
     @pytest.mark.asyncio
-    async def test_a_skipped_required_evaluator_never_gates(self):
+    async def test_a_skipped_required_evaluator_never_gates(self) -> None:
         """Scenario: A skipped evaluator never gates the run."""
         fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE})
         evaluations = await run_scenario_evaluators(
