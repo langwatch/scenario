@@ -1,7 +1,8 @@
 /**
  * Evaluators on scenarios: LangWatch evaluators check the answer against the
  * expected answer the scenario carries and the SQL the agent ran, next to the
- * judge verdict.
+ * judge verdict. Each mapping is a function of the scenario state, the same
+ * state a script step receives.
  *
  * Needs LANGWATCH_API_KEY (and LANGWATCH_ENDPOINT for a self-hosted
  * platform). The evaluators run through the LangWatch evaluate endpoint, so
@@ -80,10 +81,12 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY)("evaluators on scenarios", () =>
         // Inferred mappings: output reads the last agent message and
         // expected_output reads the expected_answer field.
         scenario.evaluator("langevals/exact_match", { required: true }),
-        // The SQL the agent ran comes from the run_sql tool call.
+        // The SQL the agent ran is the input of the last run_sql call. The
+        // function and scenario.trace.toolCalls("run_sql").last.input are
+        // the same mapping.
         scenario.evaluator("langevals/llm_boolean", {
           required: false,
-          mappings: { output: scenario.trace.toolCall("run_sql").input },
+          mappings: { output: (state) => state.toolCalls("run_sql").last?.input },
           settings: {
             prompt:
               "Does this SQL group chargebacks by quarter for one merchant? Answer true or false.",
@@ -93,6 +96,11 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY)("evaluators on scenarios", () =>
       script: [
         scenario.user("How many chargebacks did ACME Travel have per quarter?"),
         scenario.agent(),
+        // A script step reads the same state the evaluator mappings read.
+        (state) => {
+          expect(state.toolCalls("run_sql").last?.input).toEqual({ sql: SQL });
+          expect(state.field("expected_answer")).toBe(ANSWER);
+        },
         scenario.judge(),
       ],
     });

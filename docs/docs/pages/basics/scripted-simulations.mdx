@@ -383,11 +383,9 @@ def check_tool_usage(state: scenario.ScenarioState) -> None:
     """Verify agent called the required tool"""
     assert state.has_tool_call("get_weather"), "Agent should have called weather tool"
 
-    # Get the tool call details
-    weather_call = state.last_tool_call("get_weather")
-    if weather_call:
-        args = json.loads(weather_call["function"]["arguments"])
-        assert "location" in args, "Weather tool should include location"
+    # Get the arguments of the last call
+    args = state.tool_calls("get_weather").last.input
+    assert args and "location" in args, "Weather tool should include location"
 
 def verify_response_quality(state: scenario.ScenarioState) -> None:
     """Check response meets quality standards"""
@@ -408,19 +406,16 @@ script=[
 
 ```typescript [typescript]
 
-async function check_tool_usage(state: scenario.ScenarioState) {
+async function check_tool_usage(state: scenario.ScenarioExecutionStateLike) {
     // Verify agent called the required tool
-    assert state.hasToolCall("get_weather"), "Agent should have called weather tool";
+    if (!state.hasToolCall("get_weather")) throw new Error("Agent should have called weather tool");
 
-    // Get the tool call details
-    const weatherCall = state.lastToolCall("get_weather");
-    if (!weatherCall) return;
-
-    const args = JSON.parse(weatherCall.function.arguments);
-    if (!args.location) throw new Error("Weather tool should include location");
+    // Get the arguments of the last call
+    const args = state.toolCalls("get_weather").last?.input as { location?: string } | undefined;
+    if (!args?.location) throw new Error("Weather tool should include location");
 }
 
-async function verify_response_quality(state: scenario.ScenarioState) {
+async function verify_response_quality(state: scenario.ScenarioExecutionStateLike) {
 
     const lastMessage = state.lastMessage();
     const content = lastMessage.content;
@@ -435,6 +430,52 @@ const script = [
   verify_response_quality,
   scenario.succeed(),
 ];
+```
+
+:::
+
+### Reading the Run State
+
+A custom step receives the scenario state. Besides the messages, the state exposes the scenario definition and the trace of the run so far, the same accessors an [evaluator mapping](/advanced/evaluators) reads:
+
+| Python | TypeScript | Reads |
+| --- | --- | --- |
+| `state.messages` | `state.messages` | The conversation so far |
+| `state.last_message()`, `state.last_user_message()` | `state.lastMessage()`, `state.lastUserMessage()`, `state.lastAgentMessage()` | One message |
+| `state.first_user_message()`, `state.last_agent_message()` | `state.firstUserMessage()` | The text of one message |
+| `state.transcript()` | `state.transcript()` | One `role: content` line per message |
+| `state.has_tool_call(name)` | `state.hasToolCall(name)` | Whether the tool was called |
+| `state.tool_calls(name)` | `state.toolCalls(name)` | Every call of the tool so far, from the messages and the spans, in start order |
+| `state.fields`, `state.field(name)` | `state.fields`, `state.field(name)` | The values passed as `fields` to `run` |
+| `state.criteria` | `state.criteria` | The judge criteria |
+| `state.contexts` | `state.contexts` | Every chunk the agent retrieved, from the rag spans |
+| `state.spans` | `state.spans` | Every span of every trace of the run collected so far, in start order |
+| `state.traces` | `state.traces` | One entry per trace id on the messages: `id`, `spans`, `tool_calls(name)` |
+| `state.turns` | `state.turns` | One entry per turn: `index`, `messages`, `trace`, `tool_calls(name)` |
+
+`tool_calls(name)` is a collection: `first` and `last` pick one call, `inputs` and `outputs` list the arguments and results of every call, and it iterates, indexes and counts. A call has `name`, `input`, `output`, `turn` and `source` (`message` or `span`). In Python, `first` and `last` of a tool that was never called are an empty, falsy call whose `input` and `output` are `None`; in TypeScript they are `undefined`. `last_tool_call(name)` keeps working and reads the messages only.
+
+The whole run is the default scope; `turns[i]` and `traces[i]` narrow it. `state.spans` reads what the span collector holds at that moment and never fetches remote traces.
+
+:::code-group
+
+```python [python]
+def check_sql(state: scenario.ScenarioState) -> None:
+    calls = state.tool_calls("run_sql")
+    assert len(calls) == 1
+    assert calls.last.input["sql"].startswith("SELECT")
+    assert state.field("golden_sql") is not None
+    assert state.turns[-1].tool_calls("run_sql").first.output is not None
+```
+
+```typescript [typescript]
+function checkSql(state: scenario.ScenarioExecutionStateLike) {
+  const calls = state.toolCalls("run_sql");
+  expect(calls).toHaveLength(1);
+  expect((calls.last?.input as { sql: string }).sql).toMatch(/^SELECT/);
+  expect(state.field("golden_sql")).toBeDefined();
+  expect(state.turns.at(-1)?.toolCalls("run_sql").first?.output).toBeDefined();
+}
 ```
 
 :::
