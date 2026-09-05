@@ -83,8 +83,8 @@ export type ScenarioRunAgent = z.infer<typeof scenarioRunAgentSchema>;
 /**
  * Scenario Run Started Event Schema
  * Captures the initiation of a scenario run with metadata about the scenario being executed.
- * Contains the scenario name, an optional description for identification purposes, and the
- * agents that the run uses.
+ * Contains the scenario name, an optional description for identification purposes, the
+ * agents that the run uses and the fields the scenario carries.
  */
 export const scenarioRunStartedSchema = baseScenarioEventSchema.extend({
   type: z.literal(ScenarioEventType.RUN_STARTED),
@@ -92,13 +92,42 @@ export const scenarioRunStartedSchema = baseScenarioEventSchema.extend({
     name: z.string().optional(),
     description: z.string().optional(),
     agents: z.array(scenarioRunAgentSchema).optional(),
+    fields: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+      .optional(),
   }).catchall(z.unknown()),
 });
+
+/**
+ * Scenario Evaluation Result Schema
+ * One evaluator's result on a scenario run. `evaluatorId` is the saved
+ * evaluator id, or the evaluator type when the run called it by type.
+ * `details` carries the reason: judge details, "no golden_sql on this
+ * scenario", "no run_sql call in the trace". `inputs` holds the resolved
+ * input values, each cut to 2000 characters, for the UI.
+ */
+export const scenarioEvaluationResultSchema = z.object({
+  evaluatorId: z.string(),
+  name: z.string(),
+  status: z.enum(["passed", "failed", "scored", "skipped", "error"]),
+  required: z.boolean(),
+  passed: z.boolean().optional(),
+  score: z.number().optional(),
+  label: z.string().optional(),
+  details: z.string().optional(),
+  cost: z.object({ currency: z.string(), amount: z.number() }).optional(),
+  inputs: z.record(z.string(), z.string()).optional(),
+});
+export type ScenarioEvaluationResult = z.infer<
+  typeof scenarioEvaluationResultSchema
+>;
 
 /**
  * Scenario Results Schema
  * Defines the structure for scenario evaluation results including verdict and criteria analysis.
  * Matches the Python dataclass structure used in the evaluation system.
+ * `evaluations` is present only when the run itself ran evaluators; the
+ * platform then stores them as they are instead of running its own.
  */
 export const scenarioResultsSchema = z.object({
   verdict: z.nativeEnum(Verdict),
@@ -106,6 +135,7 @@ export const scenarioResultsSchema = z.object({
   metCriteria: z.array(z.string()),
   unmetCriteria: z.array(z.string()),
   error: z.string().optional(),
+  evaluations: z.array(scenarioEvaluationResultSchema).optional(),
 });
 export type ScenarioResults = z.infer<typeof scenarioResultsSchema>;
 

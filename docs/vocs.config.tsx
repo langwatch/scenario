@@ -506,6 +506,10 @@ export default defineConfig({
           link: "/advanced/remote-traces",
         },
         {
+          text: "Evaluators on Scenarios",
+          link: "/advanced/evaluators",
+        },
+        {
           text: "Custom Judge",
           link: "/advanced/custom-judge",
         },

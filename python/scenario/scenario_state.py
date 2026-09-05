@@ -6,16 +6,31 @@ of a scenario execution, including conversation history, turn tracking, and
 utility methods for inspecting the conversation.
 """
 
-from typing import Any, Callable, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
     ChatCompletionUserMessageParam,
 )
-from pydantic import BaseModel
+from opentelemetry.sdk.trace import ReadableSpan
+from pydantic import BaseModel, PrivateAttr
 
 from scenario.types import ChatCompletionMessageParamWithTrace
 from scenario.config import ScenarioConfig
+from scenario._state_views import (
+    StateReads,
+    StateViewSource,
+    ToolCalls,
+    TraceView,
+    TurnView,
+    message_text,
+    run_contexts,
+    run_tool_calls,
+    run_traces,
+    run_turns,
+    sort_spans,
+    transcript,
+)
 
 if TYPE_CHECKING:
     from .scenario_executor import ScenarioExecutor
@@ -35,6 +50,12 @@ class ScenarioState(BaseModel):
         thread_id: Unique identifier for this conversation thread
         current_turn: Current turn number in the conversation
         config: Configuration settings for this scenario execution
+        fields: The values the scenario carries next to its description
+        criteria: The judge criteria of the scenario
+        contexts: Every chunk the agent retrieved, from the rag spans
+        spans: Every span of every trace of the run collected so far
+        traces: One entry per trace id the messages carry
+        turns: One entry per turn, with the messages added during it
 
     Example:
         ```
@@ -77,6 +98,161 @@ class ScenarioState(BaseModel):
     config: ScenarioConfig
 
     _executor: "ScenarioExecutor"
+    _message_turns: Dict[int, int] = PrivateAttr(default_factory=dict)
+    _reads: Optional[StateReads] = PrivateAttr(default=None)
+    _span_provider: Optional[Callable[[], List[ReadableSpan]]] = PrivateAttr(default=None)
+
+    def _executor_attr(self, name: str, default: Any) -> Any:
+        executor = getattr(self, "_executor", None)
+        return getattr(executor, name, default) if executor is not None else default
+
+    def record_turn(self, message: Any) -> None:
+        """Records the turn a message was added in, for ``turns`` and tool call turns."""
+        self._message_turns[id(message)] = self.current_turn
+
+    def forget_turns(self, messages: Sequence[Any]) -> None:
+        """Drops the turn records of messages removed by a rollback."""
+        for message in messages:
+            self._message_turns.pop(id(message), None)
+
+    def set_span_provider(self, provider: Callable[[], List[ReadableSpan]]) -> None:
+        """
+        Sets where ``spans`` reads from. Without one, the state reads the
+        judge span collector for its thread. Reading never fetches remote
+        traces.
+        """
+        self._span_provider = provider
+
+    def _collected_spans(self) -> List[ReadableSpan]:
+        provider = self._span_provider
+        if provider is not None:
+            return list(provider())
+        from ._tracing import judge_span_collector
+
+        return judge_span_collector.get_spans_for_thread(self.thread_id)
+
+    def start_read_tracking(self) -> None:
+        """
+        Starts recording what the next reads touch, so the evaluator runner
+        knows whether a mapping read the trace and what it found missing.
+        """
+        self._reads = StateReads()
+
+    def take_reads(self) -> StateReads:
+        """Stops recording and returns what was read since tracking started."""
+        reads = self._reads or StateReads()
+        self._reads = None
+        return reads
+
+    def note_trace(self) -> None:
+        if self._reads is not None:
+            self._reads.trace = True
+
+    def note_missing_tool_call(self, name: str) -> None:
+        if self._reads is not None and name not in self._reads.missing_tool_calls:
+            self._reads.missing_tool_calls.append(name)
+
+    def note_empty_contexts(self) -> None:
+        if self._reads is not None:
+            self._reads.empty_contexts = True
+
+    def _view_source(self) -> StateViewSource:
+        return StateViewSource(
+            messages=self.messages,
+            spans=self._collected_spans(),
+            turn_stamps=self._message_turns,
+            reporter=self,
+        )
+
+    @property
+    def fields(self) -> Dict[str, Any]:
+        """The fields the scenario carries next to its description, its data row."""
+        return dict(self._executor_attr("fields", {}) or {})
+
+    def field(self, name: str) -> Any:
+        """
+        One field of the scenario. ``None`` when the scenario does not set it
+        or leaves it blank; ``0`` and ``False`` are values.
+        """
+        value = self.fields.get(name)
+        if value is None or value == "":
+            if self._reads is not None and name not in self._reads.blank_fields:
+                self._reads.blank_fields.append(name)
+            return None
+        return value
+
+    @property
+    def criteria(self) -> List[str]:
+        """The judge criteria of the scenario, in order."""
+        from .judge_agent import JudgeAgent
+
+        return [
+            criterion
+            for agent in self._executor_attr("agents", []) or []
+            if isinstance(agent, JudgeAgent)
+            for criterion in (agent.criteria or [])
+        ]
+
+    def first_user_message(self) -> str:
+        """The text of the first message the simulated user sent, or an empty string."""
+        for message in self.messages:
+            if message["role"] == "user":
+                return message_text(message)
+        return ""
+
+    def last_agent_message(self) -> str:
+        """The text of the last message the agent under test sent, or an empty string."""
+        for message in reversed(self.messages):
+            if message["role"] == "assistant":
+                return message_text(message)
+        return ""
+
+    def transcript(self) -> str:
+        """The conversation so far as one ``role: content`` line per message."""
+        return transcript(self.messages)
+
+    def tool_calls(self, name: Optional[str] = None) -> ToolCalls:
+        """
+        Every call of a tool across the run so far, in start order, merged
+        from the tool calls of the assistant messages and the tool spans of
+        the traces. ``tool_calls("run_sql").last.input`` is the arguments of
+        the last call; when the tool was never called, ``last`` is an empty,
+        falsy call whose input and output are ``None``. Without a name,
+        every tool call of the run.
+
+        Example:
+            ```
+            def check_sql(state: ScenarioState) -> None:
+                calls = state.tool_calls("run_sql")
+                assert calls.last.input["sql"].startswith("SELECT")
+                assert len(calls) == 1
+            ```
+        """
+        return run_tool_calls(self._view_source(), name)
+
+    @property
+    def contexts(self) -> List[str]:
+        """Every chunk the agent retrieved across the run so far, from the rag spans."""
+        return run_contexts(self._view_source())
+
+    @property
+    def spans(self) -> List[ReadableSpan]:
+        """
+        Every span of every trace of the run collected so far, in start
+        order. Never fetches: a script step reads what the collector holds.
+        """
+        self.note_trace()
+        return sort_spans(self._collected_spans())
+
+    @property
+    def traces(self) -> List[TraceView]:
+        """One entry per trace id the messages carry, in first-seen order."""
+        return run_traces(self._view_source())
+
+    @property
+    def turns(self) -> List[TurnView]:
+        """One entry per turn, with the messages added during it."""
+        return run_turns(self._view_source())
 
     def add_message(self, message: ChatCompletionMessageParam):
         """
