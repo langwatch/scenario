@@ -58,6 +58,32 @@ describe("the evaluations API client", () => {
       expect((await client.getEvaluatorSpec("evaluators/quality"))?.producesPassed).toBe(false);
     });
 
+    it("ignores a field without an identifier and falls back to the catalogue", async () => {
+      const { fetchFn } = fetchAnswering({
+        "/api/evaluators/broken": {
+          id: "eval_4",
+          name: "Broken",
+          config: { evaluatorType: "langevals/exact_match" },
+          fields: [{}, { identifier: "" }],
+        },
+        "/api/evaluations/list": {
+          evaluators: {
+            "langevals/exact_match": {
+              name: "Exact Match",
+              requiredFields: ["output", "expected_output"],
+              optionalFields: [],
+              result: { passed: {} },
+            },
+          },
+        },
+      });
+      const client = new EvaluationsApiClient(auth, { fetchFn });
+      expect((await client.getEvaluatorSpec("evaluators/broken"))?.inputs.map((i) => i.id)).toEqual([
+        "output",
+        "expected_output",
+      ]);
+    });
+
     it("falls back to the catalogue entry of its type when the record declares no fields", async () => {
       const { fetchFn } = fetchAnswering({
         "/api/evaluators/exact": {
@@ -85,9 +111,8 @@ describe("the evaluations API client", () => {
     });
   });
 
-  describe("given any request", () => {
-    // Scenario: The evaluations API never follows a redirect with the key
-    it("refuses redirects and bounds the request with a timeout", async () => {
+  describe("given the catalogue and the evaluate requests", () => {
+    async function requests() {
       const { fetchFn, calls } = fetchAnswering({
         "/api/evaluations/list": { evaluators: {} },
         "/api/evaluations/langevals/exact_match/evaluate": { status: "processed", passed: true },
@@ -96,8 +121,18 @@ describe("the evaluations API client", () => {
       await client.getEvaluatorSpec("langevals/exact_match");
       await client.evaluate({ evaluatorRef: "langevals/exact_match", data: { output: "x" } });
       expect(calls).toHaveLength(2);
-      for (const call of calls) {
+      return calls;
+    }
+
+    // Scenario: The evaluations API never follows a redirect with the key
+    it("refuses redirects on both", async () => {
+      for (const call of await requests()) {
         expect(call.init.redirect).toBe("error");
+      }
+    });
+
+    it("bounds both with a timeout signal", async () => {
+      for (const call of await requests()) {
         expect(call.init.signal).toBeInstanceOf(AbortSignal);
       }
     });

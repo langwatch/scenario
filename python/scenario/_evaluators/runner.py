@@ -311,23 +311,26 @@ async def run_scenario_evaluators(
     return list(await asyncio.gather(*calls))
 
 
+def _gates(evaluation: EvaluationResult) -> bool:
+    """True when a required evaluator with this status fails the run."""
+    return evaluation.required and evaluation.status in ("failed", "error")
+
+
 def apply_evaluations_to_result(
     *, result: ScenarioResult, evaluations: Sequence[EvaluationResult]
 ) -> ScenarioResult:
     """
-    Applies evaluations to the run result: a required evaluator that failed
-    fails the run and its reason joins the reasoning. Scores never gate.
+    Applies evaluations to the run result: a required evaluator that failed,
+    or that could not run, fails the run and its reason joins the reasoning.
+    Scores and skips never gate. The same rule the platform applies to a run
+    it evaluates itself.
     """
     result.evaluations = list(evaluations)
-    gating = [
-        evaluation
-        for evaluation in evaluations
-        if evaluation.required and evaluation.status == "failed"
-    ]
+    gating = [evaluation for evaluation in evaluations if _gates(evaluation)]
     if not gating:
         return result
     reasons = [
-        f"Evaluator {evaluation.name} failed"
+        f"Evaluator {evaluation.name} {'could not run' if evaluation.status == 'error' else 'failed'}"
         + (f": {evaluation.details}" if evaluation.details else "")
         for evaluation in gating
     ]

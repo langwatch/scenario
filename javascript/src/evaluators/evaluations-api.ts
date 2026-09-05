@@ -160,22 +160,6 @@ export class EvaluationsApiClient {
     };
   }
 
-  /** The spec of a saved evaluator from the fields its record declares. */
-  private specFromSavedFields(saved: SavedEvaluator): EvaluatorSpec | undefined {
-    const fields = saved.fields ?? [];
-    if (fields.length === 0) return undefined;
-    const outputs = saved.outputFields ?? [];
-    return {
-      evaluatorId: saved.id,
-      name: saved.name,
-      inputs: [
-        ...fields.filter((f) => !f.optional).map((f) => ({ id: f.identifier, required: true })),
-        ...fields.filter((f) => f.optional).map((f) => ({ id: f.identifier, required: false })),
-      ],
-      producesPassed: outputs.some((f) => f.identifier === "passed"),
-    };
-  }
-
   /**
    * Which inputs an evaluator takes and what to call it. A built-in type is
    * read from the catalogue; a saved evaluator from the fields its record
@@ -245,5 +229,28 @@ export class EvaluationsApiClient {
       );
     }
     return (await response.json()) as EvaluateApiResponse;
+  }
+
+  /**
+   * The spec of a saved evaluator from the fields its record declares. A
+   * field without an identifier is ignored; a record with no usable field
+   * gives nothing, so the catalogue entry of the type is tried next.
+   */
+  private specFromSavedFields(saved: SavedEvaluator): EvaluatorSpec | undefined {
+    const fields = (saved.fields ?? []).filter(
+      (f): f is SavedEvaluatorField & { identifier: string } =>
+        typeof f?.identifier === "string" && f.identifier.length > 0
+    );
+    if (fields.length === 0) return undefined;
+    const outputs = saved.outputFields ?? [];
+    return {
+      evaluatorId: saved.id,
+      name: saved.name,
+      inputs: [
+        ...fields.filter((f) => !f.optional).map((f) => ({ id: f.identifier, required: true })),
+        ...fields.filter((f) => f.optional).map((f) => ({ id: f.identifier, required: false })),
+      ],
+      producesPassed: outputs.some((f) => f?.identifier === "passed"),
+    };
   }
 }
