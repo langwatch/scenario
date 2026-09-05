@@ -277,24 +277,22 @@ async def run_scenario_evaluators(
     parallel. Never raises: a failure to load or call an evaluator is an
     ``error`` result.
     """
-    remote_fetch: Optional[asyncio.Future[None]] = None
+    fetch_lock = asyncio.Lock()
+    fetched = False
     can_fetch = deps.fetch_remote_traces is not None and bool(
         distinct_message_trace_ids(state.messages)
     )
 
-    async def fetch_remote() -> None:
-        if deps.fetch_remote_traces is None:
-            return
-        try:
-            await deps.fetch_remote_traces()
-        except Exception as error:
-            logger.warning("Remote trace fetch for evaluators failed: %s", error)
-
     async def fetch_once() -> None:
-        nonlocal remote_fetch
-        if remote_fetch is None:
-            remote_fetch = asyncio.ensure_future(fetch_remote())
-        await remote_fetch
+        nonlocal fetched
+        async with fetch_lock:
+            if fetched or deps.fetch_remote_traces is None:
+                return
+            fetched = True
+            try:
+                await deps.fetch_remote_traces()
+            except Exception as error:
+                logger.warning("Remote trace fetch for evaluators failed: %s", error)
 
     prepared_all = await asyncio.gather(
         *[_prepare(attachment=attachment, state=state, deps=deps) for attachment in evaluators]
@@ -305,7 +303,7 @@ async def run_scenario_evaluators(
         if isinstance(entry, EvaluationResult):
             calls.append(asyncio.sleep(0, result=entry))
             continue
-        fetched_before = remote_fetch is not None
+        fetched_before = fetched
         resolved = await _resolve_all(prepared=entry, state=state)
         if resolved.wants_trace and can_fetch and not fetched_before:
             await fetch_once()

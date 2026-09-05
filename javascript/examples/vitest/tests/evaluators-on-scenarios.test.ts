@@ -5,8 +5,9 @@
  * state a script step receives.
  *
  * Needs LANGWATCH_API_KEY (and LANGWATCH_ENDPOINT for a self-hosted
- * platform). The evaluators run through the LangWatch evaluate endpoint, so
- * the test is skipped without a key.
+ * platform) and OPENAI_API_KEY for the user simulator and the judge. The
+ * evaluators run through the LangWatch evaluate endpoint, so the test is
+ * skipped without both keys.
  */
 import { openai } from "@ai-sdk/openai";
 import scenario, {
@@ -59,7 +60,9 @@ const sqlAnalystAgent: AgentAdapter = {
   },
 };
 
-describe.skipIf(!process.env.LANGWATCH_API_KEY)("evaluators on scenarios", () => {
+describe.skipIf(!process.env.LANGWATCH_API_KEY || !process.env.OPENAI_API_KEY)(
+  "evaluators on scenarios",
+  () => {
   it("checks the answer and the SQL with LangWatch evaluators", async () => {
     const result = await scenario.run({
       name: "chargeback totals by quarter",

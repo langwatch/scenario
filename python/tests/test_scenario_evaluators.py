@@ -682,6 +682,7 @@ class _MockJudgeAgent(JudgeAgent):
 
 class _MockEventReporter(EventReporter):
     def __init__(self) -> None:
+        super().__init__(endpoint="http://localhost", api_key="sk-test")
         self.posted_events: List[ScenarioEvent] = []
 
     async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:

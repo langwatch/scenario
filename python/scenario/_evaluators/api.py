@@ -4,6 +4,7 @@ catalogue (which inputs an evaluator takes), saved evaluators, and the
 evaluate call itself. Same endpoint and headers as the LangWatch SDKs.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -72,6 +73,7 @@ class EvaluationsApiClient:
         self._auth = auth
         self._client = client
         self._catalogue: Optional[Dict[str, Dict[str, Any]]] = None
+        self._catalogue_lock = asyncio.Lock()
 
     def _headers(self) -> Dict[str, str]:
         headers = {
@@ -112,10 +114,12 @@ class EvaluationsApiClient:
         return response.json()
 
     async def _load_catalogue(self) -> Dict[str, Dict[str, Any]]:
-        if self._catalogue is None:
-            body = await self._request("GET", "/api/evaluations/list")
-            self._catalogue = dict((body or {}).get("evaluators") or {})
-        return self._catalogue
+        """The evaluator catalogue, requested once per client."""
+        async with self._catalogue_lock:
+            if self._catalogue is None:
+                body = await self._request("GET", "/api/evaluations/list")
+                self._catalogue = dict((body or {}).get("evaluators") or {})
+            return self._catalogue
 
     @staticmethod
     def _spec_from_catalogue(

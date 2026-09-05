@@ -40,6 +40,9 @@ interface CatalogueEntry {
 
 const SAVED_EVALUATOR_PREFIX = "evaluators/";
 
+/** How long one evaluations API request may take before it is abandoned. */
+export const DEFAULT_EVALUATIONS_API_TIMEOUT_MS = 120_000;
+
 export class EvaluationsApiError extends Error {
   constructor(message: string) {
     super(message);
@@ -71,14 +74,16 @@ export function resolveEvaluationsApiAuth(
 export class EvaluationsApiClient {
   private readonly logger = new Logger("scenario.evaluators.EvaluationsApiClient");
   private readonly fetchFn: typeof fetch;
+  private readonly timeoutMs: number;
   private catalogue?: Promise<Record<string, CatalogueEntry>>;
 
   constructor(
     private readonly auth: EvaluationsApiAuth,
-    options?: { fetchFn?: typeof fetch }
+    options?: { fetchFn?: typeof fetch; timeoutMs?: number }
   ) {
     this.fetchFn =
       options?.fetchFn ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+    this.timeoutMs = options?.timeoutMs ?? DEFAULT_EVALUATIONS_API_TIMEOUT_MS;
   }
 
   private headers(): Record<string, string> {
@@ -99,6 +104,7 @@ export class EvaluationsApiClient {
     const response = await this.fetchFn(this.url(path), {
       method: "GET",
       headers: this.headers(),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (response.status === 404) return undefined;
     if (!response.ok) {
@@ -194,6 +200,7 @@ export class EvaluationsApiClient {
         settings,
         trace_id: traceId ?? null,
       }),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) {
       throw new EvaluationsApiError(

@@ -4,9 +4,10 @@ expected answer the scenario carries and the SQL the agent ran, next to the
 judge verdict. Each mapping is a function of the scenario state, the same
 state a script step receives.
 
-Needs LANGWATCH_API_KEY (and LANGWATCH_ENDPOINT for a self-hosted platform).
-The evaluators run through the LangWatch evaluate endpoint, so the test is
-skipped without a key.
+Needs LANGWATCH_API_KEY (and LANGWATCH_ENDPOINT for a self-hosted platform)
+and OPENAI_API_KEY for the user simulator and the judge. The evaluators run
+through the LangWatch evaluate endpoint, so the test is skipped without both
+keys.
 """
 
 import json
@@ -17,8 +18,8 @@ import pytest
 import scenario
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("LANGWATCH_API_KEY"),
-    reason="LANGWATCH_API_KEY is required to run evaluators through LangWatch",
+    not os.getenv("LANGWATCH_API_KEY") or not os.getenv("OPENAI_API_KEY"),
+    reason="LANGWATCH_API_KEY and OPENAI_API_KEY are required to run evaluators through LangWatch",
 )
 
 scenario.configure(default_model="openai/gpt-5-mini")

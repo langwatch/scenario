@@ -13,6 +13,7 @@ import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getGlobalSettings } from "../config/configure";
 import { getProjectConfig } from "../config/get-project-config";
 import {
+  type EvaluationResult,
   type ScenarioResult,
   type ScenarioConfig,
   AgentRole,
@@ -703,7 +704,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           const cp = this.compiledCheckpoints;
           this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
 
-          return this.finishRun({ scenarioRunId, result: this.result });
+          return await this.finishRun({ scenarioRunId, result: this.result });
         }
 
       }
@@ -735,7 +736,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           unmetCriteria: cp.unmetCriteria,
         });
 
-        return this.finishRun({ scenarioRunId, result });
+        return await this.finishRun({ scenarioRunId, result });
       }
 
       const result = this.reachedMaxTurns(
@@ -2680,9 +2681,18 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }): Promise<ScenarioResult> {
     let finalResult = result;
     if (this.config.evaluators && this.config.evaluators.length > 0) {
-      const evaluations = await this.runEvaluators();
-      finalResult = applyEvaluationsToResult({ result, evaluations });
-      this._result = finalResult;
+      let evaluations: EvaluationResult[] = [];
+      try {
+        evaluations = await this.runEvaluators();
+      } catch (error) {
+        this.logger.warn(
+          `Evaluators did not run, the verdict stands: ${(error as Error).message}`
+        );
+      }
+      if (evaluations.length > 0) {
+        finalResult = applyEvaluationsToResult({ result, evaluations });
+        this._result = finalResult;
+      }
       if (this.config.verbose) {
         for (const evaluation of evaluations) {
           console.log(

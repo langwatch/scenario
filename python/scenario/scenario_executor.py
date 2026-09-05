@@ -843,8 +843,13 @@ class ScenarioExecutor:
         the evaluators.
         """
         if self.evaluators:
-            evaluations = await self._run_evaluators()
-            result = apply_evaluations_to_result(result=result, evaluations=evaluations)
+            try:
+                evaluations = await self._run_evaluators()
+            except Exception as error:
+                logger.warning("Evaluators did not run, the verdict stands: %s", error)
+                evaluations = []
+            if evaluations:
+                result = apply_evaluations_to_result(result=result, evaluations=evaluations)
             if self.config.verbose:
                 for evaluation in evaluations:
                     details = f" ({evaluation.details})" if evaluation.details else ""
