@@ -45,6 +45,13 @@ Feature: Scenario state accessors
     Then one call is listed
 
   @unit
+  Scenario: A repeated call with the same arguments stays a distinct call
+    Given the agent returned one run_sql tool call in its messages
+    And the trace holds two run_sql tool spans with the same arguments
+    When a script step reads the run_sql tool calls
+    Then two calls are listed, the message call and the second span
+
+  @unit
   Scenario: A tool call collection picks with first and last
     Given three run_sql calls
     When a script step reads the collection

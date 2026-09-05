@@ -38,6 +38,21 @@ interface CatalogueEntry {
   result?: Record<string, unknown>;
 }
 
+/** One input or output a saved evaluator declares. */
+interface SavedEvaluatorField {
+  identifier: string;
+  type?: string;
+  optional?: boolean;
+}
+
+interface SavedEvaluator {
+  id: string;
+  name: string;
+  config?: { evaluatorType?: string } | null;
+  fields?: SavedEvaluatorField[] | null;
+  outputFields?: SavedEvaluatorField[] | null;
+}
+
 const SAVED_EVALUATOR_PREFIX = "evaluators/";
 
 /** How long one evaluations API request may take before it is abandoned. */
@@ -104,6 +119,9 @@ export class EvaluationsApiClient {
     const response = await this.fetchFn(this.url(path), {
       method: "GET",
       headers: this.headers(),
+      // The API key travels in a header, so a redirect to another origin
+      // must fail rather than forward it.
+      redirect: "error",
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (response.status === 404) return undefined;
@@ -142,10 +160,27 @@ export class EvaluationsApiClient {
     };
   }
 
+  /** The spec of a saved evaluator from the fields its record declares. */
+  private specFromSavedFields(saved: SavedEvaluator): EvaluatorSpec | undefined {
+    const fields = saved.fields ?? [];
+    if (fields.length === 0) return undefined;
+    const outputs = saved.outputFields ?? [];
+    return {
+      evaluatorId: saved.id,
+      name: saved.name,
+      inputs: [
+        ...fields.filter((f) => !f.optional).map((f) => ({ id: f.identifier, required: true })),
+        ...fields.filter((f) => f.optional).map((f) => ({ id: f.identifier, required: false })),
+      ],
+      producesPassed: outputs.some((f) => f.identifier === "passed"),
+    };
+  }
+
   /**
    * Which inputs an evaluator takes and what to call it. A built-in type is
-   * read from the catalogue; a saved evaluator from its record, then from the
-   * catalogue entry of its type. Undefined when the evaluator is unknown.
+   * read from the catalogue; a saved evaluator from the fields its record
+   * declares, then from the catalogue entry of its type. Undefined when the
+   * evaluator is unknown.
    */
   async getEvaluatorSpec(evaluatorRef: string): Promise<EvaluatorSpec | undefined> {
     if (!evaluatorRef.startsWith(SAVED_EVALUATOR_PREFIX)) {
@@ -157,12 +192,13 @@ export class EvaluationsApiClient {
     }
 
     const idOrSlug = evaluatorRef.slice(SAVED_EVALUATOR_PREFIX.length);
-    const saved = await this.getJson<{
-      id: string;
-      name: string;
-      config?: { evaluatorType?: string } | null;
-    }>(`/api/evaluators/${encodeURIComponent(idOrSlug)}`);
+    const saved = await this.getJson<SavedEvaluator>(
+      `/api/evaluators/${encodeURIComponent(idOrSlug)}`
+    );
     if (!saved) return undefined;
+
+    const fromFields = this.specFromSavedFields(saved);
+    if (fromFields) return fromFields;
 
     const evaluatorType = saved.config?.evaluatorType;
     const catalogue = await this.loadCatalogue();
@@ -171,7 +207,7 @@ export class EvaluationsApiClient {
       return this.specFromCatalogue({ evaluatorId: saved.id, name: saved.name, entry });
     }
     this.logger.debug(
-      `Saved evaluator ${evaluatorRef} has no catalogue entry for its type; only explicit mappings are used`
+      `Saved evaluator ${evaluatorRef} declares no fields and has no catalogue entry for its type; only explicit mappings are used`
     );
     return { evaluatorId: saved.id, name: saved.name, inputs: [], producesPassed: true };
   }
@@ -200,6 +236,7 @@ export class EvaluationsApiClient {
         settings,
         trace_id: traceId ?? null,
       }),
+      redirect: "error",
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) {

@@ -301,7 +301,9 @@ function sameCall(a: ToolCallRecord, b: ToolCallRecord): boolean {
  * Merges message tool calls and span tool calls by name, in start order:
  * turn by turn, the message calls of a turn before its span calls. A span
  * that describes a call the messages already carry is not listed twice; it
- * fills in the output when the messages have none.
+ * fills in the output when the messages have none. Each message call is
+ * described by at most one span, so a repeated call with the same
+ * arguments stays a distinct call.
  */
 export function mergeToolCalls({
   messages,
@@ -321,9 +323,13 @@ export function mergeToolCalls({
   const fromMessages = messageToolCalls({ messages, turnOfMessage });
   const fromSpans = spanToolCalls({ spans, turnOfTrace: turnOfTraceMap(allMessages) });
   const merged: ToolCallRecord[] = [...fromMessages];
+  const described = new Set<ToolCallRecord>();
   for (const spanCall of fromSpans) {
-    const twin = merged.find((call) => call.source === "message" && sameCall(call, spanCall));
+    const twin = merged.find(
+      (call) => call.source === "message" && !described.has(call) && sameCall(call, spanCall)
+    );
     if (twin) {
+      described.add(twin);
       if (twin.output === undefined && spanCall.output !== undefined) {
         twin.output = spanCall.output;
       }

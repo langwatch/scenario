@@ -2686,7 +2686,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         evaluations = await this.runEvaluators();
       } catch (error) {
         this.logger.warn(
-          `Evaluators did not run, the verdict stands: ${(error as Error).message}`
+          `Evaluators did not run, the verdict stands: ${error instanceof Error ? error.message : String(error)}`
         );
       }
       if (evaluations.length > 0) {
