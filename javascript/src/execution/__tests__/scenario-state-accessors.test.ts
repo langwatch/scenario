@@ -46,8 +46,9 @@ describe("scenario state accessors", () => {
     // Scenario: The state renders the conversation
     const state = stateWith({ messages: messagesWithToolCall });
 
-    it("renders the first user message and the transcript", () => {
+    it("renders the first user message, the last agent message and the transcript", () => {
       expect(state.firstUserMessage()).toBe("How many chargebacks last quarter?");
+      expect(state.lastAgentMessage().content).toBe("There were 12 chargebacks.");
       const transcript = state.transcript();
       expect(transcript.split("\n")[0]).toBe("user: How many chargebacks last quarter?");
       expect(transcript).toContain("run_sql");
@@ -79,13 +80,28 @@ describe("scenario state accessors", () => {
     });
 
     // Scenario: A tool call collection picks with first and last
-    it("picks with first and last and lists the inputs and outputs", () => {
-      const calls = state.toolCalls("run_sql");
+    it("picks with first and last and lists the inputs and outputs of three calls", () => {
+      const thirdCallSpan = span({
+        name: "run_sql",
+        attributes: {
+          "langwatch.span.type": "tool",
+          "langwatch.input": '{"sql":"SELECT 2"}',
+          "langwatch.output": "[[2]]",
+        },
+        traceId: "trace-1",
+        startMs: 300,
+      });
+      const calls = stateWith({
+        messages: messagesWithToolCall,
+        spans: [thirdCallSpan, secondCallSpan],
+      }).toolCalls("run_sql");
+      expect(calls).toHaveLength(3);
       expect(calls.first?.input).toEqual(SQL_INPUT);
-      expect(calls.last?.input).toBe('{"sql":"SELECT 1"}');
-      expect(calls.inputs).toEqual([SQL_INPUT, '{"sql":"SELECT 1"}']);
-      expect(calls.outputs).toEqual([{ type: "json", value: { count: 12 } }, "[[1]]"]);
-      expect([...calls].map((call) => call.source)).toEqual(["message", "span"]);
+      expect(calls.last?.input).toBe('{"sql":"SELECT 2"}');
+      expect(calls.inputs).toEqual([SQL_INPUT, '{"sql":"SELECT 1"}', '{"sql":"SELECT 2"}']);
+      expect(calls.outputs).toEqual([{ type: "json", value: { count: 12 } }, "[[1]]", "[[2]]"]);
+      expect([...calls].map((call) => call.source)).toEqual(["message", "span", "span"]);
+      expect(calls[2]?.input).toBe('{"sql":"SELECT 2"}');
     });
 
     it("lists every tool call without a name", () => {

@@ -8,6 +8,7 @@ the spans grouped by trace and by turn.
 
 import json
 
+from scenario.scenario_state import ScenarioState
 from tests.helpers.state_fixture import (
     SQL_INPUT,
     TRACE_1,
@@ -158,7 +159,7 @@ class TestSpansAndContexts:
 
 
 class TestTracesAndTurns:
-    def _state(self):
+    def _state(self) -> ScenarioState:
         messages = [
             *messages_with_tool_call(),
             {"role": "user", "content": "And per merchant?", "trace_id": TRACE_2, "turn": 2},

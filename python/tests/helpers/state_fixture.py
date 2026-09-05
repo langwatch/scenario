@@ -83,14 +83,14 @@ def state_with(
         thread_id="thread-1",
         current_turn=0,
         config=ScenarioConfig(),
-        _executor=executor,  # type: ignore[arg-type]
+        _executor=executor,  # type: ignore[arg-type]  # a namespace stands in for the executor
     )
-    state._executor = executor  # type: ignore[assignment]
+    state._executor = executor  # type: ignore[assignment]  # pydantic does not set private attributes from the constructor
     state.set_span_provider(lambda: list(spans or []))
     for message in messages or []:
         message = dict(message)
         turn = message.pop("turn", 1)
         state.current_turn = turn
-        state.messages.append(message)  # type: ignore[arg-type]
+        state.messages.append(message)  # type: ignore[arg-type]  # plain dicts stand in for the typed message params
         state.record_turn(message)
     return state

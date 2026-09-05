@@ -6,7 +6,7 @@ of a scenario execution, including conversation history, turn tracking, and
 utility methods for inspecting the conversation.
 """
 
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
@@ -109,6 +109,11 @@ class ScenarioState(BaseModel):
     def record_turn(self, message: Any) -> None:
         """Records the turn a message was added in, for ``turns`` and tool call turns."""
         self._message_turns[id(message)] = self.current_turn
+
+    def forget_turns(self, messages: Sequence[Any]) -> None:
+        """Drops the turn records of messages removed by a rollback."""
+        for message in messages:
+            self._message_turns.pop(id(message), None)
 
     def set_span_provider(self, provider: Callable[[], List[ReadableSpan]]) -> None:
         """

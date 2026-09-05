@@ -22,7 +22,6 @@ from .api import EvaluatorSpec
 from .inference import infer_evaluator_mappings
 from .resolve_mapping import (
     ResolvedError,
-    ResolvedNothing,
     ResolvedValue,
     distinct_message_trace_ids,
     resolve_mapping,

@@ -18,6 +18,7 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
+    Union,
     overload,
 )
 
@@ -65,11 +66,14 @@ class ToolCall:
 class StateReadReporter(Protocol):
     """What a view reports about what it read and what it missed."""
 
-    def note_trace(self) -> None: ...
+    def note_trace(self) -> None:
+        pass
 
-    def note_missing_tool_call(self, name: str) -> None: ...
+    def note_missing_tool_call(self, name: str) -> None:
+        pass
 
-    def note_empty_contexts(self) -> None: ...
+    def note_empty_contexts(self) -> None:
+        pass
 
 
 @dataclass
@@ -98,12 +102,14 @@ class ToolCalls(Sequence[ToolCall]):
         self._name = name
 
     @overload
-    def __getitem__(self, index: int) -> ToolCall: ...
+    def __getitem__(self, index: int) -> ToolCall:
+        pass
 
     @overload
-    def __getitem__(self, index: slice) -> Sequence[ToolCall]: ...
+    def __getitem__(self, index: slice) -> Sequence[ToolCall]:
+        pass
 
-    def __getitem__(self, index):  # type: ignore[no-untyped-def]
+    def __getitem__(self, index: Union[int, slice]) -> Union[ToolCall, Sequence[ToolCall]]:
         return self._calls[index]
 
     def __len__(self) -> int:

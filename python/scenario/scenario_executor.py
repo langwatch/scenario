@@ -458,6 +458,7 @@ class ScenarioExecutor:
         removed_ids = set(id(m) for m in removed)
 
         del self._state.messages[index:]
+        self._state.forget_turns(removed)
 
         for idx in self._pending_messages:
             self._pending_messages[idx] = [

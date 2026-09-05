@@ -471,10 +471,12 @@ def check_sql(state: scenario.ScenarioState) -> None:
 ```typescript [typescript]
 function checkSql(state: scenario.ScenarioExecutionStateLike) {
   const calls = state.toolCalls("run_sql");
-  expect(calls).toHaveLength(1);
-  expect((calls.last?.input as { sql: string }).sql).toMatch(/^SELECT/);
-  expect(state.field("golden_sql")).toBeDefined();
-  expect(state.turns.at(-1)?.toolCalls("run_sql").first?.output).toBeDefined();
+  if (calls.length !== 1) throw new Error("Expected one run_sql call");
+  const sql = (calls.last?.input as { sql: string }).sql;
+  if (!sql.startsWith("SELECT")) throw new Error("Expected a SELECT query");
+  if (state.field("golden_sql") === undefined) throw new Error("Expected the golden_sql field");
+  const lastTurn = state.turns.at(-1);
+  if (lastTurn?.toolCalls("run_sql").first?.output === undefined) throw new Error("Expected a run_sql result");
 }
 ```
 

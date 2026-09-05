@@ -6,7 +6,7 @@ resolution, the gate a required evaluator applies to the run, and the
 evaluations on the run events.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 
@@ -93,7 +93,7 @@ class _FakeDeps:
         response: Optional[Dict[str, Any]] = None,
         error: Optional[Exception] = None,
         fetch_remote_traces: bool = False,
-        on_fetch: Optional[Any] = None,
+        on_fetch: Optional[Callable[[], None]] = None,
     ) -> None:
         self.specs = specs
         self.response = response or {"status": "processed", "passed": True, "details": "ok"}

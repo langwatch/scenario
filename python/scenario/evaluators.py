@@ -32,7 +32,7 @@ Example:
     ```
 """
 
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 

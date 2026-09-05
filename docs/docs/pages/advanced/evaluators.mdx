@@ -120,7 +120,7 @@ The state is the one described in [Scripted Simulations](/basics/scripted-simula
 
 Each helper is the function in the first column, with a name. Its docstring and its `expression` attribute print the expression it stands for, so `scenario.trace.tool_calls("run_sql").last.input` and `lambda state: state.tool_calls("run_sql").last.input` are the same mapping. The helpers also give `first` next to `last`, and `inputs` and `outputs` for every call of the tool.
 
-Tool calls come from the messages the agent adapter returns (the `tool_calls` of an assistant message, or the `tool-call` parts of a message) and from the tool spans of the traces, merged in start order. The platform picker reads the last call, which is what `last` gives. Contexts come from the rag spans. Fetching stays lazy: when a mapping read the trace and found nothing while the spans collected during the run hold no answer, the run fetches its remote traces from LangWatch once, waiting the `trace_wait_timeout` / `traceWaitTimeoutMs` budget the same way the [judge does](/advanced/remote-traces), and calls the mapping again.
+Tool calls come from the messages the agent adapter returns (the `tool_calls` of an assistant message, or the `tool-call` parts of a message) and from the tool spans of the traces, merged in start order. The platform picker reads the last call, which is what `last` gives. Contexts come from the rag spans. Fetching stays lazy: when a mapping read the trace and found nothing while the spans collected during the run hold no answer, the run fetches its remote traces from LangWatch once, waiting the `trace_wait_timeout` / `traceWaitTimeoutMs` budget the same way as [the judge's remote trace fetching](/advanced/remote-traces), and calls the mapping again.
 
 ## Inference
 
