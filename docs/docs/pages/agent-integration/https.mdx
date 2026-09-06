@@ -21,6 +21,7 @@ HTTPS integration is ideal when your agent is deployed as a web service, microse
 import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 const httpsAgentAdapter: AgentAdapter = {
+  name: "HTTPSAgent",
   role: AgentRole.AGENT,
   call: async (input) => {
     // Extract the latest user message
@@ -69,6 +70,8 @@ import os
 
 
 class HTTPSAgentAdapter(scenario.AgentAdapter):
+    name = "HTTPSAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Extract the latest user message
         last_message = input.last_new_user_message_str()

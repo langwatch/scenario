@@ -2,7 +2,12 @@ import { ModelMessage } from "ai";
 import type { AudioChunk } from "../../voice/audio-chunk";
 import type { VoiceConfig } from "../../voice/config";
 import type { VoiceEvent } from "../../voice/recording.types";
+import type {
+  ConnectedAgentFunction,
+  ConnectedAgentParameterValue,
+} from "../agents/connected-agent.types";
 import { AgentAdapter } from "../agents/index";
+import type { ScenarioEvaluator, ScenarioFieldValue } from "../core/evaluations";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
 export const DEFAULT_MAX_TURNS = 10;
@@ -41,13 +46,34 @@ export interface ScenarioConfig {
   description: string;
 
   /**
-   * The agents participating in the scenario.
+   * The agents participating in the scenario. An {@link AgentAdapter}, or
+   * the function `connectAgent` from the LangWatch SDK returns, which runs
+   * as the agent under test with no adapter.
    */
-  agents: AgentAdapter[];
+  agents: (AgentAdapter | ConnectedAgentFunction)[];
+  /**
+   * Run parameters for the connected agent functions in {@link agents}.
+   * A parameter not set here takes the default the function declares.
+   */
+  parameters?: Record<string, ConnectedAgentParameterValue>;
   /**
    * The script of steps to execute for the scenario.
    */
   script?: ScriptStep[];
+
+  /**
+   * Values the scenario carries next to its description, keyed by field
+   * name, for example a golden SQL query or a table schema. Evaluator
+   * inputs read them through `scenario.field(name)` or by inference.
+   */
+  fields?: Record<string, ScenarioFieldValue>;
+
+  /**
+   * LangWatch evaluators to run once the scenario has a verdict. Their
+   * results land on {@link ScenarioResult.evaluations} and on the run in
+   * LangWatch; a required evaluator that fails fails the scenario.
+   */
+  evaluators?: ScenarioEvaluator[];
 
   /**
    * Whether to output verbose logging.
@@ -207,9 +233,11 @@ export interface ScenarioConfig {
 export interface ScenarioConfigFinal
   extends Omit<
     ScenarioConfig,
-    "id" | "script" | "threadId" | "verbose" | "maxTurns"
+    "id" | "agents" | "script" | "threadId" | "verbose" | "maxTurns"
   > {
   id: string;
+  /** Every agent as an adapter: connected agent functions are wrapped by then. */
+  agents: AgentAdapter[];
   script: ScriptStep[];
 
   verbose: boolean;

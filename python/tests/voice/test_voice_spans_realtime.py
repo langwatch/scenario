@@ -345,6 +345,9 @@ async def test_rconnect_stamps_realtime_vendor_attrs_on_connect_span():
         model="gpt-realtime-mini",
         voice="alloy",
         tools=[{"type": "function", "name": "noop"}],
+        # connect() refuses to dial with no credential at all, so the key is
+        # stated here rather than inherited from whatever the runner exports.
+        api_key="sk-test",
     )
     executor = _exec(adapter)
 

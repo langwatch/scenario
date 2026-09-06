@@ -14,24 +14,34 @@
  */
 import { Buffer } from "node:buffer";
 
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
-
+import { normalizeElevenLabsBaseUrl } from "../elevenlabs-base-url";
+import {
+  type ElevenLabsClientLike,
+  loadElevenLabsClient,
+} from "../elevenlabs-sdk";
 import { ELEVENLABS_TTS_MODEL } from "../voice-models";
 import type { TTSCallable } from "./tts";
 
 /** Factory for the ElevenLabs SDK client — injectable for tests. */
-export type ElevenLabsClientFactory = (apiKey: string) => ElevenLabsClient;
+export type ElevenLabsClientFactory = (apiKey: string) => ElevenLabsClientLike;
 
 /** Construction / per-call options for {@link ElevenLabsTtsProvider}. */
 export interface ElevenLabsTtsOptions {
   /** API key for ElevenLabs. Falls back to `process.env.ELEVENLABS_API_KEY`. */
   apiKey?: string;
+  /**
+   * Base URL for the ElevenLabs REST API, passed to the SDK client.
+   *
+   * Explicit only. `ELEVENLABS_BASE_URL` is deliberately not read here: a
+   * LangWatch gateway fronts the ConvAI mint route and not
+   * `/v1/text-to-speech/{voiceId}`, so a variable set for the hosted demos
+   * would point synthesis at a route that answers 404. See
+   * {@link normalizeElevenLabsBaseUrl}.
+   */
+  baseUrl?: string;
   /** Test seam — override the SDK client constructor. */
   clientFactory?: ElevenLabsClientFactory;
 }
-
-const defaultClientFactory: ElevenLabsClientFactory = (apiKey) =>
-  new ElevenLabsClient({ apiKey });
 
 /**
  * Synthesize `text` to raw PCM16/24 kHz bytes via the ElevenLabs SDK.
@@ -45,8 +55,11 @@ export async function elevenLabsSynthesizeBytes(
   options: ElevenLabsTtsOptions = {},
 ): Promise<Uint8Array> {
   const apiKey = options.apiKey ?? process.env.ELEVENLABS_API_KEY ?? "";
-  const factory = options.clientFactory ?? defaultClientFactory;
-  const client = factory(apiKey);
+  // Loaded here rather than at module scope: the SDK is 4,549 modules and
+  // only a run that actually synthesizes should pay for them.
+  const client = options.clientFactory
+    ? options.clientFactory(apiKey)
+    : await loadElevenLabsClient(apiKey, normalizeElevenLabsBaseUrl(options.baseUrl));
   const stream = await client.textToSpeech.convert(voiceId, {
     text,
     modelId: ELEVENLABS_TTS_MODEL,

@@ -155,10 +155,10 @@ export class EventReporter {
    *   - other   → JSON.stringify-ed defensively (kept from PR #42's original
    *     coercion for AG-UI's string-typed content).
    *
-   *   AG-UI's `MessagesSnapshotEventSchema` types message `content` as
-   *   `string`, but post-180bab4 it carries arrays at runtime — the same
-   *   mismatch 180bab4 bridges with a cast at the conversion boundary. We cast
-   *   back here.
+   *   AG-UI declares a `content` type per message role: a string for most of
+   *   them, a record for an activity message. Normalisation answers the
+   *   wire-safe value for every role, which no single role's declared type
+   *   covers, so the rebuilt list is cast back to the event's own type once.
    */
   private processEventForApi(event: ScenarioEvent): ScenarioEvent {
     if (event.type === ScenarioEventType.MESSAGE_SNAPSHOT) {
@@ -166,12 +166,8 @@ export class EventReporter {
         ...event,
         messages: event.messages.map((message) => ({
           ...message,
-          // AG-UI types `content` as `string`; the normalised value may be an
-          // array (runtime audio content) or `undefined` (optional assistant
-          // content). Cast at the boundary like 180bab4's converter — the
-          // ingest schema accepts the union via `chatMessageSchema.content`.
-          content: normalizeMessageContent(message.content) as unknown as string,
-        })),
+          content: normalizeMessageContent(message.content),
+        })) as typeof event.messages,
       };
     }
     return event;
@@ -185,23 +181,19 @@ export class EventReporter {
  * ingest extractor can walk them and externalise inline `input_audio` — see
  * `processEventForApi`). Any other runtime shape is JSON.stringify-ed.
  *
- * AG-UI types `content` as `string`; arrays only appear at runtime
- * (post-180bab4), so the return is cast back to `string` at this boundary. The
- * runtime payload is valid per the ingest `chatMessageSchema.content` union of
- * string and array.
+ * The parameter and the return are `unknown` because the value crosses roles:
+ * AG-UI declares a string for most message roles and a record for an activity
+ * message, and arrays appear at runtime (post-180bab4). The runtime payload is
+ * valid per the ingest `chatMessageSchema.content` union of string and array.
  */
-function normalizeMessageContent(
-  content: string | undefined
-): string | undefined {
-  const runtimeContent = content as unknown;
-
+function normalizeMessageContent(content: unknown): unknown {
   if (
-    runtimeContent == null ||
-    typeof runtimeContent === "string" ||
-    Array.isArray(runtimeContent)
+    content == null ||
+    typeof content === "string" ||
+    Array.isArray(content)
   ) {
-    return runtimeContent as string | undefined;
+    return content;
   }
 
-  return JSON.stringify(runtimeContent);
+  return JSON.stringify(content);
 }

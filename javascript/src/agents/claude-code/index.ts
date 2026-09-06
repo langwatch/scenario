@@ -14,9 +14,15 @@ export type {
 export type {
   ClaudeStreamMessage,
   ClaudeResultEnvelope,
+  TranscriptLimits,
 } from "./stream-json.js";
-export { parseStreamJson } from "./stream-json.js";
-export { assertSkillWasRead, injectSkill } from "./skill-injection.js";
+export { parseStreamJson, toModelMessages } from "./stream-json.js";
+export {
+  assertSkillWasRead,
+  bashCommands,
+  injectSkill,
+  pointClaudeMdAtSkills,
+} from "./skill-injection.js";
 
 /**
  * Factory for {@link ClaudeCodeAgentAdapter}, mirroring the lowercase-factory

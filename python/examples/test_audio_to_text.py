@@ -17,7 +17,7 @@ import scenario
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
-from helpers import encode_audio_to_base64, wrap_judge_for_audio
+from helpers import AUDIO_JUDGE_CRITERIA, encode_audio_to_base64, wrap_judge_for_audio
 
 # Runs in CI, like its two JavaScript siblings.
 #
@@ -30,23 +30,7 @@ from helpers import encode_audio_to_base64, wrap_judge_for_audio
 #
 # The wire-shape rule itself is pinned offline and deterministically in
 # `tests/test_judge_transport_reasoning.py`; that is the gate. This example is
-# the live end-to-end check that the three siblings agree.
-
-# The LLM-judge criteria shared by all three audio example siblings (#680).
-#
-# The two JavaScript siblings import the same strings from
-# `javascript/examples/vitest/tests/helpers/audio-judge-criteria.ts`, and
-# `javascript/examples/vitest/tests/audio-judge-criteria-parity.test.ts` asserts
-# this list stays byte-identical to that one — so the three copies cannot drift
-# apart the way they were about to under #655/#612.
-#
-# ⚠ Keep these as double-quoted Python string literals: the parity test parses
-# this list as JSON.
-AUDIO_JUDGE_CRITERIA = [
-    "The agent's response demonstrates it processed the SPECIFIC content of the audio — it addresses or attempts to answer the actual question that was asked in the audio. A generic acknowledgement that audio was received (e.g. 'I got your audio file', 'I heard your message') does NOT satisfy this criterion on its own",
-    "The agent provides a coherent, on-topic response — NOT an error message, NOT a refusal, NOT a polite deflection or claim that it cannot process audio / non-text input (e.g. 'I'm sorry, I can't listen to audio files'), and NOT an unrelated reply",
-    "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
-]
+# the live end-to-end check that the siblings agree.
 
 
 # Type definitions for multimodal messages with file content

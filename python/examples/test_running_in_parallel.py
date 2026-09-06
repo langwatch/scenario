@@ -46,10 +46,10 @@ class VegetarianRecipeAgentAdapter(AgentAdapter):
         return [cast(ChatCompletionMessageParam, message)]
 
 
-@pytest.mark.flaky(reruns=4)
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent")
 async def test_vegetarian_recipe_agent():
-    # Define the scenario
+    # No ``flaky`` marker: reruns declared on a test that
+    # pytest-asyncio-concurrent owns never happen. See test_user_is_hungry.
     result = await scenario.run(
         name="dinner idea",
         description="User is looking for a dinner idea",
@@ -62,7 +62,7 @@ async def test_vegetarian_recipe_agent():
                     "Recipe includes a list of ingredients",
                     "Recipe includes step-by-step cooking instructions",
                     "The recipe is vegetarian and does not include meat",
-                    "The should NOT ask more than two follow-up questions",
+                    "The agent should NOT ask more than two follow-up questions",
                 ]
             ),
         ],
@@ -76,9 +76,18 @@ async def test_vegetarian_recipe_agent():
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent")
-@pytest.mark.flaky(reruns=4)
 async def test_user_is_hungry():
-    # Define the scenario
+    # Follow-up prompts are fixed strings rather than free-form
+    # ``scenario.user()`` calls, matching test_running_in_parallel_with_arun.
+    # A free-form simulator wandered into asking for meat, the agent's hard
+    # rule made it decline, and the judge then failed the three criteria that
+    # ask for an actual recipe. Two agent turns are also enough: with three,
+    # the agent had room to ask the third follow-up that criterion 5 forbids.
+    #
+    # No ``flaky`` marker: pytest-asyncio-concurrent runs a group through its
+    # own protocol hook, which pytest-rerunfailures never sees, so reruns
+    # declared here would silently never happen. The conftest guard fails
+    # collection if one is added back.
     result = await scenario.run(
         name="hungry user",
         description="User is very very hungry and wants a big, filling meal",
@@ -98,9 +107,7 @@ async def test_user_is_hungry():
         script=[
             scenario.user("I'm starving! I need something really filling for dinner tonight"),
             scenario.agent(),
-            scenario.user(),
-            scenario.agent(),
-            scenario.user(),
+            scenario.user("That sounds great, can you share the recipe?"),
             scenario.agent(),
             scenario.judge(),
         ],

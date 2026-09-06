@@ -10,7 +10,19 @@ name: javascript-ci
 
 # All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
 # AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
-# URLs point every client family (openai SDK, litellm, ai-sdk) at it.
+# URLs point every client family at it. Both families the examples use read
+# OPENAI_BASE_URL: the `openai` package, and `@ai-sdk/openai`, whose
+# `createOpenAI` falls back to that variable before api.openai.com.
+#
+# The same key, and how to rotate, revoke and cap it, are described at the
+# top of python-ci.yml. Kept in one place so the two do not drift.
+#
+# The Realtime examples ride it too. Their media websocket still runs to
+# api.openai.com, because the gateway proxies HTTP only, but the credential it
+# opens with is minted first at POST /v1/realtime/client_secrets, which is
+# OpenAI's own path and one the gateway mirrors. So the session is checked
+# against the virtual key's budget and billed there, and no provider key exists
+# in this repository's secrets for it to fall back to.
 env:
   CI: true
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
@@ -32,6 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.detect.outputs.relevant }}
+      # Whether this PR changes anything the examples suite covers. The gate
+      # in front of that suite needs it to decide whether a gateway budget
+      # outage is collateral or a genuine loss of coverage.
+      examples: ${{ steps.detect.outputs.examples }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v3
       - uses: ./.github/actions/detect-changes
@@ -41,11 +57,22 @@ jobs:
             relevant:
               - 'javascript/**'
               - '.github/workflows/javascript-ci.yml'
+            examples:
+              - 'javascript/examples/**'
 
   ci-checks:
     needs: changes
     if: needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+
+    # `pull-requests: write` is what lets the examples gate say on the pull
+    # request that the suite did not run. Without it the tolerated-outage case
+    # goes green and reports that fact only inside the Actions UI. Declaring a
+    # block here drops every scope not listed, so `contents: read` is restated
+    # for the checkout.
+    permissions:
+      contents: read
+      pull-requests: write
 
     strategy:
       matrix:
@@ -114,14 +141,35 @@ jobs:
       # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
       - name: Test (Examples)
         if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        run: pnpm -F vitest-examples test
+        # Wrapped so a shared-budget outage is told apart from a broken
+        # example. See scripts/ci/examples-suite-gate.sh.
+        # The junit reporter is what lets the gate decide per failed test
+        # rather than by grepping the log. See the python-ci counterpart.
+        run: ../scripts/ci/examples-suite-gate.sh pnpm -F vitest-examples test --reporter=junit --outputFile="$EXAMPLES_REPORT"
         env:
+          EXAMPLES_TOUCHED: ${{ needs.changes.outputs.examples }}
+          EXAMPLES_REPORT: ${{ runner.temp }}/examples-junit.xml
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # Realtime examples open a websocket straight to api.openai.com,
-          # which the gateway cannot proxy, so they need a real OpenAI key
-          # instead of the virtual key held by OPENAI_API_KEY.
-          OPENAI_REALTIME_API_KEY: ${{ secrets.OPENAI_REALTIME_API_KEY }}
+        working-directory: javascript
+
+      # The inverse condition of the step above, so exactly one of the two runs.
+      # Without it a fork pull request that changes javascript/examples/** goes
+      # green with nothing having read the file it changed: the examples suite
+      # is the only JavaScript step that reads them, it is skipped for forks,
+      # and javascript-complete accepts a job whose steps were all skipped.
+      # That is #893, which was closed on the Python side alone by its
+      # `Collect (Examples)` fallback. This is the JavaScript half.
+      #
+      # `vitest list` imports every example file to enumerate its tests and
+      # makes no provider call, so it needs no secrets. It catches what a fork
+      # can break without any key: an import that does not resolve, a syntax
+      # error, a renamed export. It does not catch a wrong assertion, so this
+      # is weaker than running the suite, and is deliberately not presented as
+      # equivalent.
+      - name: List (Examples)
+        if: github.actor == 'dependabot[bot]' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+        run: pnpm -F vitest-examples exec vitest list
         working-directory: javascript
 
   # One required check for the whole workflow. Reports success if every

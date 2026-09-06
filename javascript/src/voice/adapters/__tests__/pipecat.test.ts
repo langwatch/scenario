@@ -18,12 +18,11 @@
  */
 
 import { Buffer } from "node:buffer";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 import {
   AudioChunk,
   PendingTransportError,
@@ -31,18 +30,6 @@ import {
   type PipecatWebSocketLike,
 } from "../../index";
 import { pcm16ToMulaw } from "../twilio-shared";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature",
-);
 
 /**
  * Test double for `ws.WebSocket`. Captures every outbound frame, exposes
@@ -141,7 +128,7 @@ afterEach(() => {
   sockets = [];
 });
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

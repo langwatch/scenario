@@ -23,12 +23,37 @@ interface. This adapter pattern allows you to:
 
 The <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface defines a contract for Scenario to work with any agent implementation. You only need to provide:
 
+- `name`: The name that LangWatch shows as the target of the run. The class name of the adapter is the default.
 - `role`: The agent’s role in the scenario (default to `AGENT`)
 - `call`: An async function that receives the full conversation history and returns the agent’s next response
 
 You can wrap any agent (OpenAI, AgentKit, Mastra, custom, etc.) as an AgentAdapter by implementing this interface. The AgentAdaptor receives an <RefLink link={{ python: "types.html#scenario.types.AgentInput", typescript: "interfaces/AgentInput.html" }} code={{ python: "AgentInput", typescript: "AgentInput" }} /> and returns <RefLink link={{ python: "types.html#scenario.types.AgentReturnTypes", typescript: "types/AgentReturnTypes.html" }} code={{ python: "AgentReturnTypes", typescript: "AgentReturnTypes" }} />.
 
 When writing a Scenario test, you pass your agents as AgentAdapter objects. Scenario will call your agent’s call function whenever it’s their turn in the conversation, passing in the latest state and message history.
+
+An agent [connected to LangWatch](https://langwatch.ai/docs/agent-testing/connect-your-agent) with `langwatch.connect_agent` (Python) or `connectAgent` (TypeScript) needs no adapter: pass the decorated function straight to `run`. Scenario wraps it and sends it the connected agent turn fields: in Python `messages`, `new_messages`, `thread_id`, `session`, `trace_id` and the run `parameters`; in TypeScript one object with `messages`, `newMessages`, `threadId`, `session`, `traceId` and `params`. The `session` the function returns comes back on the next turn of the same thread, and the run `parameters` you set on the scenario reach the function.
+
+:::code-group
+
+```python [python]
+result = await scenario.run(
+    name="support",
+    description="The user asks for a refund",
+    agents=[support_agent, scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
+    parameters={"model": "gpt-5-mini"},
+)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "support",
+  description: "The user asks for a refund",
+  agents: [supportAgent, scenario.userSimulatorAgent(), scenario.judgeAgent({ criteria: [...] })],
+  parameters: { model: "gpt-5-mini" },
+});
+```
+
+:::
 
 :::tip
 **Message Mocking Requirement**
@@ -42,6 +67,8 @@ Agent `call` functions must receive the full chat history via `input.messages` t
 import scenario
 
 class MyAgent(scenario.AgentAdapter):
+    name = "MyAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Your integration logic here
         pass
@@ -52,6 +79,7 @@ import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 // Object style
 const myAgent: AgentAdapter = {
+  name: "MyAgent",
   role: AgentRole.AGENT,
   async call(input) {
     // Your integration logic here
@@ -64,6 +92,7 @@ import type { AgentInput, AgentReturnTypes } from "@langwatch/scenario";
 import { AgentRole } from "@langwatch/scenario";
 
 class MyAgent implements AgentAdapter {
+  name = "MyAgent";
   role = AgentRole.AGENT;
   async call(input): Promise<AgentReturnTypes> {
     // Your integration logic here
@@ -73,6 +102,11 @@ class MyAgent implements AgentAdapter {
 ```
 
 :::
+
+Each run reports its agents to LangWatch. LangWatch shows the name of the agent as the
+target of the run. When you set no name, the framework uses the class name of the adapter.
+An adapter written as a plain object has no class name of its own, so set a name there to
+see the agent as the target of the run.
 
 ### AgentInput
 

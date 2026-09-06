@@ -266,6 +266,15 @@ def convert_api_span(
         if isinstance(completion_tokens, int):
             attributes[AttributeKey.GenAIUsageOutputTokens] = completion_tokens
 
+    contexts = span_data.get("contexts")
+    if isinstance(contexts, list) and contexts:
+        try:
+            attributes[AttributeKey.LangWatchRAGContexts] = json.dumps(contexts)
+        except (TypeError, ValueError):
+            logger.debug(
+                "Skipped non-serializable contexts on remote span", exc_info=True
+            )
+
     params = span_data.get("params")
     if isinstance(params, dict) and params:
         try:

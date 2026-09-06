@@ -14,32 +14,17 @@
  * Tag convention: `@ts-judge` (per-subject) — see issue #523.
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { describe, expect, it } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 import { createAudioMessage } from "../../../voice/messages";
 import { makeChunk } from "../../__tests__/fixtures/make-chunk";
 import { judgeAgent, JudgeAgent, type JudgeAgentConfig } from "../judge-agent";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature"
-);
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 
 /** Build a message-bus message containing audio content. */
 function audioMessage(
@@ -153,7 +138,7 @@ describe("effectiveIncludeAudio — explicit override edge cases", () => {
 // Bound feature-file scenarios
 // ---------------------------------------------------------------------------
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

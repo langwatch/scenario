@@ -16,6 +16,8 @@ from typing import (
     Union,
 )
 
+from scenario.evaluators import EvaluationResult
+
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionUserMessageParam,
@@ -247,6 +249,9 @@ class ScenarioResult(BaseModel):
         failed_criteria: List of success criteria that were not satisfied
         total_time: Total execution time in seconds (if measured)
         agent_time: Time spent in agent calls in seconds (if measured)
+        evaluations: One result per evaluator attached to the run, in the
+            order the scenario lists them. Empty when the scenario declared
+            no evaluators.
 
     Example:
         ```
@@ -282,6 +287,7 @@ class ScenarioResult(BaseModel):
     failed_criteria: List[str] = []
     total_time: Optional[float] = None
     agent_time: Optional[float] = None
+    evaluations: List[EvaluationResult] = []
 
     # Voice-specific output (populated only when a VoiceAgentAdapter
     # participated in the scenario — see §4.6). All None for text-only runs.

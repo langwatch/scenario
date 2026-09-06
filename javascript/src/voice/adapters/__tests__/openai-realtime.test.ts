@@ -10,9 +10,6 @@
  * response.cancel on interrupt) without hitting a network.
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect } from "vitest";
 
@@ -26,18 +23,7 @@ import {
   silentChunk,
 } from "../../index";
 import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature",
-);
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 
 interface ServerEvent {
   type: string;
@@ -99,7 +85,7 @@ function buildAdapter(
   });
 }
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,
