@@ -31,7 +31,7 @@ dependencies = [
     # break pyright on `@scenario.cache()`-decorated example agents
     # (decorated callables surface as accepting 0 positional args).
     # Revert when wrapt 2.x stabilises and the stubs are correct.
-    "wrapt>=1.17.2,<2",
+    "wrapt>=1.17.2,<3",
     "pytest-asyncio>=0.26.0",
     "rich>=13.3.3,<16.0.0",
     "pksuid>=1.1.2",
