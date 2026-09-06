@@ -127,6 +127,28 @@ describe("scenario state accessors", () => {
     });
   });
 
+  describe("given one run_sql call in the messages and two spans with the same arguments", () => {
+    // Scenario: A repeated call with the same arguments stays a distinct call
+    it("lists the message call and the second span", () => {
+      const attributes = {
+        "langwatch.span.type": "tool",
+        "gen_ai.tool.name": "run_sql",
+        "langwatch.input": JSON.stringify(SQL_INPUT),
+      };
+      const state = stateWith({
+        messages: messagesWithToolCall,
+        spans: [
+          span({ name: "run_sql", attributes: { ...attributes, "langwatch.output": "first receipt" }, startMs: 100 }),
+          span({ name: "run_sql", attributes: { ...attributes, "langwatch.output": "second receipt" }, startMs: 200 }),
+        ],
+      });
+      const calls = state.toolCalls("run_sql");
+      expect(calls).toHaveLength(2);
+      expect(calls.map((call) => call.source)).toEqual(["message", "span"]);
+      expect(calls.last?.output).toBe("second receipt");
+    });
+  });
+
   describe("given no run_sql call", () => {
     // Scenario: An empty tool call collection has no pick
     it("has no pick, no inputs and counts zero", () => {

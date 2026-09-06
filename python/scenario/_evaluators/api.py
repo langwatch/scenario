@@ -136,12 +136,29 @@ class EvaluationsApiClient:
             produces_passed="passed" in result,
         )
 
+    @staticmethod
+    def _spec_from_saved_fields(saved: Dict[str, Any], name: str) -> Optional[EvaluatorSpec]:
+        """The spec of a saved evaluator from the fields its record declares."""
+        fields = [f for f in (saved.get("fields") or []) if isinstance(f, dict) and f.get("identifier")]
+        if not fields:
+            return None
+        outputs = [f for f in (saved.get("outputFields") or []) if isinstance(f, dict)]
+        return EvaluatorSpec(
+            evaluator_id=str(saved["id"]),
+            name=name,
+            inputs=[
+                *[EvaluatorInput(id=str(f["identifier"]), required=True) for f in fields if not f.get("optional")],
+                *[EvaluatorInput(id=str(f["identifier"]), required=False) for f in fields if f.get("optional")],
+            ],
+            produces_passed=any(f.get("identifier") == "passed" for f in outputs),
+        )
+
     async def get_evaluator_spec(self, evaluator_ref: str) -> Optional[EvaluatorSpec]:
         """
         Which inputs an evaluator takes and what to call it. A built-in type
-        is read from the catalogue; a saved evaluator from its record, then
-        from the catalogue entry of its type. None when the evaluator is
-        unknown.
+        is read from the catalogue; a saved evaluator from the fields its
+        record declares, then from the catalogue entry of its type. None when
+        the evaluator is unknown.
         """
         if not evaluator_ref.startswith(_SAVED_EVALUATOR_PREFIX):
             entry = (await self._load_catalogue()).get(evaluator_ref)
@@ -155,6 +172,10 @@ class EvaluationsApiClient:
         )
         if saved is None:
             return None
+        name = str(saved.get("name") or evaluator_ref)
+        from_fields = self._spec_from_saved_fields(saved, name)
+        if from_fields is not None:
+            return from_fields
         evaluator_type = (saved.get("config") or {}).get("evaluatorType")
         entry = (await self._load_catalogue()).get(evaluator_type) if evaluator_type else None
         if entry is not None:
@@ -162,7 +183,7 @@ class EvaluationsApiClient:
                 evaluator_id=str(saved["id"]), entry=entry, name=str(saved.get("name") or evaluator_ref)
             )
         logger.debug(
-            "Saved evaluator %s has no catalogue entry for its type; only explicit mappings are used",
+            "Saved evaluator %s declares no fields and has no catalogue entry for its type; only explicit mappings are used",
             evaluator_ref,
         )
         return EvaluatorSpec(

@@ -299,9 +299,16 @@ export async function runScenarioEvaluators({
   return Promise.all(calls);
 }
 
+/** True when a required evaluator with this status fails the run. */
+function gates(evaluation: EvaluationResult): boolean {
+  return evaluation.required && (evaluation.status === "failed" || evaluation.status === "error");
+}
+
 /**
- * Applies evaluations to the run result: a required evaluator that failed
- * fails the run and its reason joins the reasoning. Scores never gate.
+ * Applies evaluations to the run result: a required evaluator that failed,
+ * or that could not run, fails the run and its reason joins the reasoning.
+ * Scores and skips never gate. The same rule the platform applies to a run
+ * it evaluates itself.
  */
 export function applyEvaluationsToResult({
   result,
@@ -310,15 +317,13 @@ export function applyEvaluationsToResult({
   result: ScenarioResult;
   evaluations: EvaluationResult[];
 }): ScenarioResult {
-  const gating = evaluations.filter(
-    (evaluation) => evaluation.required && evaluation.status === "failed"
-  );
+  const gating = evaluations.filter(gates);
   if (gating.length === 0) return { ...result, evaluations };
 
-  const reasons = gating.map(
-    (evaluation) =>
-      `Evaluator ${evaluation.name} failed${evaluation.details ? `: ${evaluation.details}` : ""}`
-  );
+  const reasons = gating.map((evaluation) => {
+    const what = evaluation.status === "error" ? "could not run" : "failed";
+    return `Evaluator ${evaluation.name} ${what}${evaluation.details ? `: ${evaluation.details}` : ""}`;
+  });
   return {
     ...result,
     success: false,

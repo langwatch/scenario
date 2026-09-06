@@ -154,6 +154,19 @@ Feature: LangWatch evaluators on scenario runs
     Then no remote trace is fetched
 
   @unit
+  Scenario: A saved evaluator declares its own inputs
+    Given a saved evaluator whose record declares the fields output (required) and contexts (optional) and the output passed
+    When the evaluator spec is loaded
+    Then the spec lists output as required and contexts as optional
+    And the spec says the evaluator answers pass or fail
+
+  @unit
+  Scenario: The evaluations API never follows a redirect with the key
+    Given the evaluations endpoint answers with a redirect
+    When the catalogue or the evaluate call is requested
+    Then the request refuses the redirect instead of forwarding the API key
+
+  @unit
   Scenario: A required evaluator that fails fails the run
     Given a required evaluator whose evaluate response is passed false
     And the judge marked the run as successful
@@ -176,7 +189,29 @@ Feature: LangWatch evaluators on scenario runs
     When the evaluators run
     Then the evaluator result has the status error
     And the details carry the error
-    And the run result stays as the judge decided
+
+  @unit
+  Scenario: A required evaluator that could not run fails the run
+    Given a required evaluator whose result has the status error
+    And the judge marked the run as successful
+    When the evaluators run
+    Then the run result is not successful
+    And the reasoning says the evaluator could not run and carries its details
+    And the run finished event reports the run as failed
+
+  @unit
+  Scenario: An optional evaluator that could not run leaves the verdict
+    Given an evaluator that is not required and whose result has the status error
+    And the judge marked the run as successful
+    When the evaluators run
+    Then the run result stays as the judge decided
+
+  @unit
+  Scenario: A skipped evaluator never gates the run
+    Given a required evaluator whose mapping returned nothing
+    And the judge marked the run as successful
+    When the evaluators run
+    Then the run result stays successful
 
   @unit
   Scenario: The evaluate call carries the resolved inputs and the trace id of the last turn

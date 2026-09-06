@@ -147,7 +147,7 @@ An inferred optional input that resolves to nothing is left out of the call inst
 
 ## Required evaluators and scores
 
-An evaluator that answers pass or fail is required by default: when it fails, the scenario fails and the reason joins `result.reasoning`. Pass `required=False` (`required: false`) to keep it as a report next to the verdict.
+An evaluator that answers pass or fail is required by default: when it fails, or when it could not run (status `error`), the scenario fails and the reason joins `result.reasoning`; a skipped evaluator never fails the scenario. This is the rule the platform applies to a run it evaluates itself, so a run from code and a run from the platform agree. Pass `required=False` (`required: false`) to keep it as a report next to the verdict.
 
 A score-only evaluator never fails the scenario, whatever `required` says. Its score reports beside the verdict.
 
@@ -161,7 +161,7 @@ Every evaluator produces one result with a status:
 | `failed` | The evaluator answered fail |
 | `scored` | The evaluator answered a score or a label and no verdict |
 | `skipped` | A mapping returned nothing (`details` says which), or the evaluator declined the input |
-| `error` | The evaluator could not run: unknown evaluator, a required input without a mapping, a mapping that raised, or a failure of the evaluate call (`details` carries the error) |
+| `error` | The evaluator could not run: unknown evaluator, a required input without a mapping, a mapping that raised, or a failure of the evaluate call (`details` carries the error). Fails the scenario when the evaluator is required |
 
 Each result also carries `evaluator_id` (`evaluatorId`), `name`, `required`, `passed`, `score`, `label`, `details`, `cost` and `inputs`, the resolved input values cut to 2000 characters.
 

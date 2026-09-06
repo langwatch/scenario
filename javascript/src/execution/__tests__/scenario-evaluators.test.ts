@@ -182,7 +182,7 @@ describe("evaluators on a scenario execution", () => {
   });
 
   describe("given mappings that skip and that throw", () => {
-    it("reports a skipped and an error result next to a passed one", async () => {
+    it("reports a skipped and an error result next to a passed one, and the required error fails the run", async () => {
       evaluate.mockResolvedValue({ status: "processed", passed: true, details: "Match" });
 
       const { result } = await runWith([
@@ -209,6 +209,9 @@ describe("evaluators on a scenario execution", () => {
       expect(result.evaluations?.[1].details).toBe("no lookup call in the trace");
       expect(result.evaluations?.[2].details).toBe("Mapping of output failed: no SQL found");
       expect(evaluate).toHaveBeenCalledTimes(1);
+      // Scenario: A required evaluator that could not run fails the run
+      expect(result.success).toBe(false);
+      expect(result.reasoning).toContain("Evaluator Exact Match could not run: Mapping of output failed");
     });
   });
 

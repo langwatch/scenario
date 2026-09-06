@@ -600,8 +600,9 @@ class TestRunner:
         assert fake.calls == []
 
     @pytest.mark.asyncio
-    async def test_an_endpoint_failure_is_an_error_result(self):
-        """Scenario: An evaluate endpoint failure is reported as an error."""
+    async def test_an_endpoint_failure_is_an_error_result_and_fails_a_required_evaluator(self) -> None:
+        """Scenario: An evaluate endpoint failure is reported as an error.
+        Scenario: A required evaluator that could not run fails the run."""
         fake = _FakeDeps(
             {"ragas/sql_query_equivalence": SQL_EQUIVALENCE},
             error=RuntimeError("POST /api/evaluations/x/evaluate answered 500: boom"),
@@ -612,8 +613,41 @@ class TestRunner:
         result = apply_evaluations_to_result(result=_judge_success(), evaluations=evaluations)
         assert evaluations[0].status == "error"
         assert evaluations[0].details == "POST /api/evaluations/x/evaluate answered 500: boom"
+        assert result.success is False
+        assert result.reasoning == (
+            "All criteria passed\nEvaluator SQL Query Equivalence could not run: "
+            "POST /api/evaluations/x/evaluate answered 500: boom"
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_optional_evaluator_that_could_not_run_leaves_the_verdict(self) -> None:
+        """Scenario: An optional evaluator that could not run leaves the verdict."""
+        fake = _FakeDeps(
+            {"ragas/sql_query_equivalence": SQL_EQUIVALENCE},
+            error=RuntimeError("POST /api/evaluations/x/evaluate answered 500: boom"),
+        )
+        optional = evaluator("ragas/sql_query_equivalence", required=False, mappings=SQL_ATTACHMENT.mappings)
+        evaluations = await run_scenario_evaluators(
+            evaluators=[optional], state=_full_state(), trace_id=TRACE_1, deps=fake.deps
+        )
+        result = apply_evaluations_to_result(result=_judge_success(), evaluations=evaluations)
+        assert evaluations[0].status == "error"
         assert result.success is True
         assert result.reasoning == "All criteria passed"
+
+    @pytest.mark.asyncio
+    async def test_a_skipped_required_evaluator_never_gates(self) -> None:
+        """Scenario: A skipped evaluator never gates the run."""
+        fake = _FakeDeps({"ragas/sql_query_equivalence": SQL_EQUIVALENCE})
+        evaluations = await run_scenario_evaluators(
+            evaluators=[SQL_ATTACHMENT],
+            state=_full_state(fields={"table_schema": "CREATE TABLE ..."}),
+            trace_id=TRACE_1,
+            deps=fake.deps,
+        )
+        result = apply_evaluations_to_result(result=_judge_success(), evaluations=evaluations)
+        assert evaluations[0].status == "skipped"
+        assert result.success is True
 
     @pytest.mark.asyncio
     async def test_an_unknown_evaluator_is_an_error_result(self):
@@ -800,7 +834,7 @@ class TestRunEvents:
         def boom(_: ScenarioState) -> Any:
             raise ValueError("no SQL found")
 
-        result, _ = await self._run(
+        result, events = await self._run(
             [
                 evaluator("langevals/exact_match", mappings={"output": trace.tool_calls("run_sql").last.input}),
                 evaluator("langevals/exact_match", mappings={"output": lambda state: state.tool_calls("lookup").last.input}),
@@ -811,6 +845,11 @@ class TestRunEvents:
         assert result.evaluations[1].details == "no lookup call in the trace"
         assert result.evaluations[2].details == "Mapping of output failed: no SQL found"
         assert len(fake_api) == 1
+        # Scenario: A required evaluator that could not run fails the run
+        assert result.success is False
+        assert "Evaluator Exact Match could not run: Mapping of output failed" in (result.reasoning or "")
+        finished = [event for event in events if isinstance(event, ScenarioRunFinishedEvent)]
+        assert finished[0].to_dict()["status"] == "FAILED"
 
     @pytest.mark.asyncio
     async def test_a_run_without_evaluators_sends_no_evaluations(self, fake_api: List[Dict[str, Any]]):

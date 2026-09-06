@@ -110,7 +110,7 @@ class ScenarioState(BaseModel):
         """Records the turn a message was added in, for ``turns`` and tool call turns."""
         self._message_turns[id(message)] = self.current_turn
 
-    def forget_turns(self, messages: Sequence[Any]) -> None:
+    def forget_turns(self, messages: Sequence[ChatCompletionMessageParamWithTrace]) -> None:
         """Drops the turn records of messages removed by a rollback."""
         for message in messages:
             self._message_turns.pop(id(message), None)

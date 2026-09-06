@@ -119,6 +119,25 @@ class TestToolCalls:
         assert len(state.tool_calls("run_sql")) == 1
         assert state.tool_calls("run_sql").first.source == "message"
 
+    def test_a_repeated_call_with_the_same_arguments_stays_distinct(self):
+        """Scenario: A repeated call with the same arguments stays a distinct call."""
+        attributes = {
+            "langwatch.span.type": "tool",
+            "gen_ai.tool.name": "run_sql",
+            "langwatch.input": json.dumps(SQL_INPUT),
+        }
+        state = state_with(
+            messages=messages_with_tool_call(),
+            spans=[
+                span("run_sql", {**attributes, "langwatch.output": "first receipt"}, start_ms=100),
+                span("run_sql", {**attributes, "langwatch.output": "second receipt"}, start_ms=200),
+            ],
+        )
+        calls = state.tool_calls("run_sql")
+        assert len(calls) == 2
+        assert [call.source for call in calls] == ["message", "span"]
+        assert calls.last.output == "second receipt"
+
     def test_an_empty_collection_has_no_pick(self):
         """Scenario: An empty tool call collection has no pick."""
         state = state_with(messages=[{"role": "assistant", "content": "Done."}])

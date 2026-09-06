@@ -334,8 +334,9 @@ describe("running scenario evaluators", () => {
     });
 
     // Scenario: An evaluate endpoint failure is reported as an error
+    // Scenario: A required evaluator that could not run fails the run
     describe("when the evaluate endpoint answers with an error", () => {
-      it("reports an error result and leaves the run as the judge decided", async () => {
+      it("reports an error result and fails the run for a required evaluator", async () => {
         const deps = depsWith({
           specs: { "ragas/sql_query_equivalence": sqlEquivalence },
           response: new Error("Evaluation API answered 500: boom"),
@@ -351,8 +352,44 @@ describe("running scenario evaluators", () => {
           status: "error",
           details: "Evaluation API answered 500: boom",
         });
+        expect(result.success).toBe(false);
+        expect(result.reasoning).toBe(
+          "All criteria passed\nEvaluator SQL Query Equivalence could not run: Evaluation API answered 500: boom"
+        );
+      });
+
+      // Scenario: An optional evaluator that could not run leaves the verdict
+      it("leaves the run as the judge decided for an optional evaluator", async () => {
+        const deps = depsWith({
+          specs: { "ragas/sql_query_equivalence": sqlEquivalence },
+          response: new Error("Evaluation API answered 500: boom"),
+        });
+        const evaluations = await runScenarioEvaluators({
+          evaluators: [{ ...attachment, required: false }],
+          state: fullState(),
+          traceId: "trace-1",
+          deps,
+        });
+        const result = applyEvaluationsToResult({ result: judgeSuccess, evaluations });
+        expect(evaluations[0].status).toBe("error");
         expect(result.success).toBe(true);
         expect(result.reasoning).toBe("All criteria passed");
+      });
+    });
+
+    // Scenario: A skipped evaluator never gates the run
+    describe("when a required evaluator is skipped", () => {
+      it("keeps the run successful", async () => {
+        const deps = depsWith({ specs: { "ragas/sql_query_equivalence": sqlEquivalence } });
+        const evaluations = await runScenarioEvaluators({
+          evaluators: [attachment],
+          state: fullState({ fields: { table_schema: FIELDS.table_schema } }),
+          traceId: "trace-1",
+          deps,
+        });
+        const result = applyEvaluationsToResult({ result: judgeSuccess, evaluations });
+        expect(evaluations[0].status).toBe("skipped");
+        expect(result.success).toBe(true);
       });
     });
   });

@@ -18,6 +18,7 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
+    Set,
     Union,
     overload,
 )
@@ -379,17 +380,25 @@ def merge_tool_calls(
     Merges message tool calls and span tool calls by name, in start order:
     turn by turn, the message calls of a turn before its span calls. A span
     that describes a call the messages already carry is not listed twice; it
-    fills in the output when the messages have none.
+    fills in the output when the messages have none. Each message call is
+    described by at most one span, so a repeated call with the same
+    arguments stays a distinct call.
     """
     turn_of_message = turn_of_message_map(all_messages, turn_stamps)
     turn_of_trace = _turn_of_trace_map(all_messages, turn_of_message)
     merged = _message_tool_calls(messages, turn_of_message)
+    described: Set[int] = set()
     for span_call in _span_tool_calls(spans, turn_of_trace):
         twin = next(
-            (call for call in merged if call.source == "message" and _same_call(call, span_call)),
+            (
+                call
+                for call in merged
+                if call.source == "message" and id(call) not in described and _same_call(call, span_call)
+            ),
             None,
         )
         if twin is not None:
+            described.add(id(twin))
             if twin.output is None and span_call.output is not None:
                 twin.output = span_call.output
             continue
