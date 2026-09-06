@@ -307,6 +307,73 @@ async def test_drain_does_not_deadlock_when_worker_exits_as_event_is_enqueued():
 
 
 @pytest.mark.asyncio
+async def test_finished_event_is_delivered_when_the_drain_deadline_passes(
+    monkeypatch, caplog
+):
+    """Spec: a drain deadline never leaves the finished event queued with no
+    worker. The run started event is still in flight when drain() gives up
+    waiting; once it completes, the worker must deliver the run finished
+    event queued behind it before it exits, instead of leaving it on the
+    queue with no worker to ever take it."""
+    import asyncio
+    import logging
+
+    from scenario._events import event_bus as event_bus_module
+
+    monkeypatch.setattr(event_bus_module, "QUEUE_DRAIN_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(event_bus_module, "WORKER_HANDOVER_TIMEOUT_SECONDS", 0.2)
+
+    class SlowStartReporter(EventReporter):
+        def __init__(self):
+            super().__init__()
+            self.events: List[Any] = []
+
+        async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
+            if event.type_ == "SCENARIO_RUN_STARTED":
+                # Recovers only after the drain budget has been spent.
+                await asyncio.sleep(0.6)
+            self.events.append(event)
+            return {}
+
+    reporter = SlowStartReporter()
+    bus = ScenarioEventBus(event_reporter=reporter)
+
+    results = ScenarioRunFinishedEventResults(
+        verdict=ScenarioRunFinishedEventVerdict.SUCCESS,
+        met_criteria=[],
+        unmet_criteria=[],
+        reasoning="done",
+    )
+    finish_event = ScenarioRunFinishedEvent(
+        batch_run_id="batch-123",
+        scenario_id="scenario-456",
+        scenario_run_id="run-789",
+        status=ScenarioRunFinishedEventStatus.SUCCESS,
+        results=results,
+        timestamp=int(time.time() * 1000),
+    )
+    bus.subscribe_to_events(from_iterable([_make_start_event(), finish_event]))
+
+    with caplog.at_level(logging.WARNING):
+        _drain_with_deadline(bus)
+
+    # The caller was released at the deadline with the started event in flight.
+    assert any("did not drain" in r.getMessage() for r in caplog.records)
+    assert [e.type_ for e in reporter.events] == []
+
+    worker = bus._worker_thread
+    assert worker is not None
+    worker.join(timeout=10.0)
+    assert not worker.is_alive()
+
+    assert [e.type_ for e in reporter.events] == [
+        "SCENARIO_RUN_STARTED",
+        "SCENARIO_RUN_FINISHED",
+    ]
+    assert bus._event_queue.unfinished_tasks == 0
+
+
+@pytest.mark.asyncio
 async def test_bus_can_be_reused_after_drain():
     """A drained bus accepts a new stream subscription and delivers the next
     event: batch runners reuse one bus across scenario runs."""

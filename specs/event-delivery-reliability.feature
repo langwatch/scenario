@@ -76,6 +76,14 @@ Feature: Event delivery reliability
     Then the drain returns and the event is delivered
 
   @integration
+  Scenario: A drain deadline never leaves the finished event queued with no worker
+    Given an event endpoint that answers the run started event only after the drain deadline
+    And the run finished event is queued behind it
+    When the bus drains and the caller is released at the deadline
+    Then the worker delivers the finished event before it exits
+    And no event is left on the queue
+
+  @integration
   Scenario: A drained bus can be reused
     Given a bus that already delivered an event and drained
     When a new event stream is subscribed and a second event is published

@@ -141,7 +141,14 @@ class ScenarioEventBus:
             while True:
                 try:
                     if shutdown_event.wait(timeout=0.1):
+                        # Shutdown means the caller stopped waiting, not that
+                        # the queue may be abandoned: drain's deadline can pass
+                        # while an earlier event is still retrying, with the
+                        # run finished event queued behind it. Deliver what is
+                        # left before exiting, or that event would sit on the
+                        # queue with no worker to ever take it.
                         self.logger.debug("Worker thread received shutdown signal")
+                        self._sweep_remaining_events(loop, owned_client)
                         break
 
                     try:
@@ -375,11 +382,15 @@ class ScenarioEventBus:
 
         # Wait for all events to be processed. The wait is bounded: a worker
         # that died with an event in flight would never call task_done(), and
-        # a scenario run must not hang on its own telemetry.
+        # a scenario run must not hang on its own telemetry. A worker that is
+        # merely slow keeps delivering the queue after the caller is released,
+        # and the process waits for it at exit because the thread is not a
+        # daemon.
         if not self._join_queue(timeout=QUEUE_DRAIN_TIMEOUT_SECONDS):
             self.logger.warning(
                 "Event queue did not drain within "
-                f"{QUEUE_DRAIN_TIMEOUT_SECONDS}s; giving up on the events left"
+                f"{QUEUE_DRAIN_TIMEOUT_SECONDS}s; the worker keeps delivering "
+                "the events left in the background"
             )
         self.logger.debug("Event queue drained")
 
