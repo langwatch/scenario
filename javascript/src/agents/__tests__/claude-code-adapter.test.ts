@@ -51,6 +51,16 @@
  *      without; scoping.
  *  8.  `claudeCodeAgent` factory injects a `skillPath` as a construction effect.
  *  9.  `safeStringify` never throws.
+ *  10. `env`: this process's environment with `config.env` on top, `undefined`
+ *      removing a key, `FORCE_COLOR=0` last.
+ *  11. `output`: `"messages"` returns AI SDK messages with tool-call and
+ *      tool-result parts, the default returns rendered text; the caps apply.
+ *  12. `toModelMessages`: parts, empty text part on a tool-only turn, unknown
+ *      blocks named, error results, caps in both renderings.
+ *  13. `bashCommands` reads only Bash tool-call parts.
+ *  14. `pointClaudeMdAtSkills` appends missing skills to an existing CLAUDE.md.
+ *  15. process lifecycle: own process group, watchdog spawn, group kill on
+ *      timeout, SIGKILL of live groups on harness exit.
  *
  * CI note: the `RUN_CLAUDE_CODE_E2E=1` integration tests at the bottom are
  * DEV-ONLY smoke checks — they need a real `claude` binary (and, for two of
@@ -117,8 +127,12 @@ import {
   claudeCodeAgent,
   parseStreamJson,
   assertSkillWasRead,
+  bashCommands,
+  pointClaudeMdAtSkills,
+  toModelMessages,
   type Logger,
 } from "../claude-code/index.js";
+import { killGuardedProcesses } from "../claude-code/process-lifecycle.js";
 import { safeStringify } from "../claude-code/stream-json.js";
 
 /**
@@ -141,6 +155,15 @@ class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
   kill = vi.fn();
+
+  /**
+   * A pid makes the adapter treat the child as a real process group leader:
+   * group kills go through `process.kill(-pid)` and a watchdog is spawned.
+   * Left undefined by default so the earlier groups see one spawn per turn.
+   */
+  constructor(readonly pid?: number) {
+    super();
+  }
 
   /** Push a chunk to stdout (as the CLI would). */
   pushStdout(chunk: string): void {
@@ -1777,6 +1800,51 @@ describe("ClaudeCodeAgentAdapter logger isolation", () => {
       consoleError.mockRestore();
     }
   });
+
+  describe("when a multibyte character is split across two chunks", () => {
+    /** @scenario "Live CLI output is logged as the CLI wrote it" */
+    it("logs the character intact instead of replacement characters", async () => {
+      const child = new FakeChild();
+      withChild(child);
+      const logger = spyLogger();
+
+      const adapter = new ClaudeCodeAgentAdapter({
+        workingDirectory: "/tmp/split",
+        logger,
+      });
+      const p = adapter.call(SIMPLE_INPUT);
+
+      // "é" is two UTF-8 bytes; cut the payload between them so each `data`
+      // event carries half of it, the way a real pipe can chunk.
+      const payload = Buffer.from(assistantLine("café") + "\n", "utf8");
+      const cut = payload.indexOf(0xc3) + 1;
+      child.stdout.emit("data", payload.subarray(0, cut));
+      child.stdout.emit("data", payload.subarray(cut));
+      child.stderr.emit("data", payload.subarray(0, cut));
+      child.stderr.emit("data", payload.subarray(cut));
+      child.close(0);
+      await p;
+
+      // The decoder holds the incomplete tail back, so the character lands in
+      // whichever log line completes it. What the diagnostic must never carry
+      // is a replacement character, and the lines together must reconstruct
+      // what the CLI wrote.
+      const streamed = (calls: unknown[][], prefix: string): string =>
+        calls
+          .flat()
+          .filter((arg): arg is string => typeof arg === "string" && arg.startsWith(prefix))
+          .map((line) => line.slice(prefix.length))
+          .join("");
+
+      const logged = streamed(logger.log.mock.calls, "Claude Code stdout: ");
+      expect(logged).toContain("café");
+      expect(logged).not.toContain("�");
+
+      const warned = streamed(logger.warn.mock.calls, "Claude Code stderr: ");
+      expect(warned).toContain("café");
+      expect(warned).not.toContain("�");
+    });
+  });
 });
 
 // --- 7. skill helpers -------------------------------------------------------
@@ -1984,6 +2052,630 @@ describe("safeStringify", () => {
     expect(safeStringify({ a: 1 })).toBe('{"a":1}');
     expect(safeStringify("hello")).toBe('"hello"');
     expect(safeStringify(null)).toBe("null");
+  });
+});
+
+// --- 10. env --------------------------------------------------------------
+
+describe("ClaudeCodeAgentAdapter env", () => {
+  const KEY = "CC_TEST_PROVIDER_KEY";
+  const BATCH = "CC_TEST_BATCH_ID";
+
+  beforeEach(() => {
+    process.env[KEY] = "sk-judge";
+    process.env[BATCH] = "batch-1";
+  });
+  afterEach(() => {
+    delete process.env[KEY];
+    delete process.env[BATCH];
+  });
+
+  /** @scenario "The CLI environment is this process's with the configured keys on top" */
+  it("gives the CLI this process's environment with config.env on top, undefined removing a key, and FORCE_COLOR=0 last", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      env: { CC_TEST_NEW: "1", [BATCH]: undefined, FORCE_COLOR: "1" },
+    });
+    const p = adapter.call(SIMPLE_INPUT);
+    child.pushStdout(assistantLine("hi") + "\n");
+    child.close();
+    await p;
+
+    const options = spawnMock.mock.calls.at(-1)?.[2] as { env: NodeJS.ProcessEnv };
+    expect(options.env.CC_TEST_NEW).toBe("1");
+    expect(options.env[KEY]).toBe("sk-judge");
+    expect(BATCH in options.env).toBe(false);
+    expect(options.env.FORCE_COLOR).toBe("0");
+  });
+});
+
+// --- 11. output ------------------------------------------------------------
+
+/** An assistant line carrying one `tool_use` block (and optional text before it). */
+function toolUseLine(
+  id: string,
+  name: string,
+  input: unknown,
+  text?: string,
+): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        ...(text !== undefined ? [{ type: "text", text }] : []),
+        { type: "tool_use", id, name, input },
+      ],
+    },
+  });
+}
+
+/** A user line carrying one `tool_result` block. */
+function toolResultLine(toolUseId: string, content: unknown, isError = false): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: toolUseId,
+          content,
+          ...(isError ? { is_error: true } : {}),
+        },
+      ],
+    },
+  });
+}
+
+const TOOL_TURN_STDOUT = [
+  toolUseLine("toolu_1", "Bash", { command: "ls" }, "Reading."),
+  toolResultLine("toolu_1", [{ type: "text", text: "a.txt" }]),
+  assistantLine("Done."),
+].join("\n");
+
+describe("ClaudeCodeAgentAdapter output", () => {
+  /** @scenario "A turn is returned as AI SDK messages when output is messages" */
+  it("returns AI SDK messages with tool-call and tool-result parts when output is messages", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      output: "messages",
+    });
+    const p = adapter.call(SIMPLE_INPUT);
+    child.pushStdout(TOOL_TURN_STDOUT);
+    child.close();
+
+    await expect(p).resolves.toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Reading." },
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "Bash",
+            input: { command: "ls" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "toolu_1",
+            toolName: "Bash",
+            output: { type: "text", value: "a.txt" },
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Done." }] },
+    ]);
+  });
+
+  /** @scenario "A turn is returned as text by default" */
+  it("returns the text with tool calls and results rendered inline by default", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const p = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }).call(
+      SIMPLE_INPUT,
+    );
+    child.pushStdout(TOOL_TURN_STDOUT);
+    child.close();
+
+    await expect(p).resolves.toBe(
+      'Reading.\nTool Called: Bash({"command":"ls"})\n\nTool Result: a.txt\n\nDone.',
+    );
+  });
+
+  /** @scenario "The caps are configurable on the adapter" */
+  it("caps a tool result at maxToolResultChars and says how much it dropped", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      output: "messages",
+      maxToolResultChars: 100,
+    });
+    const p = adapter.call(SIMPLE_INPUT);
+    child.pushStdout(
+      [
+        toolUseLine("toolu_1", "Bash", { command: "cat big" }),
+        toolResultLine("toolu_1", "y".repeat(500)),
+      ].join("\n"),
+    );
+    child.close();
+
+    const messages = (await p) as ModelMessage[];
+    const result = (messages[1]?.content as Array<{ output: { value: string } }>)[0];
+    expect(result?.output.value.startsWith("y".repeat(100))).toBe(true);
+    expect(result?.output.value).toMatch(/\[400 more characters\]/);
+    expect(result?.output.value).not.toContain("y".repeat(101));
+  });
+});
+
+// --- 12. transcript conversion ---------------------------------------------
+
+describe("toModelMessages", () => {
+  const transcript = [
+    {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "Read the skill first.", signature: "s" },
+        { type: "text", text: "I'll start by reading the skill instructions." },
+        {
+          type: "tool_use",
+          id: "toolu_01",
+          name: "Bash",
+          input: { command: "cat .skills/scenarios/SKILL.md" },
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_01",
+          content: [{ type: "text", text: "# Scenarios skill" }],
+        },
+      ],
+    },
+    { role: "assistant", content: [{ type: "text", text: "Done." }] },
+  ];
+
+  /** @scenario "A transcript becomes AI SDK messages with tool-call and tool-result parts" */
+  it("emits tool-call and tool-result parts, names the tool of a result, and drops thinking", () => {
+    const messages = toModelMessages(transcript);
+
+    expect(messages).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I'll start by reading the skill instructions." },
+          {
+            type: "tool-call",
+            toolCallId: "toolu_01",
+            toolName: "Bash",
+            input: { command: "cat .skills/scenarios/SKILL.md" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "toolu_01",
+            toolName: "Bash",
+            output: { type: "text", value: "# Scenarios skill" },
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Done." }] },
+    ]);
+    expect(JSON.stringify(messages)).not.toContain("Read the skill first.");
+  });
+
+  /** @scenario "An assistant turn that only calls tools keeps an empty text part" */
+  it("keeps an empty text part on a turn that only called tools", () => {
+    const messages = toModelMessages([
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "toolu_02", name: "Read", input: { file: "x" } }],
+      },
+    ]);
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "" },
+      { type: "tool-call", toolCallId: "toolu_02", toolName: "Read", input: { file: "x" } },
+    ]);
+  });
+
+  /** @scenario "A block the conversation cannot carry leaves a line naming it" */
+  it("names a block the conversation has no part for instead of dropping it", () => {
+    const messages = toModelMessages([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Here is the screenshot." },
+          { type: "image", source: { type: "base64", data: "iVBORw0KGgo=" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "document", source: { type: "text", data: "x" } }],
+      },
+    ]);
+
+    expect(messages).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Here is the screenshot.\n[image block, not shown in the transcript]",
+          },
+        ],
+      },
+      { role: "user", content: "[document block, not shown in the transcript]" },
+    ]);
+  });
+
+  /** @scenario "A failed tool result is an error-text output" */
+  it("renders an is_error tool_result as an error-text output", () => {
+    const messages = toModelMessages([
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "toolu_03", name: "Bash", input: { command: "false" } }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_03", content: "exit 1", is_error: true },
+        ],
+      },
+    ]);
+    expect(messages[1]).toEqual({
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "toolu_03",
+          toolName: "Bash",
+          output: { type: "error-text", value: "exit 1" },
+        },
+      ],
+    });
+  });
+
+  describe("when a tool call carries far more text than a judge can read", () => {
+    const huge = "x".repeat(60_000);
+    const bigTranscript = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_big",
+            name: "Bash",
+            input: { command: `cat > report.html <<EOF\n${huge}` },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_big",
+            content: [{ type: "text", text: huge }],
+          },
+        ],
+      },
+    ];
+    const messages = toModelMessages(bigTranscript);
+
+    /** @scenario "Tool inputs and results are capped in both renderings" */
+    it("caps the call input and says how much it dropped", () => {
+      const call = (messages[0]!.content as Array<{ type: string; input: { command: string } }>)[1]!;
+      expect(call.type).toBe("tool-call");
+      expect(call.input.command.length).toBeLessThan(31_000);
+      expect(call.input.command).toContain("cat > report.html");
+      expect(call.input.command).toMatch(/more characters/);
+    });
+
+    /** @scenario "Tool inputs and results are capped in both renderings" */
+    it("caps the result the same way", () => {
+      const result = (messages[1]!.content as Array<{ type: string; output: { value: string } }>)[0]!;
+      expect(result.type).toBe("tool-result");
+      expect(result.output.value.length).toBeLessThan(9000);
+      expect(result.output.value).toMatch(/more characters/);
+    });
+
+    /** @scenario "Tool inputs and results are capped in both renderings" */
+    it("caps a string nested inside the input too", () => {
+      const nested = toModelMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_nested",
+              name: "Write",
+              input: { payload: { html: huge }, files: [huge] },
+            },
+          ],
+        },
+      ]);
+      const call = (
+        nested[0]!.content as Array<{ input: { payload: { html: string }; files: string[] } }>
+      )[1]!;
+      expect(call.input.payload.html.length).toBeLessThan(31_000);
+      expect(call.input.payload.html).toMatch(/more characters/);
+      expect(call.input.files[0]!.length).toBeLessThan(31_000);
+    });
+
+    /** @scenario "Tool inputs and results are capped in both renderings" */
+    it("caps the text rendering of the same transcript the same way", () => {
+      const stdout = bigTranscript
+        .map((message) => JSON.stringify({ type: message.role, message }))
+        .join("\n");
+      const { text } = parseStreamJson(stdout);
+      expect(text.length).toBeLessThan(40_000);
+      expect(text).toContain("Tool Called: Bash(");
+      expect(text).toContain("Tool Result: ");
+      expect(text.match(/more characters/g)).toHaveLength(2);
+    });
+
+    /** @scenario "Tool inputs and results are capped in both renderings" */
+    it("leaves a small tool call alone", () => {
+      const small = toModelMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_small",
+              name: "Bash",
+              input: { command: "langwatch virtual-keys list" },
+            },
+          ],
+        },
+      ]);
+      expect(bashCommands({ messages: small } as ScenarioExecutionStateLike)).toEqual([
+        "langwatch virtual-keys list",
+      ]);
+    });
+  });
+});
+
+// --- 13. bashCommands --------------------------------------------------------
+
+describe("bashCommands", () => {
+  /** @scenario "The Bash commands of a run are read from the tool-call parts" */
+  it("lists only the commands of Bash tool-call parts, not quoted text or other tools", () => {
+    const messages: ModelMessage[] = [
+      { role: "user", content: "Please run `rm -rf build` for me." },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I would normally run `make test` here." },
+          { type: "tool-call", toolCallId: "1", toolName: "Bash", input: { command: "pytest -q" } },
+          { type: "tool-call", toolCallId: "2", toolName: "Read", input: { file_path: "x" } },
+        ],
+      },
+    ];
+    expect(bashCommands({ messages } as ScenarioExecutionStateLike)).toEqual(["pytest -q"]);
+  });
+});
+
+// --- 14. pointClaudeMdAtSkills ---------------------------------------------
+
+describe("pointClaudeMdAtSkills", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-point-wd-"));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function installSkill(name: string): void {
+    fs.mkdirSync(path.join(tmpDir, ".skills", name), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".skills", name, "SKILL.md"), `# ${name}\n`);
+  }
+
+  /** @scenario "An existing CLAUDE.md is pointed at the installed skills" */
+  it("keeps an existing CLAUDE.md and appends only the skills it does not mention, once", () => {
+    installSkill("alpha");
+    installSkill("beta");
+    const claudeMd = path.join(tmpDir, "CLAUDE.md");
+    const original = "# Fixture project\nRead .skills/alpha/SKILL.md first.\n";
+    fs.writeFileSync(claudeMd, original);
+
+    pointClaudeMdAtSkills(tmpDir);
+    const once = fs.readFileSync(claudeMd, "utf8");
+    expect(once.startsWith(original)).toBe(true);
+    expect(once).toContain(
+      "Read and follow the instructions in .skills/beta/SKILL.md before doing anything else.",
+    );
+    expect(once.match(/\.skills\/alpha\/SKILL\.md/g)).toHaveLength(1);
+
+    pointClaudeMdAtSkills(tmpDir);
+    expect(fs.readFileSync(claudeMd, "utf8")).toBe(once);
+  });
+
+  /** @scenario "A working directory without skills is left alone" */
+  it("writes nothing when the working directory has no skills", () => {
+    pointClaudeMdAtSkills(tmpDir);
+    expect(fs.existsSync(path.join(tmpDir, "CLAUDE.md"))).toBe(false);
+  });
+});
+
+// --- 15. process lifecycle ---------------------------------------------------
+//
+// The CLI leads its own process group, a detached shell watchdog kills that
+// group when the harness dies first, and the harness's own `exit` SIGKILLs
+// every group still running. The watchdog is a second `spawn`, so these tests
+// route the mock by binary: `/bin/sh` yields the fake watchdog, anything else
+// the fake CLI. Only a child WITH a pid gets a watchdog, so the earlier groups,
+// whose children have none, see exactly one spawn per turn as before.
+
+const posix = process.platform !== "win32";
+
+class FakeWatchdog extends EventEmitter {
+  unref = vi.fn();
+}
+
+/** Route `spawn` by binary: the watchdog for `/bin/sh`, `child` otherwise. */
+function withGuardedChild(child: FakeChild): FakeWatchdog {
+  const watchdog = new FakeWatchdog();
+  spawnMock.mockImplementation(((bin: string) =>
+    bin === "/bin/sh" ? watchdog : child) as unknown as typeof spawn);
+  return watchdog;
+}
+
+function claudeSpawnCalls() {
+  return spawnMock.mock.calls.filter((call) => call[0] !== "/bin/sh");
+}
+
+function watchdogSpawnCalls() {
+  return spawnMock.mock.calls.filter((call) => call[0] === "/bin/sh");
+}
+
+/** Run one clean turn on `child` and resolve it. */
+async function completeTurn(adapter: ClaudeCodeAgentAdapter, child: FakeChild): Promise<void> {
+  const p = adapter.call(SIMPLE_INPUT);
+  child.pushStdout(assistantLine("hi") + "\n");
+  child.close();
+  await p;
+}
+
+describe.skipIf(!posix)("ClaudeCodeAgentAdapter process lifecycle", () => {
+  let killSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+  });
+  afterEach(() => {
+    killSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  /** @scenario "The CLI is spawned as the leader of its own process group" */
+  it("spawns the CLI detached, in its own process group", async () => {
+    const child = new FakeChild(4101);
+    withGuardedChild(child);
+
+    await completeTurn(new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }), child);
+
+    expect(claudeSpawnCalls()).toHaveLength(1);
+    expect(claudeSpawnCalls()[0]?.[2]).toMatchObject({ detached: true, cwd: "/tmp/x" });
+  });
+
+  /** @scenario "A watchdog outlives the harness and is told both pids" */
+  it("spawns a detached, unreferenced shell watchdog told the harness pid and the CLI pid", async () => {
+    const child = new FakeChild(4102);
+    const watchdog = withGuardedChild(child);
+
+    await completeTurn(new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }), child);
+
+    expect(watchdogSpawnCalls()).toHaveLength(1);
+    const [, args, options] = watchdogSpawnCalls()[0]!;
+    const argv = args as string[];
+    expect(argv[0]).toBe("-c");
+    expect(argv.slice(2)).toEqual(["claude-code-watchdog", String(process.pid), "4102"]);
+    expect(argv[1]).toContain('kill -0 "$harness"');
+    expect(argv[1]).toContain('kill -TERM -- "-$child"');
+    expect(argv[1]).toContain('kill -KILL -- "-$child"');
+    expect(options).toMatchObject({ detached: true, stdio: "ignore" });
+    expect(watchdog.unref).toHaveBeenCalledTimes(1);
+  });
+
+  /** @scenario "A watchdog outlives the harness and is told both pids" */
+  it("spawns no watchdog for a CLI that never got a pid", async () => {
+    const child = new FakeChild();
+    withGuardedChild(child);
+
+    await completeTurn(new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }), child);
+
+    expect(claudeSpawnCalls()).toHaveLength(1);
+    expect(watchdogSpawnCalls()).toHaveLength(0);
+  });
+
+  /** @scenario "A watchdog that cannot start does not fail the turn" */
+  it("resolves the turn when the watchdog itself fails to spawn", async () => {
+    const child = new FakeChild(4106);
+    const watchdog = withGuardedChild(child);
+
+    const p = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }).call(SIMPLE_INPUT);
+    const err = new Error("ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    watchdog.emit("error", err);
+
+    child.pushStdout(assistantLine("hi") + "\n");
+    child.close();
+    await expect(p).resolves.toBe("hi");
+  });
+
+  /** @scenario "A timeout kills the whole process group" */
+  it("sends SIGTERM then SIGKILL to the CLI's process group on timeout, not to the CLI alone", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild(4103);
+    withGuardedChild(child);
+
+    const p = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x", timeout: 50 }).call(
+      SIMPLE_INPUT,
+    );
+    const assertion = expect(p).rejects.toThrow(/timed out after 50ms/);
+
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+    expect(killSpy).toHaveBeenCalledWith(-4103, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalledWith(-4103, "SIGKILL");
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(killSpy).toHaveBeenCalledWith(-4103, "SIGKILL");
+    expect(child.kill).not.toHaveBeenCalled();
+
+    // The CLI is gone now; its close disarms the guard.
+    child.emit("close", null, "SIGKILL");
+  });
+
+  /** @scenario "A CLI still running when the harness exits gets SIGKILL" */
+  it("SIGKILLs the group of a CLI still running when the harness exits", async () => {
+    const child = new FakeChild(4104);
+    withGuardedChild(child);
+
+    const p = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }).call(SIMPLE_INPUT);
+
+    killGuardedProcesses();
+    expect(killSpy).toHaveBeenCalledWith(-4104, "SIGKILL");
+
+    child.pushStdout(assistantLine("hi") + "\n");
+    child.close();
+    await p;
+  });
+
+  /** @scenario "A turn that finished is not killed on harness exit" */
+  it("leaves a CLI that already exited alone when the harness exits", async () => {
+    const child = new FakeChild(4105);
+    withGuardedChild(child);
+
+    await completeTurn(new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }), child);
+    killSpy.mockClear();
+
+    killGuardedProcesses();
+    expect(killSpy).not.toHaveBeenCalledWith(-4105, expect.anything());
   });
 });
 
