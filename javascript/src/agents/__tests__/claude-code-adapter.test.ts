@@ -2487,7 +2487,7 @@ describe("pointClaudeMdAtSkills", () => {
 
 const posix = process.platform !== "win32";
 
-class FakeWatchdog {
+class FakeWatchdog extends EventEmitter {
   unref = vi.fn();
 }
 
@@ -2565,6 +2565,21 @@ describe.skipIf(!posix)("ClaudeCodeAgentAdapter process lifecycle", () => {
 
     expect(claudeSpawnCalls()).toHaveLength(1);
     expect(watchdogSpawnCalls()).toHaveLength(0);
+  });
+
+  /** @scenario "A watchdog that cannot start does not fail the turn" */
+  it("resolves the turn when the watchdog itself fails to spawn", async () => {
+    const child = new FakeChild(4106);
+    const watchdog = withGuardedChild(child);
+
+    const p = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }).call(SIMPLE_INPUT);
+    const err = new Error("ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    watchdog.emit("error", err);
+
+    child.pushStdout(assistantLine("hi") + "\n");
+    child.close();
+    await expect(p).resolves.toBe("hi");
   });
 
   /** @scenario "A timeout kills the whole process group" */

@@ -116,6 +116,12 @@ Feature: Claude Code adapter environment, transcript and process lifecycle
     And the watchdog is not spawned again for a CLI that has no pid
 
   @unit
+  Scenario: A watchdog that cannot start does not fail the turn
+    Given the watchdog process reports a spawn error
+    When a turn runs
+    Then the turn resolves with the CLI's output
+
+  @unit
   Scenario: A CLI still running when the harness exits gets SIGKILL
     Given a turn is running
     When the harness process emits exit

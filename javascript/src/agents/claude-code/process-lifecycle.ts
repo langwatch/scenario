@@ -107,6 +107,10 @@ export function guardAgainstOrphaning(child: ChildProcess): () => void {
     );
     // The watchdog must not keep the harness alive, and must not die with it.
     watchdog.unref?.();
+    // A watchdog that cannot start (no /bin/sh, no process slot) is not a
+    // reason to fail the turn: measures 1 and 2 still apply. Without a
+    // listener the error event would throw inside the harness.
+    watchdog.on("error", () => {});
   }
 
   return () => {
