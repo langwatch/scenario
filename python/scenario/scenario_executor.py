@@ -202,6 +202,7 @@ class ScenarioExecutor:
         debug: Optional[bool] = None,
         fetch_remote_traces: Optional[bool] = None,
         trace_wait_timeout: Optional[float] = None,
+        voice: Optional[Any] = None,
         event_bus: Optional[ScenarioEventBus] = None,
         set_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -244,6 +245,7 @@ class ScenarioExecutor:
             trace_wait_timeout: Maximum seconds the judge waits at verdict
                   time for remote traces to arrive and stabilize (default: 30).
                   Overrides global configuration for this scenario.
+            voice: Per-run voice configuration passed to judge and simulator calls.
             event_bus: Optional event bus that will subscribe to this executor's events
             set_id: Optional set identifier for grouping related scenarios
             metadata: Optional metadata to attach to the scenario run.
@@ -276,6 +278,7 @@ class ScenarioExecutor:
             headless=None,
             fetch_remote_traces=fetch_remote_traces,
             trace_wait_timeout=trace_wait_timeout,
+            voice=voice,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
@@ -1282,7 +1285,7 @@ class ScenarioExecutor:
             # (OpenAIRealtime, ElevenLabs hosted, Pipecat, etc.) see no audio
             # when the scenario script emits `scenario.user("...")`.
             sim = self._find_user_sim()
-            if sim is not None and getattr(sim, "voice", None):
+            if sim is not None and sim._effective_voice(self.config.voice):
                 # Apply per-step overrides if supplied — without this, callers
                 # using scenario.user("text", voice_style=..., audio_effects=...)
                 # would silently have those dropped on the voice-sim branch.
@@ -2203,6 +2206,7 @@ def _build_scenario(
     debug: Optional[bool],
     fetch_remote_traces: Optional[bool],
     trace_wait_timeout: Optional[float],
+    voice: Optional[Any],
     script: Optional[List[ScriptStep]],
     set_id: Optional[str],
     metadata: Optional[Dict[str, Any]],
@@ -2230,6 +2234,7 @@ def _build_scenario(
         debug=debug,
         fetch_remote_traces=fetch_remote_traces,
         trace_wait_timeout=trace_wait_timeout,
+        voice=voice,
         script=script,
         set_id=set_id,
         metadata=metadata,
@@ -2263,6 +2268,7 @@ async def arun(
     debug: Optional[bool] = None,
     fetch_remote_traces: Optional[bool] = None,
     trace_wait_timeout: Optional[float] = None,
+    voice: Optional[Any] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
@@ -2300,6 +2306,7 @@ async def arun(
         debug=debug,
         fetch_remote_traces=fetch_remote_traces,
         trace_wait_timeout=trace_wait_timeout,
+        voice=voice,
         script=script,
         set_id=set_id,
         metadata=metadata,
@@ -2333,6 +2340,7 @@ async def run(
     debug: Optional[bool] = None,
     fetch_remote_traces: Optional[bool] = None,
     trace_wait_timeout: Optional[float] = None,
+    voice: Optional[Any] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
@@ -2378,6 +2386,7 @@ async def run(
                  ``AgentInput.propagation_headers`` to the remote agent.
         trace_wait_timeout: Maximum seconds the judge waits at verdict time
                  for remote traces to arrive and stabilize (default: 30)
+        voice: Per-run STT and TTS configuration for this scenario.
         script: Optional script steps to control scenario flow
         set_id: Optional set identifier for grouping related scenarios
         metadata: Optional metadata to attach to the scenario run.
@@ -2451,6 +2460,7 @@ async def run(
         debug=debug,
         fetch_remote_traces=fetch_remote_traces,
         trace_wait_timeout=trace_wait_timeout,
+        voice=voice,
         script=script,
         set_id=set_id,
         metadata=metadata,
