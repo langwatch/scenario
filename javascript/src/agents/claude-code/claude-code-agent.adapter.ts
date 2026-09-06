@@ -607,6 +607,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
 
       child.stdout?.on("data", (data: Buffer) => {
         stdoutChunks.push(data);
+        logger.log(`Claude Code stdout: ${data.toString()}`);
       });
 
       child.stderr?.on("data", (data: Buffer) => {
