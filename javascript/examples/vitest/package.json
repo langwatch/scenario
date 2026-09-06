@@ -21,11 +21,11 @@
     "vitest-mock-extended": "5.1.1"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "3.0.41",
-    "@ai-sdk/xai": "3.0.50",
+    "@ai-sdk/anthropic": "4.0.45",
+    "@ai-sdk/xai": "4.0.49",
     "@langwatch/scenario": "workspace:*",
     "@openai/agents": "^0.16.0",
-    "ai": "^6.0.0",
+    "ai": "^7.0.84",
     "express": "^5.1.0",
     "openai": "^6.9.1",
     "vite": "^8.2.1",
