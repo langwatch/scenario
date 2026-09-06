@@ -1800,6 +1800,51 @@ describe("ClaudeCodeAgentAdapter logger isolation", () => {
       consoleError.mockRestore();
     }
   });
+
+  describe("when a multibyte character is split across two chunks", () => {
+    /** @scenario "Live CLI output is logged as the CLI wrote it" */
+    it("logs the character intact instead of replacement characters", async () => {
+      const child = new FakeChild();
+      withChild(child);
+      const logger = spyLogger();
+
+      const adapter = new ClaudeCodeAgentAdapter({
+        workingDirectory: "/tmp/split",
+        logger,
+      });
+      const p = adapter.call(SIMPLE_INPUT);
+
+      // "é" is two UTF-8 bytes; cut the payload between them so each `data`
+      // event carries half of it, the way a real pipe can chunk.
+      const payload = Buffer.from(assistantLine("café") + "\n", "utf8");
+      const cut = payload.indexOf(0xc3) + 1;
+      child.stdout.emit("data", payload.subarray(0, cut));
+      child.stdout.emit("data", payload.subarray(cut));
+      child.stderr.emit("data", payload.subarray(0, cut));
+      child.stderr.emit("data", payload.subarray(cut));
+      child.close(0);
+      await p;
+
+      // The decoder holds the incomplete tail back, so the character lands in
+      // whichever log line completes it. What the diagnostic must never carry
+      // is a replacement character, and the lines together must reconstruct
+      // what the CLI wrote.
+      const streamed = (calls: unknown[][], prefix: string): string =>
+        calls
+          .flat()
+          .filter((arg): arg is string => typeof arg === "string" && arg.startsWith(prefix))
+          .map((line) => line.slice(prefix.length))
+          .join("");
+
+      const logged = streamed(logger.log.mock.calls, "Claude Code stdout: ");
+      expect(logged).toContain("café");
+      expect(logged).not.toContain("�");
+
+      const warned = streamed(logger.warn.mock.calls, "Claude Code stderr: ");
+      expect(warned).toContain("café");
+      expect(warned).not.toContain("�");
+    });
+  });
 });
 
 // --- 7. skill helpers -------------------------------------------------------

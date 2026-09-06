@@ -67,6 +67,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 import type { ModelMessage } from "ai";
 
@@ -605,14 +606,25 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         fn();
       };
 
+      // The live diagnostics decode through a `StringDecoder` rather than
+      // `chunk.toString()`: a multibyte UTF-8 character split across two `data`
+      // events would otherwise reach the logger as replacement characters. The
+      // decoder holds the incomplete tail back and emits it with the next
+      // chunk, so what is logged is what the CLI wrote. A chunk that ends
+      // mid-character yields an empty string, which is not worth a log line.
+      const stdoutDecoder = new StringDecoder("utf8");
+      const stderrDecoder = new StringDecoder("utf8");
+
       child.stdout?.on("data", (data: Buffer) => {
         stdoutChunks.push(data);
-        logger.log(`Claude Code stdout: ${data.toString()}`);
+        const decoded = stdoutDecoder.write(data);
+        if (decoded) logger.log(`Claude Code stdout: ${decoded}`);
       });
 
       child.stderr?.on("data", (data: Buffer) => {
         stderrChunks.push(data);
-        logger.warn(`Claude Code stderr: ${data.toString()}`);
+        const decoded = stderrDecoder.write(data);
+        if (decoded) logger.warn(`Claude Code stderr: ${decoded}`);
       });
 
       child.on("error", (err: NodeJS.ErrnoException) => {

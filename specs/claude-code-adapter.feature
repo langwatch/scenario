@@ -132,3 +132,9 @@ Feature: Claude Code adapter environment, transcript and process lifecycle
     Given a turn ran to completion
     When the harness process emits exit
     Then nothing is sent to that CLI's process group
+
+  @unit
+  Scenario: Live CLI output is logged as the CLI wrote it
+    Given the CLI writes a multibyte character split across two chunks
+    When a turn runs
+    Then the logged stdout and stderr carry the character intact
