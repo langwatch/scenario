@@ -8,6 +8,7 @@ conversation history.
 """
 
 import logging
+from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Callable, Iterator, List, Optional, cast
 
@@ -273,11 +274,24 @@ class UserSimulatorAgent(AgentAdapter):
         input: AgentInput,
     ) -> AgentReturnTypes:
         text_message = await self._generate_text(input)
-        if not self.voice:
+        voice = self._effective_voice(input.scenario_state.config.voice)
+        if not voice:
             return text_message
-        return await self._voiceify(text_message)  # type: ignore[arg-type]
+        return await self._voiceify(text_message, voice=voice)  # type: ignore[arg-type]
 
-    async def _voiceify(self, text_message: dict) -> AgentReturnTypes:
+    def _effective_voice(self, voice_config) -> Optional[str]:
+        from .voice.config import VoiceConfig
+
+        if isinstance(voice_config, Mapping):
+            voice_config = VoiceConfig.model_validate(voice_config)
+        if not isinstance(voice_config, VoiceConfig):
+            return self.voice
+        tts = getattr(voice_config, "tts", None)
+        return getattr(tts, "voice", None) or self.voice
+
+    async def _voiceify(
+        self, text_message: dict, *, voice: Optional[str] = None
+    ) -> AgentReturnTypes:
         """Convert a text user message into an audio message via TTS + effects."""
         from .voice import AudioChunk, create_audio_message, synthesize
 
@@ -286,7 +300,7 @@ class UserSimulatorAgent(AgentAdapter):
             return text_message  # type: ignore[return-value]
         if self._voice_style_override is not None:
             self._warn_voice_style_not_wired_once()
-        chunk = await synthesize(content, self.voice)  # type: ignore[arg-type]
+        chunk = await synthesize(content, voice or self.voice)  # type: ignore[arg-type]
         audio_bytes = chunk.data
         effects = self._effective_audio_effects()
         for effect in effects:
