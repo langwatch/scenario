@@ -115,6 +115,11 @@ constraint-dependencies = [
     "python-liquid>=2.2.1",
     "filelock>=3.20.3",
     "virtualenv>=20.36.1",
+    "pillow>=12.3.0",  # security: pillow advisories (#485, #503-#514)
+    "gitpython>=3.1.58",  # security: GitPython advisories (#536-#539, #554-#557, #563, #622-#627)
+    "pyasn1>=0.6.4",  # security: pyasn1 advisories (#534, #535)
+    "aiohttp>=3.14.3",  # security: aiohttp advisories (#594-#596)
+    "cryptography>=50.0.0",  # security: cryptography advisory (#597)
 ]
 
 
