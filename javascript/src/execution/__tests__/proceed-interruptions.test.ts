@@ -9,6 +9,7 @@
  * determinism; no network, no real keys.
  */
 
+import type { ModelMessage } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
 import {
@@ -18,8 +19,8 @@ import {
   type AgentReturnTypes,
   UserSimulatorAgentAdapter,
 } from "../../domain";
-import { ScenarioExecution } from "../scenario-execution";
 import { InterruptionConfig } from "../../voice/interruption";
+import { ScenarioExecution } from "../scenario-execution";
 
 class MockAgent extends AgentAdapter {
   role = AgentRole.AGENT;
@@ -248,6 +249,193 @@ describe("consumePendingRolesUntilAgent (substep 2)", () => {
 
     expect(exec._i.pendingAgentsOnTurn.has(agent)).toBe(false);
     expect(exec._i.pendingRolesOnTurn).toEqual([]);
+  });
+});
+
+type BargeInInternals = {
+  interruptBargeInDelayMs?: number;
+  pendingAgentTask: { promise: Promise<void>; done: boolean; error: unknown | null } | null;
+  prepareAndFireBargeIn(
+    config: InterruptionConfig,
+    voiceUserSim: { voice: string; voiceifyText(text: string, cfg?: unknown): Promise<ModelMessage> },
+    entry: { promise: Promise<void>; done: boolean; error: unknown | null },
+  ): Promise<boolean>;
+  fireUserInterrupt(voicedMessage: ModelMessage): Promise<void>;
+};
+
+/**
+ * A live entry is the precondition the substep runs under: its sole caller
+ * dispatches the AGENT first, so `done` is false unless the bot beat the TTS.
+ */
+function liveEntry() {
+  return { promise: Promise.resolve(), done: false, error: null };
+}
+
+/** A promise whose settling the test controls, to pin an ordering. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** A voice user simulator whose TTS outcome the test decides. */
+function simThat(outcome: { voiced: ModelMessage } | { throws: Error }) {
+  const calls: string[] = [];
+  return {
+    calls,
+    voice: "alloy",
+    async voiceifyText(text: string): Promise<ModelMessage> {
+      calls.push(text);
+      if ("throws" in outcome) throw outcome.throws;
+      return outcome.voiced;
+    },
+  };
+}
+
+/**
+ * Substep 4 is the only one of the four with no targeted coverage, and it is
+ * the one that decides whether a barge-in happens at all: three of its four
+ * paths return `true` without firing one. `true` therefore does not mean "the
+ * user interrupted", it means "the AGENT was dispatched", so asserting the
+ * return value alone cannot tell the paths apart. These assert the side
+ * effects instead: whether the interrupt fired, and what the sampled delay
+ * was left as.
+ */
+describe("prepareAndFireBargeIn (substep 4)", () => {
+  const voiced: ModelMessage = { role: "user", content: "hold on" };
+
+  function makeBargeInExec() {
+    const exec = makeExecWithAgents([new MockAgent(), new RecordingUserSim()]);
+    const inner = exec as unknown as BargeInInternals;
+    const fired: ModelMessage[] = [];
+    // Stub the barge-in itself: substep 4's job is deciding whether to call
+    // it and with what, not what it does afterwards.
+    inner.fireUserInterrupt = async (message) => {
+      fired.push(message);
+    };
+    inner.pendingAgentTask = liveEntry();
+    return { exec, inner, fired };
+  }
+
+  it("samples the delay onto the barge-in field before voicing the phrase", async () => {
+    const { exec, inner, fired } = makeBargeInExec();
+    exec.interruptOverrides = { rng: () => 0 };
+    const config = new InterruptionConfig({
+      strategy: "random_phrase",
+      delayRange: [2, 2],
+    });
+    const sim = simThat({ voiced });
+
+    const result = await inner.prepareAndFireBargeIn(config, sim, liveEntry());
+
+    expect(result).toBe(true);
+    expect(inner.interruptBargeInDelayMs).toBe(2000);
+    expect(fired).toEqual([voiced]);
+  });
+
+  it("leaves the barge-in field unset when the sampled delay is zero", async () => {
+    const { exec, inner } = makeBargeInExec();
+    exec.interruptOverrides = { rng: () => 0 };
+    const config = new InterruptionConfig({
+      strategy: "random_phrase",
+      delayRange: [0, 0],
+    });
+
+    await inner.prepareAndFireBargeIn(config, simThat({ voiced }), liveEntry());
+
+    // Writing 0 would be indistinguishable from "no delay sampled" at the
+    // consumer, which reads the field with `??`.
+    expect(inner.interruptBargeInDelayMs).toBeUndefined();
+  });
+
+  it("skips the barge-in and clears the sampled delay when TTS fails", async () => {
+    const { exec, inner, fired } = makeBargeInExec();
+    exec.interruptOverrides = { rng: () => 0 };
+    const config = new InterruptionConfig({
+      strategy: "random_phrase",
+      delayRange: [2, 2],
+    });
+
+    const result = await inner.prepareAndFireBargeIn(
+      config,
+      simThat({ throws: new Error("tts unavailable") }),
+      liveEntry(),
+    );
+
+    expect(result).toBe(true);
+    expect(fired).toEqual([]);
+    // The delay was sampled before the TTS attempt, so leaving it set would
+    // hand a later successful barge-in this failed attempt's value.
+    expect(inner.interruptBargeInDelayMs).toBeUndefined();
+  });
+
+  it("skips the barge-in when the bot finishes while the phrase is being voiced", async () => {
+    const { exec, inner, fired } = makeBargeInExec();
+    exec.interruptOverrides = { rng: () => 0 };
+    const config = new InterruptionConfig({
+      strategy: "random_phrase",
+      delayRange: [2, 2],
+    });
+    // Live when the substep starts, which is what its sole caller guarantees.
+    const entry = liveEntry();
+
+    const ttsStarted = deferred<void>();
+    const ttsFinishes = deferred<void>();
+    const sim = {
+      voice: "alloy",
+      async voiceifyText(): Promise<ModelMessage> {
+        ttsStarted.resolve();
+        await ttsFinishes.promise;
+        return voiced;
+      },
+    };
+
+    const pending = inner.prepareAndFireBargeIn(config, sim, entry);
+    await ttsStarted.promise;
+    // The bot finishing DURING the TTS call is the situation the check exists
+    // for, and the ordering is the whole of it: a check that ran before the
+    // phrase was voiced would have seen a live entry and barged in anyway.
+    entry.done = true;
+    ttsFinishes.resolve();
+
+    await expect(pending).resolves.toBe(true);
+    expect(fired).toEqual([]);
+  });
+
+  it("records the voiced turn on the conversation when the barge-in fires", async () => {
+    const { exec, inner, fired } = makeBargeInExec();
+    exec.interruptOverrides = { rng: () => 0 };
+    const config = new InterruptionConfig({
+      strategy: "random_phrase",
+      delayRange: [2, 2],
+    });
+
+    await inner.prepareAndFireBargeIn(config, simThat({ voiced }), liveEntry());
+
+    expect(fired).toEqual([voiced]);
+    // The judge and the following turns only see the interrupt if it lands in
+    // the conversation, so firing without recording is a silent half-barge-in.
+    // Matched on shape rather than identity: the conversation stamps its own
+    // id onto every message it accepts.
+    expect(exec.messages).toContainEqual(
+      expect.objectContaining({ role: "user", content: "hold on" }),
+    );
+  });
+
+  it("voices the phrase the config picked, not the user simulator's own turn", async () => {
+    const { exec, inner } = makeBargeInExec();
+    exec.interruptOverrides = { rng: () => 0 };
+    const config = new InterruptionConfig({
+      strategy: "random_phrase",
+      delayRange: [2, 2],
+    });
+    const sim = simThat({ voiced });
+
+    await inner.prepareAndFireBargeIn(config, sim, liveEntry());
+
+    expect(sim.calls).toEqual([config.pickRandomPhrase(() => 0)]);
   });
 });
 
