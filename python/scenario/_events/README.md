@@ -407,7 +407,10 @@ logging.getLogger("EventReporter").setLevel(logging.DEBUG)
 ### EventReporter Methods
 
 - `__init__(endpoint=None, api_key=None)` - Initialize reporter
-- `post_event(event)` - Post event to configured endpoint
+- `post_event(event, http_client=None)` - Post event to configured endpoint. The
+  event bus passes the HTTP client owned by its worker thread; a reporter that
+  brings its own transport can declare `post_event(self, event)` and the bus
+  calls it with the event alone.
 
 ### Event Models
 

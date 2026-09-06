@@ -46,7 +46,7 @@ class MockEventReporter(EventReporter):
         # Don't call super().__init__() to avoid setting up HTTP client
         self.posted_events: List[ScenarioEvent] = []
 
-    async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+    async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
         """Store events instead of posting them."""
         self.posted_events.append(event)
         return {}

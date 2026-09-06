@@ -81,6 +81,9 @@ class EventReporter:
         project_id (str, optional): Override LangWatch project ID. When set
             (alongside api_key), requests carry the X-Project-Id header. Falls
             back to LANGWATCH_PROJECT_ID env var.
+        http_client (httpx.AsyncClient, optional): Shared client to reuse
+            across posts. The caller owns its lifecycle; the reporter never
+            closes it. Without one, each post opens a short-lived client.
 
     Example:
         # Using environment variables (LANGWATCH_ENDPOINT, LANGWATCH_API_KEY,
@@ -104,7 +107,8 @@ class EventReporter:
         endpoint: Optional[str] = None,
         api_key: Optional[str] = None,
         project_id: Optional[str] = None,
-    ):
+        http_client: Optional[httpx.AsyncClient] = None,
+    ) -> None:
         # Load settings from environment variables
         langwatch_settings = LangWatchSettings()
 
@@ -119,18 +123,32 @@ class EventReporter:
             or _resolve_langwatch_client_api_key()
         )
         self.project_id = project_id or langwatch_settings.project_id
+        self.http_client = http_client
         self.logger = logging.getLogger(__name__)
         self.event_alert_message_logger = EventAlertMessageLogger()
 
         # Show greeting message when reporter is initialized
         self.event_alert_message_logger.handle_greeting()
 
-    async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+    async def post_event(
+        self,
+        event: ScenarioEvent,
+        http_client: Optional[httpx.AsyncClient] = None,
+    ) -> Dict[str, Any]:
         """
         Posts an event to the configured endpoint.
 
+        Raises on transport failures and non-2xx responses so the caller (the
+        event bus) can retry. An unconfigured endpoint or api_key still skips
+        silently: that is a setup state, not a delivery failure.
+
         Args:
             event: A ScenarioEvent containing the event data
+            http_client: A client owned by the caller, for this call only. The
+                event bus passes the client of the worker thread that runs
+                this coroutine, so a client is never shared between threads or
+                event loops. Falls back to the injected `self.http_client`,
+                and then to a client created for this one call.
 
         Returns:
             Dict containing response data, including setUrl if available
@@ -173,36 +191,59 @@ class EventReporter:
             }
             if self.project_id:
                 headers["X-Project-Id"] = self.project_id
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                response = await client.post(
+            client_for_call = http_client or self.http_client
+            if client_for_call is not None:
+                response = await client_for_call.post(
                     url,
                     json=payload,
                     headers=headers,
                     timeout=httpx.Timeout(30.0),
+                    follow_redirects=True,
                 )
-                self.logger.info(
-                    f"[{event_type}] POST response status: {response.status_code} ({event.scenario_run_id})"
-                )
-
-                if response.is_success:
-                    data = response.json()
-                    self.logger.info(
-                        f"[{event_type}] POST response: {data} ({event.scenario_run_id})"
-                    )
-
-                    # Extract setUrl from response if available
-                    if isinstance(data, dict) and "url" in data:
-                        result["setUrl"] = data["url"]
-                else:
-                    error_text = response.text
-                    self.logger.error(
-                        f"[{event_type}] Event POST failed: status={response.status_code}, "
-                        f"reason={response.reason_phrase}, error={error_text}, "
-                        f"event={_redacted_event_repr(event)}"
+            else:
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    response = await client.post(
+                        url,
+                        json=payload,
+                        headers=headers,
+                        timeout=httpx.Timeout(30.0),
                     )
         except Exception as error:
             self.logger.error(
                 f"[{event_type}] Event POST error: {repr(error)}, event={_redacted_event_repr(event)}, endpoint={self.endpoint}"
             )
+            raise
 
+        self.logger.info(
+            f"[{event_type}] POST response status: {response.status_code} ({event.scenario_run_id})"
+        )
+
+        if response.is_success:
+            try:
+                data = response.json()
+            except ValueError as parse_error:
+                # The server accepted the event. An empty or malformed body is
+                # not a delivery failure, and raising here would make the bus
+                # post the same event again.
+                self.logger.info(
+                    f"[{event_type}] POST response body was not JSON: "
+                    f"{parse_error} ({event.scenario_run_id})"
+                )
+                return result
+            self.logger.info(
+                f"[{event_type}] POST response: {data} ({event.scenario_run_id})"
+            )
+
+            # Extract setUrl from response if available
+            if isinstance(data, dict) and "url" in data:
+                result["setUrl"] = data["url"]
+            return result
+
+        error_text = response.text
+        self.logger.error(
+            f"[{event_type}] Event POST failed: status={response.status_code}, "
+            f"reason={response.reason_phrase}, error={error_text}, "
+            f"event={_redacted_event_repr(event)}"
+        )
+        response.raise_for_status()
         return result

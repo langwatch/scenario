@@ -319,6 +319,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
   /** Logger for debugging and monitoring */
   private logger = new Logger("scenario.execution.ScenarioExecution");
+  private finishedEmitted = false;
 
   /** Finalized configuration with all defaults applied */
   private config: ScenarioConfigFinal;
@@ -632,6 +633,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     const scenarioRunId = this.preAssignedRunId || generateScenarioRunId();
     this.scenarioRunId = scenarioRunId;
+    this.finishedEmitted = false;
 
     // Create the initial turn span via newTurn() and then reset the counter
     // back to 0. This matches the original reset() behavior — newTurn() creates
@@ -710,13 +712,25 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       }
 
       if (checkFailure) {
-        const cp = this.compiledCheckpoints;
-        const result = this.setResult({
-          success: false,
-          reasoning: `Scenario failed with error: ${checkFailure.message}`,
-          metCriteria: cp.metCriteria,
-          unmetCriteria: [...cp.unmetCriteria, checkFailure.message],
-        });
+        // Build the result defensively: a failure while assembling it must
+        // not cost us the finished event or mask the original assertion
+        // error (#922).
+        let result: ScenarioResult;
+        try {
+          const cp = this.compiledCheckpoints;
+          result = this.setResult({
+            success: false,
+            reasoning: `Scenario failed with error: ${checkFailure.message}`,
+            metCriteria: cp.metCriteria,
+            unmetCriteria: [...cp.unmetCriteria, checkFailure.message],
+          });
+        } catch (buildError) {
+          this.logger.warn(
+            `[${this.config.id}] failed to build check-failure result; falling back to a minimal result`,
+            buildError
+          );
+          result = this.minimalErrorResult(scenarioRunId, checkFailure);
+        }
 
         this.emitRunFinished({
           scenarioRunId,
@@ -750,26 +764,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
       return await this.finishRun({ scenarioRunId, result });
     } catch (error) {
-      if (checkFailure) {
-        // Already handled above — just propagate
-        throw error;
+      // Report the run as finished before propagating. The exactly-once guard
+      // covers the case where the finished event was already emitted above
+      // but its emit path raised afterwards (#922).
+      this.emitErrorRunFinished({ scenarioRunId, error: checkFailure ?? error });
+
+      if (checkFailure && error !== checkFailure) {
+        // The emit path raised after the check-failure branch; surface the
+        // original assertion error, not the emit failure.
+        throw checkFailure;
       }
-
-      const errorInfo = extractErrorInfo(error);
-
-      const result = this.setResult({
-        success: false,
-        reasoning: `Scenario failed with error: ${errorInfo.message}`,
-        metCriteria: [],
-        unmetCriteria: [],
-        error: JSON.stringify(errorInfo),
-      });
-
-      this.emitRunFinished({
-        scenarioRunId,
-        status: ScenarioRunStatus.ERROR,
-        result,
-      });
 
       // Re-throw the error in case it was a vitest assertion error
       throw error;
@@ -2668,6 +2672,67 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
+   * Smallest valid ERROR result, for when building the full one fails.
+   */
+  private minimalErrorResult(
+    scenarioRunId: string,
+    error: unknown
+  ): ScenarioResult {
+    return {
+      runId: scenarioRunId,
+      success: false,
+      messages: [],
+      reasoning: `Scenario failed with error: ${extractErrorInfo(error).message}`,
+      metCriteria: [],
+      unmetCriteria: [],
+    };
+  }
+
+  /**
+   * Reports the run as finished with status ERROR without ever masking
+   * `error`: every step is guarded, and a failure to emit only logs.
+   */
+  private emitErrorRunFinished({
+    scenarioRunId,
+    error,
+  }: {
+    scenarioRunId: string;
+    error: unknown;
+  }): void {
+    if (this.finishedEmitted) return;
+    try {
+      const errorInfo = extractErrorInfo(error);
+      let result: ScenarioResult;
+      try {
+        result = this.setResult({
+          success: false,
+          reasoning: `Scenario failed with error: ${errorInfo.message}`,
+          metCriteria: [],
+          unmetCriteria: [],
+          error: JSON.stringify(errorInfo),
+        });
+      } catch (buildError) {
+        this.logger.warn(
+          `[${this.config.id}] failed to build error result; falling back to a minimal result`,
+          buildError
+        );
+        result = this.minimalErrorResult(scenarioRunId, error);
+      }
+
+      this.emitRunFinished({
+        scenarioRunId,
+        status: ScenarioRunStatus.ERROR,
+        result,
+      });
+    } catch (emitError) {
+      this.logger.warn(
+        `[${this.config.id}] failed to emit run finished event; preserving original error`,
+        emitError
+      );
+    }
+  }
+
+  /**
    * Concludes a run that reached a verdict: runs the scenario's evaluators
    * over the final state, applies their gate to the result, then emits the
    * run finished event. Runs that ended in an error skip the evaluators.
@@ -2754,7 +2819,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
-   * Emits a run finished event with the final execution status.
+   * Emits a run finished event with the final execution status, exactly once
+   * per run: every exit path reports through this guard, so an error path
+   * entered after a successful emit can never double-post the event.
    */
   private emitRunFinished({
     scenarioRunId,
@@ -2765,6 +2832,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     status: ScenarioRunStatus;
     result?: ScenarioResult;
   }) {
+    if (this.finishedEmitted) return;
     const event: ScenarioRunFinishedEvent = {
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.RUN_FINISHED,
@@ -2780,6 +2848,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     };
 
     this.emitEvent(event);
+    // Marked as soon as the event is on the stream, so a failure in the
+    // closing steps below can never cause a second event to be emitted.
+    this.finishedEmitted = true;
     this.eventSubject.complete();
 
     // End the final turn span

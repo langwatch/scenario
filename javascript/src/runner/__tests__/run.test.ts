@@ -472,4 +472,72 @@ describe("run", () => {
       expect(runStartedEvent?.metadata?.description).toBe("Scenario My Scenario");
     });
   });
+
+  describe("event delivery reliability", () => {
+    it("posts RUN_FINISHED with status ERROR when the run fails", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+
+      const config = createScenarioConfig();
+      config.script = [
+        async () => {
+          throw new Error("intentional run failure");
+        },
+      ];
+
+      await expect(run(config)).rejects.toThrow("intentional run failure");
+
+      const finished = capturedEvents.filter(
+        (e) => e.type === "SCENARIO_RUN_FINISHED"
+      );
+      expect(finished).toHaveLength(1);
+      expect(finished[0]).toMatchObject({ status: "ERROR" });
+    });
+
+    it("drain resolves promptly when the endpoint drops every event, and the run still succeeds", async () => {
+      // Use the REAL EventBus so the run exercises retry, drop and drain.
+      const { EventBus } = await import("../../events/event-bus");
+      const actual = await vi.importActual<typeof import("../../events/event-bus")>(
+        "../../events/event-bus"
+      );
+      vi.mocked(EventBus).mockImplementation(function (
+        this: unknown,
+        config: ConstructorParameters<typeof actual.EventBus>[0]
+      ) {
+        return new actual.EventBus(config);
+      });
+
+      const fetchMock = vi.fn().mockRejectedValue(new Error("endpoint is down"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      // The deadline must stay under vitest's own per-test timeout, or the
+      // test reports a generic timeout instead of naming the hung drain. It
+      // is cleared either way, so a pending timer never outlives the test.
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          run(createScenarioConfig(), {
+            langwatch: {
+              endpoint: "https://unreachable.example.test",
+              apiKey: "test-key",
+            },
+          }),
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(
+              () => reject(new Error("run() hung on event drain")),
+              3_000
+            );
+          }),
+        ]);
+
+        expect(result.success).toBe(true);
+        expect(fetchMock).toHaveBeenCalled();
+      } finally {
+        if (deadline) clearTimeout(deadline);
+        vi.unstubAllGlobals();
+        // The real EventBus was installed for this test only; leaving it in
+        // place would break every later test that reads captured events.
+        vi.mocked(EventBus).mockReset();
+      }
+    });
+  });
 });

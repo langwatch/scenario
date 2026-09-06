@@ -294,6 +294,7 @@ class ScenarioExecutor:
 
         # Create executor's own event stream
         self._events = Subject()
+        self._finished_emitted: bool = False
 
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
@@ -664,32 +665,37 @@ class ScenarioExecutor:
         """
         scenario_run_id = generate_scenario_run_id()
         self._scenario_run_id = scenario_run_id
+        self._finished_emitted = False
         _check_failure: Optional[BaseException] = None
 
-        # Connect all voice adapters before script runs; disconnect in finally.
-        await self._voice_connect_all()
-
-        # Resolve modality per role and store for span stamping.
-        from .voice.modality_resolver import resolve_modality
-        from .user_simulator_agent import UserSimulatorAgent
-        from .judge_agent import JudgeAgent
-
-        self._modality_resolutions: dict = {}  # role -> tier value string
-        for agent in self.agents:
-            if isinstance(agent, UserSimulatorAgent):
-                decl = getattr(agent, 'modality', None)
-                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
-                for w in _mod_warnings:
-                    logger.warning(w)
-                self._modality_resolutions['simulator'] = tier.value
-            elif isinstance(agent, JudgeAgent):
-                decl = getattr(agent, 'modality', None)
-                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
-                for w in _mod_warnings:
-                    logger.warning(w)
-                self._modality_resolutions['judge'] = tier.value
-
+        # Voice connect and modality resolution stay inside the guarded scope:
+        # a failure in either one is still a run that has to report itself as
+        # finished, and the finally below disconnects whatever was connected.
         try:
+            # Connect all voice adapters before script runs; disconnect in finally.
+            await self._voice_connect_all()
+
+            # Resolve modality per role and store for span stamping.
+            from .voice.modality_resolver import resolve_modality
+            from .user_simulator_agent import UserSimulatorAgent
+            from .judge_agent import JudgeAgent
+
+            # role -> tier value string
+            self._modality_resolutions: dict[str, str] = {}
+            for agent in self.agents:
+                if isinstance(agent, UserSimulatorAgent):
+                    decl = getattr(agent, 'modality', None)
+                    tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                    for w in _mod_warnings:
+                        logger.warning(w)
+                    self._modality_resolutions['simulator'] = tier.value
+                elif isinstance(agent, JudgeAgent):
+                    decl = getattr(agent, 'modality', None)
+                    tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                    for w in _mod_warnings:
+                        logger.warning(w)
+                    self._modality_resolutions['judge'] = tier.value
+
             self._emit_run_started_event(scenario_run_id)
 
             if self.config.verbose:
@@ -729,16 +735,26 @@ class ScenarioExecutor:
                     return await self._finish_run(scenario_run_id, result)
 
             if _check_failure is not None:
-                compiled_passed, compiled_failed = self._compiled_checkpoints
-                error_result = ScenarioResult(
-                    success=False,
-                    messages=self._state.messages,
-                    reasoning=f"Scenario failed with error: {str(_check_failure)}",
-                    passed_criteria=compiled_passed,
-                    failed_criteria=compiled_failed + [str(_check_failure)],
-                    total_time=time.time() - self._total_start_time,
-                    agent_time=0,
-                )
+                # Build the result defensively: a failure while assembling it
+                # must not cost us the finished event or mask the original
+                # AssertionError (#922).
+                try:
+                    compiled_passed, compiled_failed = self._compiled_checkpoints
+                    error_result = ScenarioResult(
+                        success=False,
+                        messages=self._state.messages,
+                        reasoning=f"Scenario failed with error: {str(_check_failure)}",
+                        passed_criteria=compiled_passed,
+                        failed_criteria=compiled_failed + [str(_check_failure)],
+                        total_time=time.time() - self._total_start_time,
+                        agent_time=0,
+                    )
+                except Exception:
+                    logger.warning(
+                        "failed to build check-failure result; falling back to a minimal result",
+                        exc_info=True,
+                    )
+                    error_result = self._minimal_error_result(_check_failure)
                 # Harvest voice output before emitting/raising so the
                 # check-failure (AssertionError in a script step) exit carries
                 # result.audio/timeline/latency for voice runs (AC E2b).
@@ -751,7 +767,7 @@ class ScenarioExecutor:
                         "voice harvest failed on check-failure path; preserving original error",
                         exc_info=True,
                     )
-                self._emit_run_finished_event(
+                self._emit_finished_once(
                     scenario_run_id,
                     error_result,
                     ScenarioRunFinishedEventStatus.ERROR,
@@ -802,34 +818,19 @@ class ScenarioExecutor:
 
                 return await self._finish_run(scenario_run_id, result)
 
-        except Exception as e:
+        except BaseException as e:
+            # Publish the failure event before propagating the error. Catching
+            # BaseException keeps KeyboardInterrupt and CancelledError
+            # propagating while still reporting the run as finished, and the
+            # exactly-once guard covers the case where the finished event was
+            # already emitted above but its emit path raised afterwards (#922).
+            self._emit_error_run_finished_event(
+                scenario_run_id, error=_check_failure or e
+            )
             if _check_failure is not None:
-                # Already handled above — just propagate
-                raise
-
-            # Publish failure event before propagating the error
-            error_result = ScenarioResult(
-                success=False,
-                messages=self._state.messages,
-                reasoning=f"Scenario failed with error: {str(e)}",
-                total_time=time.time() - self._total_start_time,
-                agent_time=0,
-            )
-            # Harvest voice output before emitting/raising so the generic
-            # exception exit carries result.audio/timeline/latency for voice
-            # runs (AC E2).
-            # Guard: if harvest itself raises, log and continue so the
-            # original exception is not masked.
-            try:
-                error_result = self._attach_voice_output(error_result)
-            except Exception:
-                logger.warning(
-                    "voice harvest failed on except-Exception path; preserving original error",
-                    exc_info=True,
-                )
-            self._emit_run_finished_event(
-                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
-            )
+                # The emit path raised after the check-failure branch emitted;
+                # surface the original AssertionError, not the emit failure.
+                raise _check_failure from None
             raise  # Re-raise the exception after cleanup
         finally:
             await self._voice_disconnect_all()
@@ -861,7 +862,7 @@ class ScenarioExecutor:
             if result.success
             else ScenarioRunFinishedEventStatus.FAILED
         )
-        self._emit_run_finished_event(scenario_run_id, result, status)
+        self._emit_finished_once(scenario_run_id, result, status)
         return result
 
     async def _run_evaluators(self) -> List[EvaluationResult]:
@@ -1998,6 +1999,88 @@ class ScenarioExecutor:
                 exc_info=True,
             )
 
+    def _emit_finished_once(
+        self,
+        scenario_run_id: str,
+        result: ScenarioResult,
+        status: ScenarioRunFinishedEventStatus,
+    ) -> None:
+        """
+        Emit the run finished event exactly once per run.
+
+        Every exit path of :meth:`run` reports the run as finished through
+        this guard, so a path that already emitted (or an error path entered
+        after a successful emit) can never double-post the event or replay
+        the stream-completion side effects.
+        """
+        if self._finished_emitted:
+            return
+        self._emit_run_finished_event(scenario_run_id, result, status)
+
+    def _minimal_error_result(self, error: BaseException) -> ScenarioResult:
+        """
+        Smallest valid ERROR result, for when building the full one fails.
+
+        Every field is read through a default. ``reset()`` runs after the run
+        started event is emitted, so a failure in that emit reaches here with
+        the timing attributes still unset; a raise here would leave the run
+        with no terminal event at all, which is the failure this path exists
+        to prevent.
+        """
+        started_at = getattr(self, "_total_start_time", None)
+        return ScenarioResult(
+            success=False,
+            messages=[],
+            reasoning=f"Scenario failed with error: {str(error)}",
+            total_time=(
+                time.time() - started_at if started_at is not None else 0.0
+            ),
+            agent_time=0,
+        )
+
+    def _emit_error_run_finished_event(
+        self, scenario_run_id: str, error: BaseException
+    ) -> None:
+        """
+        Report the run as finished with status ERROR without ever masking
+        ``error``: every step is guarded, and a failure to emit only logs.
+        """
+        if self._finished_emitted:
+            return
+        try:
+            try:
+                state = getattr(self, "_state", None)
+                error_result = ScenarioResult(
+                    success=False,
+                    messages=state.messages if state is not None else [],
+                    reasoning=f"Scenario failed with error: {str(error)}",
+                    total_time=time.time() - self._total_start_time,
+                    agent_time=0,
+                )
+            except Exception:
+                logger.warning(
+                    "failed to build error result; falling back to a minimal result",
+                    exc_info=True,
+                )
+                error_result = self._minimal_error_result(error)
+            # Harvest voice output before emitting/raising so error exits
+            # carry result.audio/timeline/latency for voice runs (AC E2).
+            try:
+                error_result = self._attach_voice_output(error_result)
+            except Exception:
+                logger.warning(
+                    "voice harvest failed on error path; preserving original error",
+                    exc_info=True,
+                )
+            self._emit_finished_once(
+                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
+            )
+        except Exception:
+            logger.warning(
+                "failed to emit run finished event; preserving original error",
+                exc_info=True,
+            )
+
     def _emit_run_finished_event(
         self,
         scenario_run_id: str,
@@ -2040,11 +2123,36 @@ class ScenarioExecutor:
             status=status,
             results=results,
         )
-        self._emit_event(event)
+        # Marked before the event reaches the stream. on_next delivers to each
+        # subscriber in turn, so a later subscriber that raises would leave the
+        # event already delivered to the bus while the guard was still unset,
+        # and the outer error path would then publish a second finished event.
+        self._finished_emitted = True
+        try:
+            self._emit_event(event)
+        finally:
+            # The stream has to complete and the trace has to close even when
+            # publication raised: a subscriber that never sees on_completed
+            # keeps its worker waiting, and an open trace is never exported.
+            try:
+                self._events.on_completed()
+            except Exception:
+                logger.warning(
+                    "failed to complete the scenario event stream",
+                    exc_info=True,
+                )
 
-        # Signal end of event stream
-        self._events.on_completed()
-        self._trace.__exit__(None, None, None)
+            # reset() creates the trace, and it runs after the started event is
+            # emitted, so an early failure reaches here with no trace at all.
+            trace = getattr(self, "_trace", None)
+            if trace is not None:
+                try:
+                    trace.__exit__(None, None, None)
+                except Exception:
+                    logger.warning(
+                        "failed to close the scenario trace",
+                        exc_info=True,
+                    )
 
 
 def _build_scenario(
