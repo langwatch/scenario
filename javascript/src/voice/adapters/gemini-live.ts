@@ -140,8 +140,9 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     // With explicit Activity markers and the default
     // START_OF_ACTIVITY_INTERRUPTS handling, the next activityStart we
     // send while the model is replying causes Gemini to cut its
-    // in-flight audio. `interrupt()` itself just drains stale chunks out
-    // of the local queue so the recovery agent turn doesn't replay them.
+    // in-flight audio. `interrupt()` discards stale server content through
+    // the interrupted turn's terminal boundary so the recovery agent turn
+    // doesn't replay it.
     interruption: true,
     inputFormats: ["pcm16/16000"],
     outputFormats: ["pcm16/24000"],
@@ -178,6 +179,10 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
    * resolver and causing a spurious TimeoutError.
    */
   private _interruptPending = false;
+  /** Drop server content until the cut-off turn's terminal boundary arrives. */
+  private _discardInterruptedTurnMessages = false;
+  /** Keep interrupted-turn cleanup active until a complete recovery send succeeds. */
+  private _recoverySendPending = false;
 
   /** Most-recent output transcript received from the server, for observability. */
   lastAgentTranscript: string | null = null;
@@ -246,6 +251,8 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     this.resolveNext = null;
     this.iterHadAudio = false;
     this._interruptPending = false;
+    this._discardInterruptedTurnMessages = false;
+    this._recoverySendPending = false;
 
     this.session = await client.live.connect({
       model: this.model,
@@ -323,6 +330,14 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
       setSpanAttributes(currentSpan(), { "voice.gemini.audio.wire_bytes": 0 });
       return;
     }
+    const isRecoverySend = this._recoverySendPending;
+    if (isRecoverySend) {
+      // Nothing already buffered can be a response to this send. Remove
+      // interrupted-turn residue (or output from a failed prior attempt), but
+      // retain transport/session events. A terminal server-content item marks
+      // the protocol boundary after which future messages belong to recovery.
+      this.discardBufferedServerContent();
+    }
     // Stamp the resampled wire size onto the active voice.audio.send span; the
     // base owns the span name, the adapter contributes voice.gemini.* attrs.
     setSpanAttributes(currentSpan(), {
@@ -345,6 +360,12 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
       },
     });
     session.sendRealtimeInput({ activityEnd: {} });
+    if (isRecoverySend) {
+      // Clear recovery-send state only after every SDK call succeeds. If any
+      // call throws, the next attempt must repeat the buffered cleanup.
+      this._recoverySendPending = false;
+      this._interruptPending = false;
+    }
   }
 
   /**
@@ -544,7 +565,9 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
    *   1. Sets `_interruptPending = true`.
    *   2. Wakes any in-flight `dequeue()` by calling the current `resolveNext`
    *      directly with an abort sentinel (`{ interrupted: true }`).
-   *   3. `receiveAudio()`'s loop checks `_interruptPending` (and `item.interrupted`)
+   *   3. Discards server content through the interrupted turn's terminal
+   *      boundary, including events delivered after recovery sending starts.
+   *   4. `receiveAudio()`'s loop checks `_interruptPending` (and `item.interrupted`)
    *      and returns the cut-off sentinel immediately on seeing it.
    *
    * Best-effort: if nothing is in-flight (`resolveNext` is null), the flag
@@ -568,6 +591,8 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     // each iteration, so even if the resolver wake-up races it, the flag
     // will be seen on the next loop pass.
     this._interruptPending = true;
+    this._discardInterruptedTurnMessages = true;
+    this._recoverySendPending = true;
     // Wake any in-flight dequeue() so it delivers the sentinel immediately
     // rather than waiting for the next real message (which could be seconds
     // away on a long Gemini turn). Atomically take the resolver to avoid a
@@ -592,6 +617,13 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
   }
 
   private enqueue(item: QueueItem): void {
+    const serverContent = this.serverContentFrom(item);
+    if (this._discardInterruptedTurnMessages && serverContent !== undefined) {
+      if (serverContent.turnComplete) {
+        this._discardInterruptedTurnMessages = false;
+      }
+      return;
+    }
     if (this.resolveNext) {
       const resolver = this.resolveNext;
       this.resolveNext = null;
@@ -599,6 +631,26 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
       return;
     }
     this.queue.push(item);
+  }
+
+  private discardBufferedServerContent(): void {
+    this.queue = this.queue.filter((item) => {
+      const serverContent = this.serverContentFrom(item);
+      if (serverContent === undefined) return true;
+      if (serverContent.turnComplete) {
+        this._discardInterruptedTurnMessages = false;
+      }
+      return false;
+    });
+  }
+
+  private serverContentFrom(
+    item: QueueItem,
+  ): { turnComplete?: boolean } | undefined {
+    const message = item.message as
+      | { serverContent?: { turnComplete?: boolean } }
+      | undefined;
+    return message?.serverContent;
   }
 
   /**
