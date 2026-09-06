@@ -54,6 +54,43 @@ if os.getenv("OPENAI_API_KEY"):
 
 
 # --------------------------------------------------------------------- #
+# Unit-suite network guard                                              #
+# --------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _no_gateway_mint_in_unit_tests(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the voice unit suite off the network.
+
+    Both realtime adapters now mint a session credential over HTTP before
+    they open their socket, and that mint is a real request to whatever
+    OPENAI_BASE_URL or ELEVENLABS_BASE_URL names. A unit test that drives a
+    fake socket would otherwise reach a live vendor on every ``connect()``,
+    which is slow, costs money, and fails differently on every machine
+    depending on what the developer has exported.
+
+    Only the ENDPOINT RESOLUTION is neutralised, so a test that passes an
+    explicit endpoint still exercises the whole mint. Integration tests, whose
+    point is to reach a live provider, keep resolution; so does anything
+    marked ``voice_gateway_mint``, which is testing resolution itself.
+    """
+    if request.node.get_closest_marker("integration"):
+        return
+    if request.node.get_closest_marker("voice_gateway_mint"):
+        return
+    monkeypatch.setattr(
+        "scenario.voice.adapters.openai_realtime.resolve_realtime_mint_endpoint",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "scenario.voice.adapters.elevenlabs.resolve_elevenlabs_mint_endpoint",
+        lambda *_args, **_kwargs: None,
+    )
+
+
+# --------------------------------------------------------------------- #
 # Helpers                                                               #
 # --------------------------------------------------------------------- #
 

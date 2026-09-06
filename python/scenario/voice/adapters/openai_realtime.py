@@ -29,7 +29,7 @@ import base64
 import json
 import logging
 import os
-from typing import Any, ClassVar, List, Optional, cast
+from typing import Any, ClassVar, Dict, List, Optional, Union, cast
 
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -37,6 +37,16 @@ from ...config.voice_models import OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL
 from ...types import AgentInput, AgentReturnTypes, AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
+from ..broker import (
+    REALTIME_MINT_PATH,
+    RealtimeMintEndpoint,
+    accumulate_realtime_usage,
+    mint_openai_realtime_session,
+    report_openai_realtime_usage,
+    resolve_realtime_mint_endpoint,
+    warn_direct_dial_fallback,
+    zero_realtime_usage,
+)
 from ..capabilities import AdapterCapabilities
 
 
@@ -93,6 +103,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         api_key: Optional[str] = None,
         role: AgentRole = AgentRole.AGENT,
         speaks_first: bool = False,
+        mint: Union[RealtimeMintEndpoint, bool, None] = None,
     ):
         super().__init__()
         self.model = model
@@ -100,8 +111,55 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         self.instructions = instructions
         self.tools = tools or []
         self.role = role  # type: ignore[misc]
-        # Resolve API key: explicit param takes precedence over env var.
-        self._api_key: str = api_key or os.environ.get("OPENAI_API_KEY", "")
+        # The fallback key for dialling the vendor directly: explicit param,
+        # then OPENAI_REALTIME_API_KEY, then OPENAI_API_KEY.
+        # OPENAI_REALTIME_API_KEY exists so a deployment whose OPENAI_API_KEY
+        # is a virtual key can still hold a real provider key for this socket.
+        #
+        # A minted session uses none of these on the socket. It dials with the
+        # ephemeral secret the mint returned, so a long-lived key never
+        # reaches the socket. See ``mint``.
+        self._api_key: str = (
+            api_key
+            or os.environ.get("OPENAI_REALTIME_API_KEY")
+            or os.environ.get("OPENAI_API_KEY", "")
+        )
+        # Which of the three the key came from. Only used to name it in the
+        # direct-dial warning, where naming the wrong one sends the reader to
+        # a variable that is not set.
+        self._api_key_source: str = (
+            "the api_key passed to the adapter"
+            if api_key is not None
+            else (
+                "OPENAI_REALTIME_API_KEY"
+                if os.environ.get("OPENAI_REALTIME_API_KEY")
+                else "OPENAI_API_KEY"
+            )
+        )
+        # Where to mint the session credential. ``False`` skips the mint and
+        # dials the vendor directly; an explicit endpoint overrides
+        # OPENAI_BASE_URL and OPENAI_API_KEY; ``None`` resolves from those two.
+        #
+        # ``POST /v1/realtime/client_secrets`` is OpenAI's own path, and a
+        # LangWatch AI Gateway mirrors it, so the same request works against
+        # either. Against OpenAI it returns an ephemeral client secret.
+        # Against a gateway it also checks the virtual key's budget and
+        # open-session cap and opens one spend record, naming the session on
+        # the ``X-LangWatch-Session-Id`` response header. Usage is reported
+        # back only when that header is present.
+        self._mint: Optional[RealtimeMintEndpoint]
+        if mint is False:
+            self._mint = None
+        elif isinstance(mint, RealtimeMintEndpoint):
+            self._mint = mint
+        else:
+            self._mint = resolve_realtime_mint_endpoint()
+        #: The gateway's id for the current session, empty unless a gateway
+        #: minted it.
+        self._broker_session_id: str = ""
+        #: What the socket has reported so far this session, summed across
+        #: responses and sent when the session ends.
+        self._session_usage: Optional[Dict[str, Any]] = None
         self._ws: Any = None
 
         # Transcript observability — updated on incoming transcript events.
@@ -172,6 +230,17 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
     @property
     def url(self) -> str:
         return REALTIME_URL_TEMPLATE.format(model=self.model)
+
+    @property
+    def brokered(self) -> bool:
+        """Whether the live session was minted by a gateway, not the vendor.
+
+        Only true after ``connect()``, and only when the mint answered with
+        ``X-LangWatch-Session-Id``. Configuration cannot set it, because the
+        response is the one thing that cannot be told a lie about what
+        answered.
+        """
+        return self._broker_session_id != ""
 
     def __repr__(self) -> str:  # redact credentials
         return (
@@ -315,12 +384,57 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         self._response_active = False
         self._deferred_response_create = False
 
-        self._ws = await websockets.connect(
-            self.url,
-            additional_headers={
-                "Authorization": f"Bearer {self._api_key}",
-            },
-        )
+        self._broker_session_id = ""
+        self._session_usage = None
+
+        # The socket's bearer is the ephemeral secret the mint returned: a
+        # credential for exactly this call, so no long-lived key reaches the
+        # socket. Whether OpenAI or a gateway answers the mint is a property
+        # of OPENAI_BASE_URL, not of this adapter.
+        socket_key = self._api_key
+        if self._mint is not None:
+            result = await mint_openai_realtime_session(self._mint, self.model)
+            if result.minted:
+                socket_key = result.credential
+                self._broker_session_id = result.session_id
+                # Start the session's total at zero rather than at nothing.
+                # A session that never completes a response captures no usage,
+                # and a total of None means disconnect() reports nothing at
+                # all, which leaves the record open and holding one of the
+                # key's slots until the gateway's grace expires. Zero is also
+                # the truth for a session that did no work.
+                if self._broker_session_id:
+                    self._session_usage = zero_realtime_usage()
+            else:
+                # No mint route: a plain proxy, or a gateway older than this
+                # feature. Dial the vendor directly, and say so, because an
+                # unbilled session otherwise looks identical to a billed one.
+                # A refusal never reaches here: it raises inside the mint.
+                warn_direct_dial_fallback(
+                    self._mint.base_url, REALTIME_MINT_PATH, self._api_key_source
+                )
+        if socket_key == self._api_key and not self._api_key:
+            raise RuntimeError(
+                "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or "
+                "pass `api_key=` to the constructor."
+            )
+
+        try:
+            self._ws = await websockets.connect(
+                self.url,
+                additional_headers={
+                    "Authorization": f"Bearer {socket_key}",
+                },
+            )
+        except BaseException:
+            # The mint booked a session and the socket never opened, so
+            # nothing will ever report against it. Closing it at zero is the
+            # truth: an ephemeral secret that opened no socket used nothing.
+            # Leaving it open would hold one of the key's session slots until
+            # the gateway's own window expires, and book a call that never
+            # happened.
+            await self._report_usage()
+            raise
         logger.debug("OpenAIRealtimeAgentAdapter: connected to %s", self.url)
 
         # Configure session: audio formats, voice, instructions, tools.
@@ -351,8 +465,79 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         )
         logger.debug("OpenAIRealtimeAgentAdapter: session.update sent")
 
+        # Stamp realtime-specific attrs onto the active ``voice.adapter.connect``
+        # span (opened by the executor connect loop). Base spans are name-owned;
+        # the adapter contributes attributes, never a parallel span name (mirrors
+        # ElevenLabs stamping ``voice.elevenlabs.agent_id``).
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {
+                "voice.realtime.model": self.model,
+                "voice.realtime.voice": self.voice,
+                "voice.realtime.session_type": "realtime",
+                "voice.realtime.tool_count": len(self.tools),
+                "voice.realtime.brokered": self.brokered,
+                "voice.realtime.session_id": self._broker_session_id or None,
+            },
+        )
+
+    def _capture_usage(self, event: dict[str, Any]) -> None:
+        """Add the usage OpenAI reports on ``response.done`` to the session.
+
+        Read from every inbound event rather than from the audio branch,
+        because a drain that ends on tail silence never reaches the terminal
+        event and a session whose usage was never captured bills as
+        cost-unknown.
+
+        Summed rather than replaced. OpenAI reports usage per response, so a
+        session that kept only the last ``response.done`` would bill for its
+        last turn and nothing else.
+        """
+        if not self._broker_session_id:
+            return
+        if event.get("type") != "response.done":
+            return
+        response = event.get("response")
+        if not isinstance(response, dict):
+            return
+        usage = response.get("usage")
+        if isinstance(usage, dict):
+            self._session_usage = accumulate_realtime_usage(
+                self._session_usage, usage
+            )
+
+    async def _report_usage(self) -> None:
+        """Close the session's spend record with what the socket measured.
+
+        Also the failure path for a mint that succeeded and a socket that
+        never opened, because the total starts at zero: the report is the same
+        request either way, so there is one method rather than two that
+        disagree.
+
+        Clearing the captured usage first is what makes a second disconnect a
+        no-op, so a session cannot be reported twice.
+        """
+        if (
+            self._mint is None
+            or not self._broker_session_id
+            or not self._session_usage
+        ):
+            return
+        usage = self._session_usage
+        session_id = self._broker_session_id
+        self._session_usage = None
+        error = await report_openai_realtime_usage(self._mint, session_id, usage)
+        if error is not None:
+            logger.debug(
+                "OpenAIRealtimeAgentAdapter: usage report failed: %r", error
+            )
+
     async def disconnect(self) -> None:
-        """Close the WebSocket if open."""
+        """Close the WebSocket if open, then close the session's spend record."""
+        await self._report_usage()
         if self._ws is not None:
             try:
                 await self._ws.close()
@@ -427,6 +612,13 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         if self._ws is None:
             raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
 
+        # R2 markers/attrs land on the active ``voice.audio.receive`` span (opened
+        # by the base drain that invokes recv_audio) via the ambient OTel context —
+        # this method runs INSIDE that span. ``get_current_span().add_event`` is a
+        # safe no-op on a non-recording span, so no extra guard is needed.
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
         # If send_audio was called since last recv, commit and request response.
         if self._pending_audio_bytes > 0:
             await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
@@ -487,6 +679,9 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 continue
 
             etype = event.get("type", "")
+            # Every inbound event passes here, which is why the usage capture
+            # lives here and not in the terminal branch below.
+            self._capture_usage(event)
 
             if etype in ("response.output_audio.delta", "response.audio.delta"):
                 # Accept both the GA event name and its retired beta alias —
@@ -506,6 +701,10 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # drain re-entries don't fire a spurious second response.create.
                 self._response_active = True
                 self._response_ever_active = True
+                # R2 marker: record the response start on the active receive span.
+                _otel_trace.get_current_span().add_event(
+                    "voice.realtime.response.created"
+                )
 
             elif etype in (
                 "response.output_audio_transcript.delta",
@@ -532,6 +731,19 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # Response finished or was cancelled — mark it so the next
                 # drain re-entry returns an empty chunk (clean exit).
                 self._response_active = False
+                # R2 markers: record the response terminal as a span event and
+                # stamp the FINAL tool-call count onto the active
+                # ``voice.audio.receive`` span. Done BEFORE the deferred re-fire and
+                # the tool-only empty-chunk return below, so the count reflects THIS
+                # response — set even when 0, for every response.done/.cancelled
+                # actually observed. A drain that ends on tail-silence before a
+                # terminal event is processed won't stamp it (pre-existing drain
+                # timing, not new here).
+                _otel_trace.get_current_span().add_event(f"voice.realtime.{etype}")
+                set_span_attributes(
+                    _otel_trace.get_current_span(),
+                    {"voice.realtime.tool_call_count": len(self._completed_tool_calls)},
+                )
                 # Issue #657: if user audio was committed while a response was
                 # in flight, _deferred_response_create was set as a deferral flag.
                 # Now that _response_active is cleared, fire the deferred create.

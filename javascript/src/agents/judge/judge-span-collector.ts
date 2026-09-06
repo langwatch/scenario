@@ -1,4 +1,4 @@
-import { SpanProcessor, ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { SpanProcessor, ReadableSpan, Span } from "@opentelemetry/sdk-trace-base";
 import { attributes } from "langwatch/observability";
 
 /**
@@ -7,8 +7,35 @@ import { attributes } from "langwatch/observability";
  */
 export class JudgeSpanCollector implements SpanProcessor {
   private spans: ReadableSpan[] = [];
+  /**
+   * Every span id this process ever STARTED, keyed by trace id. The remote
+   * trace fetcher uses it to recognize the scenario process's own spans when
+   * the platform echoes them back. The per-thread view below cannot serve
+   * that: it walks ancestor attributes, and the walk breaks on spans whose
+   * ancestor chain crosses a still-open span (the current turn's spans) or
+   * whose instrumentation never tags the thread id (the judge's own model
+   * calls via instrumented SDKs).
+   */
+  private processSpanIds = new Map<string, Set<string>>();
+  /**
+   * Trace ids the remote trace fetcher settled, per thread. Clearing a
+   * thread by ended-span discovery cannot reach every registry entry: a
+   * fetched trace's local echoes may never end, or never associate with the
+   * thread (an instrumented SDK's model call carries no thread id). The
+   * fetcher claims the trace ids it touches, and `clearSpansForThread`
+   * releases the claims with the thread.
+   */
+  private threadTraceIds = new Map<string, Set<string>>();
 
-  onStart(): void {}
+  onStart(span: Span): void {
+    const ctx = span.spanContext();
+    let ids = this.processSpanIds.get(ctx.traceId);
+    if (!ids) {
+      ids = new Set();
+      this.processSpanIds.set(ctx.traceId, ids);
+    }
+    ids.add(ctx.spanId);
+  }
 
   onEnd(span: ReadableSpan): void {
     this.spans.push(span);
@@ -20,7 +47,42 @@ export class JudgeSpanCollector implements SpanProcessor {
 
   shutdown(): Promise<void> {
     this.spans = [];
+    this.processSpanIds = new Map();
+    this.threadTraceIds = new Map();
     return Promise.resolve();
+  }
+
+  /**
+   * Marks the given trace ids as owned by a thread, so
+   * `clearSpansForThread` can release their process-span registry entries
+   * even when no ended span ties the trace to the thread.
+   */
+  claimTraces(threadId: string, traceIds: string[]): void {
+    let owned = this.threadTraceIds.get(threadId);
+    if (!owned) {
+      owned = new Set();
+      this.threadTraceIds.set(threadId, owned);
+    }
+    for (const traceId of traceIds) {
+      owned.add(traceId);
+    }
+  }
+
+  /**
+   * True when this process started the given span itself: a fetched span
+   * with this id is a platform echo of a local span, never remote evidence.
+   */
+  isProcessSpan(traceId: string, spanId: string): boolean {
+    return this.processSpanIds.get(traceId)?.has(spanId) ?? false;
+  }
+
+  /**
+   * Removes one span by id. Used by the remote trace fetcher to retract a
+   * synthetic error span when the judge waits once more and the trace
+   * settles after all.
+   */
+  removeSpanById(spanId: string): void {
+    this.spans = this.spans.filter((s) => s.spanContext().spanId !== spanId);
   }
 
   /**
@@ -30,9 +92,17 @@ export class JudgeSpanCollector implements SpanProcessor {
    * @param threadId - The thread identifier whose spans should be cleared
    */
   clearSpansForThread(threadId: string): void {
+    const threadSpans = this.getSpansForThread(threadId);
     const threadSpanIds = new Set(
-      this.getSpansForThread(threadId).map((s) => s.spanContext().spanId)
+      threadSpans.map((s) => s.spanContext().spanId)
     );
+    for (const span of threadSpans) {
+      this.processSpanIds.delete(span.spanContext().traceId);
+    }
+    for (const traceId of this.threadTraceIds.get(threadId) ?? []) {
+      this.processSpanIds.delete(traceId);
+    }
+    this.threadTraceIds.delete(threadId);
     this.spans = this.spans.filter(
       (s) => !threadSpanIds.has(s.spanContext().spanId)
     );
@@ -73,17 +143,19 @@ export class JudgeSpanCollector implements SpanProcessor {
 }
 
 /**
- * Extracts the parent span ID from a ReadableSpan, handling both OTel SDK v2
- * (parentSpanId: string) and v1 (parentSpanContext: SpanContext) interfaces.
- * The LangWatch SDK's internal spans still use the v1 parentSpanContext field.
+ * Extracts the parent span ID from a ReadableSpan. The OTel SDK exposes the
+ * parent as a typed SpanContext (parentSpanContext); older span implementations
+ * exposed a flat parentSpanId string, which is handled as a fallback.
  */
 function getParentSpanId(span: ReadableSpan): string | undefined {
-  if (span.parentSpanId) return span.parentSpanId;
-  // Fall back to v1 API used by LangWatch SDK's span implementation
-  const legacy = (span as unknown as Record<string, unknown>).parentSpanContext as
-    | { spanId?: string }
-    | undefined;
-  return legacy?.spanId;
+  // The span tree can contain ReadableSpan instances from different OTel SDK
+  // versions, so read both shapes via a cast rather than relying on either
+  // field being present on the statically-resolved type.
+  const s = span as unknown as {
+    parentSpanContext?: { spanId?: string };
+    parentSpanId?: string;
+  };
+  return s.parentSpanContext?.spanId ?? s.parentSpanId;
 }
 
 /**

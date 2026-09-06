@@ -24,61 +24,12 @@
  *     check, which passed even on the old text-commit path where no PCM reached EL.
  */
 import { Buffer } from "node:buffer";
-import { EventEmitter } from "node:events";
 
 import { describe, it, expect } from "vitest";
 
 import { AudioChunk } from "../../audio-chunk";
-import { ElevenLabsAgentAdapter, type ElevenLabsAgentAdapterOptions } from "../index";
-
-// The two SDK injection seams, derived from the public options type (no deep
-// SDK-path import needed).
-type WsFactory = NonNullable<ElevenLabsAgentAdapterOptions["webSocketFactory"]>;
-type ConvClient = NonNullable<ElevenLabsAgentAdapterOptions["conversationClient"]>;
-
-const WS_OPEN = 1;
-const WS_CLOSED = 3;
-
-// In-memory fake of the SDK's WebSocketInterface — records each `send()` payload as
-// a decoded object so tests assert the wire shape directly (mirrors elevenlabs.test.ts).
-class FakeWebSocket extends EventEmitter {
-  readonly sent: Array<Record<string, unknown>> = [];
-  readyState = WS_OPEN;
-  send(data: string): void {
-    this.sent.push(JSON.parse(data) as Record<string, unknown>);
-  }
-  close(): void {
-    if (this.readyState === WS_CLOSED) return;
-    this.readyState = WS_CLOSED;
-    this.emit("close", 1000, Buffer.from("closed"));
-  }
-}
-
-function makeFakeConv(): {
-  webSocketFactory: WsFactory;
-  conversationClient: ConvClient;
-  socket: { current: FakeWebSocket | null };
-} {
-  const socketRef: { current: FakeWebSocket | null } = { current: null };
-  const webSocketFactory: WsFactory = {
-    create: (_url: string) => {
-      const socket = new FakeWebSocket();
-      socketRef.current = socket;
-      queueMicrotask(() => socket.emit("open"));
-      return socket;
-    },
-  };
-  const conversationClient: ConvClient = {
-    conversationalAi: {
-      conversations: {
-        getSignedUrl: async () => ({
-          signedUrl: "wss://fake-signed.elevenlabs.test/convai",
-        }),
-      },
-    },
-  };
-  return { webSocketFactory, conversationClient, socket: socketRef };
-}
+import { ElevenLabsAgentAdapter } from "../index";
+import { FakeWebSocket, makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
 
 // 8 bytes of non-zero PCM16 stands in for real spoken audio. The voice runtime
 // threads the `scenario.user("…")` script text through as the chunk transcript
@@ -302,17 +253,3 @@ describe("REGRESSION — text-commit sent no PCM so EL had nothing to transcribe
   });
 });
 
-describe("adapter construction", () => {
-  it("accepts (and ignores) a deprecated silenceTailBytes — it no longer gates turn-end", () => {
-    // silenceTailBytes is a deprecated NO-OP under the continuous mic pump (B′):
-    // turn-end now emerges from the always-on audio→silence stream, not a bounded
-    // tail. Any value — including the non-positive/fractional ones the old validator
-    // rejected — is accepted and has no effect.
-    for (const value of [0, -1, 100.5, 960]) {
-      expect(
-        () => new ElevenLabsAgentAdapter({ agentId: "a", apiKey: "k", silenceTailBytes: value }),
-        `silenceTailBytes=${value} must be accepted (deprecated no-op)`,
-      ).not.toThrow();
-    }
-  });
-});

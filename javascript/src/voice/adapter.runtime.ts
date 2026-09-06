@@ -21,6 +21,8 @@
  *   exception.
  */
 
+import { context } from "@opentelemetry/api";
+import type { Span } from "@opentelemetry/api";
 import type { VoiceAgentAdapter } from "./adapter";
 import { PendingTransportError } from "./adapters/pending-transport-error";
 import { AudioChunk, silentChunk } from "./audio-chunk";
@@ -33,6 +35,7 @@ import type {
   VoiceEvent,
   VoiceRecording,
 } from "./recording.types";
+import { voiceSpan, setSpanAttributes } from "./telemetry";
 import { WebRTCVadFallback } from "./vad";
 import type { VoiceExecutorState } from "./voice-executor-state";
 import type { AgentInput, AgentReturnTypes } from "../domain/agents";
@@ -108,7 +111,8 @@ export class AgentSpeakingEvent {
   }
 }
 
-const SAFE_DEFAULT_RESPONSE_TIMEOUT_S = 30;
+/** Mirrors `VoiceAgentAdapter.responseTimeout` for an adapter that nulls it out. */
+const SAFE_DEFAULT_RESPONSE_TIMEOUT_S = 60;
 const SAFE_DEFAULT_TAIL_SILENCE_S = 0.6;
 const SAFE_DEFAULT_MAX_DURATION_S = 30;
 /**
@@ -162,7 +166,23 @@ export async function startVoiceAdapters(
   state: VoiceExecutorState,
 ): Promise<void> {
   for (const adapter of adapters) {
-    await adapter.connect();
+    // voice.adapter.connect wraps connect() itself (base connect() is abstract,
+    // so the executor loop is the one shared site). Adapters stamp vendor attrs
+    // (e.g. EL agent_id) onto this span from inside their own connect().
+    await voiceSpan(
+      "voice.adapter.connect",
+      {
+        "voice.adapter.class": adapter.constructor.name,
+        "voice.adapter.role": (adapter as { role?: string }).role,
+        "voice.adapter.capabilities.native_vad": adapter.capabilities?.nativeVad,
+        "voice.adapter.capabilities.streaming_transcripts":
+          adapter.capabilities?.streamingTranscripts,
+        "voice.adapter.capabilities.dtmf": adapter.capabilities?.dtmf,
+      },
+      async () => {
+        await adapter.connect();
+      },
+    );
     if (!adapter.capabilities.nativeVad) {
       attachVadFallback(adapter, state);
     }
@@ -181,7 +201,16 @@ export async function stopVoiceAdapters(
   for (const adapter of adapters) {
     vadRegistry.delete(adapter);
     try {
-      await adapter.disconnect();
+      // Wrap disconnect() so the span's OK/ERROR status is set before the
+      // swallow below discards the error. Adapters stamp vendor attrs (e.g. EL
+      // pump counters) onto this span from inside their own disconnect().
+      await voiceSpan(
+        "voice.adapter.disconnect",
+        { "voice.adapter.class": adapter.constructor.name },
+        async () => {
+          await adapter.disconnect();
+        },
+      );
     } catch {
       // Intentional swallow — see jsdoc above. Production callers
       // override `disconnect()` to log internally if they care.
@@ -295,8 +324,55 @@ export async function defaultVoiceCall(
   // PendingTransportError across every leaf, not a transport-specific
   // null-deref or silent hang.
   if (!adapter.isConnected()) {
+    if (adapter.agentHungUp) {
+      // The AGENT ended the call on purpose (#839) — hosted agents routinely
+      // invoke a hangup tool right after their farewell, which closes the
+      // transport. Any scripted turn left over has nobody to talk to, but the
+      // agent did exactly what it was designed to do, so concluding here and
+      // letting the script fall through to the judge is the correct outcome;
+      // failing would punish correct behaviour. Returning no messages leaves
+      // the transcript ending on the agent's farewell, which is what the judge
+      // should assess.
+      logger.info(
+        `${adapter.constructor.name}: agent ended the call; concluding the ` +
+          `conversation instead of failing the remaining scripted turn(s)`,
+      );
+      return [];
+    }
     throw new PendingTransportError(adapter.constructor.name);
   }
+  // voice.turn — one span per call(), nesting under the executor's existing
+  // {cls}.call agent span (ambient context). send/receive spans nest under it.
+  const turnIndex = (input as { scenarioState?: { currentTurn?: number } })
+    .scenarioState?.currentTurn;
+  return voiceSpan(
+    "voice.turn",
+    {
+      "voice.adapter.class": adapter.constructor.name,
+      "voice.turn.index": turnIndex,
+    },
+    async (span) => {
+      // Publish the live turn context so background-receive-loop adapters
+      // (Pipecat/Twilio) can parent their detached-callback recv spans under
+      // THIS turn (#774). context.active() here is the voice.turn span (voiceSpan
+      // ran us inside its context.with). Cleared in finally so a callback firing
+      // between turns finds `undefined` and skips its span.
+      adapter._voiceTurnContext = context.active();
+      try {
+        return await runVoiceTurn(adapter, input, span);
+      } finally {
+        adapter._voiceTurnContext = undefined;
+      }
+    },
+  );
+}
+
+async function runVoiceTurn(
+  adapter: VoiceAgentAdapter,
+  input: AgentInput,
+  turnSpan: Span,
+): Promise<AgentReturnTypes> {
+  const turnStart = performance.now(); // monotonic — NTP jumps can't skew latency
   const speakingEvent = getAgentSpeakingEvent(adapter);
   speakingEvent.clear();
 
@@ -315,7 +391,13 @@ export async function defaultVoiceCall(
     // no prior agent segment (the opening greeting), so the greeting is never
     // reconciled away (AC8).
     reconcilePriorAgentAudio(adapter, state);
-    await adapter.sendAudio(incoming);
+    await voiceSpan(
+      "voice.audio.send",
+      { "voice.audio.bytes": incoming.data.length },
+      async () => {
+        await adapter.sendAudio(incoming);
+      },
+    );
     feedVad(adapter, incoming);
     recorder.recordUser(incoming);
     // This agent turn REPLIES to a user turn → turn-scope the transcript the
@@ -360,6 +442,15 @@ export async function defaultVoiceCall(
   // the recording segment reach LangWatch as audio-only — the "missing AUT
   // transcript" defect — and only the on-disk manifest got a (slower, lossy) STT
   // back-fill. Done BEFORE recordAgent so the recording segment carries it too.
+  setSpanAttributes(turnSpan, {
+    "voice.turn.latency_ms": Math.round(performance.now() - turnStart),
+    // Omit (not 0) when there's no incoming audio, matching Python
+    // (adapter.py: `if incoming is not None and incoming.data`).
+    "voice.turn.user_audio_bytes":
+      incoming && incoming.data.length > 0 ? incoming.data.length : undefined,
+    "voice.turn.agent_audio_bytes":
+      merged.data.length > 0 ? merged.data.length : undefined,
+  });
   const spoken = attachAgentTurnTranscript(adapter, merged);
   recorder.recordAgent(spoken);
   // Single shared encoder (messages.ts) — the canonical AI-SDK `file` audio
@@ -609,6 +700,19 @@ async function drainAgentResponse(
   speakingEvent: AgentSpeakingEvent,
   onFirstChunk: () => void,
 ): Promise<AudioChunk> {
+  // voice.audio.receive — THE user-story span: a receiveAudio timeout → ERROR.
+  return voiceSpan("voice.audio.receive", {}, (span) =>
+    drainInner(adapter, speakingEvent, onFirstChunk, span),
+  );
+}
+
+async function drainInner(
+  adapter: VoiceAgentAdapter,
+  speakingEvent: AgentSpeakingEvent,
+  onFirstChunk: () => void,
+  span: Span,
+): Promise<AudioChunk> {
+  const receiveStart = performance.now(); // monotonic
   const tailSilence = adapter.responseTailSilence ?? SAFE_DEFAULT_TAIL_SILENCE_S;
   const responseTimeout =
     adapter.responseTimeout ?? SAFE_DEFAULT_RESPONSE_TIMEOUT_S;
@@ -617,7 +721,20 @@ async function drainAgentResponse(
   // The runaway backstop that replaces the old mid-utterance chop (#747).
   const hardCeiling = maxDuration * MAX_DURATION_CEILING_FACTOR;
 
-  const first = await adapter.receiveAudio(responseTimeout);
+  // H2: TS has no typed timeout and this first receiveAudio was uncaught. Catch
+  // to attribute first_chunk_timeout (and let the guard set ERROR + re-throw);
+  // a NON-timeout first-chunk error is NOT labelled a timeout.
+  let first: AudioChunk;
+  try {
+    first = await adapter.receiveAudio(responseTimeout);
+  } catch (err) {
+    span.setAttribute("voice.audio.terminated_reason", "first_chunk_timeout");
+    throw err;
+  }
+  span.setAttribute(
+    "voice.audio.first_chunk_latency_ms",
+    Math.round(performance.now() - receiveStart),
+  );
   if (first.data.length > 0) {
     onFirstChunk();
   }
@@ -644,14 +761,20 @@ async function drainAgentResponse(
   // ends the loop — it only warns — so already-arriving audio for a single long
   // utterance is not abandoned in the adapter's queue to bleed into the next turn
   // (#747). The hard ceiling still bounds a transport that never goes silent.
+  // Default: the loop exited on its condition (accumulated >= hardCeiling), the
+  // runaway backstop. A break overwrites it with the real turn-end signal. (TS
+  // ends on hardCeiling, not responseMaxDuration — the py-only 'max_duration'.)
+  let terminatedReason = "hard_ceiling";
   while (accumulated < hardCeiling) {
     let next: AudioChunk;
     try {
       next = await adapter.receiveAudio(tailSilence);
     } catch {
+      terminatedReason = "tail_silence";
       break;
     }
     if (next.data.length === 0) {
+      terminatedReason = "terminal_chunk";
       break;
     }
     chunks.push(next);
@@ -668,7 +791,11 @@ async function drainAgentResponse(
       { ceilingS: hardCeiling, responseMaxDurationS: maxDuration },
     );
   }
-  return mergeChunks(chunks);
+  const merged = mergeChunks(chunks);
+  span.setAttribute("voice.audio.terminated_reason", terminatedReason);
+  span.setAttribute("voice.audio.chunk_count", chunks.length);
+  span.setAttribute("voice.audio.bytes", merged.data.length);
+  return merged;
 }
 
 function mergeChunks(chunks: AudioChunk[]): AudioChunk {

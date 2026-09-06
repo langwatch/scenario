@@ -1,6 +1,6 @@
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { generateText, tool, ToolCallPart } from "ai";
+import { generateText, tool, ToolCallPart, ToolResultPart } from "ai";
 import { describe, it, expect } from "vitest";
 import { z } from "zod/v4";
 
@@ -42,7 +42,7 @@ const weatherAgent: AgentAdapter = {
     if (response.toolCalls && response.toolCalls.length > 0) {
       const toolCall = response.toolCalls[0];
       // Agent executes the tool directly and returns both messages
-      const toolResult = await getCurrentWeather.execute(
+      const toolResult = await getCurrentWeather.execute!(
         toolCall.input as { city: string },
         {
           toolCallId: toolCall.toolCallId,
@@ -109,10 +109,11 @@ describe("Weather Agent", () => {
             .content[0] as ToolCallPart;
           const toolCallResult = state.lastToolCall("get_current_weather");
 
-          expect(toolCallResult.content[0].toolName).toBe(
-            "get_current_weather"
+          const toolResultPart = toolCallResult.content[0] as ToolResultPart;
+          expect(toolResultPart.toolName).toBe("get_current_weather");
+          expect((toolResultPart.output as { value: string }).value).toContain(
+            "Barcelona"
           );
-          expect(toolCallResult.content[0].output.value).toContain("Barcelona");
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           expect((assistantMessageContent.input as any).city).toBe("Barcelona");

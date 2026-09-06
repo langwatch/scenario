@@ -14,60 +14,24 @@
  *    `response.output_audio_transcript.done`), with the scripted text as fallback.
  */
 
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { WebSocketServer, type WebSocket as WsServerSocket } from "ws";
+import { describe, expect, it } from "vitest";
 
 import { AgentRole } from "../../../domain/agents";
 import { OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter } from "../../index";
+import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
 
-let http: Server;
-let wss: WebSocketServer;
-let activeSocket: WsServerSocket | null = null;
-let socketReadyResolve: (() => void) | null = null;
-let socketReady: Promise<void> = new Promise((r) => {
-  socketReadyResolve = r;
-});
 let observed: Array<{ type: string; data: Record<string, unknown> }> = [];
 
-beforeAll(
-  async () =>
-    await new Promise<void>((doneStart) => {
-      http = createServer();
-      wss = new WebSocketServer({ server: http });
-      wss.on("connection", (sock) => {
-        activeSocket = sock;
-        socketReadyResolve?.();
-        sock.on("message", (raw) => {
-          const text =
-            typeof raw === "string"
-              ? raw
-              : Buffer.isBuffer(raw)
-                ? raw.toString("utf8")
-                : Buffer.from(raw as ArrayBuffer).toString("utf8");
-          try {
-            const parsed = JSON.parse(text) as Record<string, unknown>;
-            observed.push({ type: String(parsed.type ?? ""), data: parsed });
-          } catch {
-            /* drop non-JSON */
-          }
-        });
-      });
-      http.listen(0, "127.0.0.1", doneStart);
-    }),
-);
-
-afterAll(async () => {
-  wss.close();
-  await new Promise<void>((done) => http.close(() => done()));
+const server = setupMockRealtimeServer((text) => {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    observed.push({ type: String(parsed.type ?? ""), data: parsed });
+  } catch {
+    /* drop non-JSON */
+  }
 });
 
-function push(payload: unknown): void {
-  if (!activeSocket) throw new Error("socket not connected");
-  activeSocket.send(JSON.stringify(payload));
-}
+const push = (payload: unknown): void => server.push(payload);
 
 async function waitFor(pred: () => boolean, timeoutMs = 1000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -91,12 +55,10 @@ function buildAdapter(port: number): OpenAIRealtimeAgentAdapter {
 describe("OpenAIRealtimeAgentAdapter.speakUserTurn (#705 bridge)", () => {
   it("speaks the line, drains spoken audio, returns merged PCM + spoken transcript", async () => {
     observed = [];
-    socketReady = new Promise<void>((r) => {
-      socketReadyResolve = r;
-    });
-    const adapter = buildAdapter((http.address() as AddressInfo).port);
+    server.arm();
+    const adapter = buildAdapter(server.port());
     await adapter.connect();
-    await socketReady;
+    await server.socketReady();
     await waitFor(() => observed.some((e) => e.type === "session.update"));
 
     // Kick off the turn; resolve after the merged chunk comes back.
@@ -150,12 +112,10 @@ describe("OpenAIRealtimeAgentAdapter.speakUserTurn (#705 bridge)", () => {
 
   it("falls back to the scripted text when the model emits no transcript", async () => {
     observed = [];
-    socketReady = new Promise<void>((r) => {
-      socketReadyResolve = r;
-    });
-    const adapter = buildAdapter((http.address() as AddressInfo).port);
+    server.arm();
+    const adapter = buildAdapter(server.port());
     await adapter.connect();
-    await socketReady;
+    await server.socketReady();
     await waitFor(() => observed.some((e) => e.type === "session.update"));
 
     const turnPromise = adapter.speakUserTurn("reset my password please", 1);

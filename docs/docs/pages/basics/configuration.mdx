@@ -27,6 +27,8 @@ You can control Scenario's behavior with environment variables. Set these in you
 | `LOG_LEVEL`                               | enum   | `info`                     | Log level: `error`, `warn`, `info`, `debug`.                         | ✅         | ❌     |
 | `SCENARIO_BATCH_RUN_ID`                   | string | `batch_<random_id>`        | Unique ID for a batch of scenario runs (useful for CI).              | ✅         | ❌     |
 | `SCENARIO_HEADLESS`                       | bool   | `false`                    | Disables opening the browser window when scenario starts.            | ✅         | ✅     |
+| `SCENARIO_BROWSER`                        | enum   | `auto`                     | Controls if a browser should open when a scenario runs: `auto` reuses an already-open simulations tab and opens one only if none is open, `never` never opens one, `always` opens a new tab every run. | ✅         | ✅     |
+| `SCENARIO_BROWSER_REOPEN_SECONDS`         | int    | `300`                      | Seconds before a scenario set may open a second tab, used as a fallback whenever the SDK can't confirm whether a tab is already open. | ✅         | ✅     |
 
 ---
 
@@ -52,6 +54,10 @@ export default defineConfig({
     maxTokens: 1000, // Optional
   },
   headless: false,
+  // Judge on remote traces (see /advanced/remote-traces)
+  fetchRemoteTraces: false, // Optional, defaults to false
+  traceWaitTimeoutMs: 30_000, // Optional, defaults to 30000
+  traceWaitExtensionMs: 30_000, // Optional, defaults to traceWaitTimeoutMs
 });
 ```
 
@@ -94,9 +100,13 @@ result = await scenario.run(
 | --------------- | ------------------ | ------- | ------------------------------------------------------------- |
 | `default_model` | str or ModelConfig | None    | Default LLM model for user simulator and judge agents         |
 | `max_turns`     | int                | 10      | Maximum number of conversation turns before timeout           |
+| `min_turns`     | int                | None    | Non-negative minimum turns guaranteed before the judge may volunteer a verdict; zero is valid ([details](/basics/judge-agent#guaranteeing-a-minimum-number-of-turns)) |
 | `verbose`       | bool or int        | True    | Show detailed output during execution                         |
 | `cache_key`     | str                | None    | Key for caching scenario results (for deterministic behavior) |
 | `debug`         | bool               | False   | Enable debug mode for step-by-step execution                  |
+| `fetch_remote_traces` | bool         | False   | Judge fetches the agent's remote traces from LangWatch before the verdict ([details](/advanced/remote-traces)) |
+| `trace_wait_timeout`  | float        | 30.0    | Maximum seconds the judge waits at verdict time for remote traces to complete |
+| `trace_wait_extension` | float       | `trace_wait_timeout` | Seconds of the judge's one extra wait when it calls `wait_for_traces` on incomplete traces |
 
 ### Advanced: Using ModelConfig
 

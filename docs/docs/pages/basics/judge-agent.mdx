@@ -170,6 +170,76 @@ scenario.judgeAgent({
 
 :::
 
+## Guaranteeing a Minimum Number of Turns
+
+The judge looks at the conversation after every turn and may end the run. On
+turn 1, most criteria are unmet simply because the agent hasn't had a chance to
+act yet — and an eager judge can read "not met yet" as "failed" and end the run
+immediately.
+
+`minTurns` (Python: `min_turns`) sets a floor: the first `minTurns` turns of a
+run are guaranteed to happen, because the judge is not offered the option to
+end the test on those turns. With `minTurns: 4`, turns 1–4 always run, and the
+earliest the judge can end the run on its own is turn 5. It pairs with
+`maxTurns` the way a floor pairs with a ceiling.
+
+:::code-group
+
+```python [python]
+result = await scenario.run(
+    name="refund negotiation",
+    description="User wants a refund for a subscription they forgot to cancel",
+    agents=[
+        my_agent,
+        scenario.UserSimulatorAgent(),
+        scenario.JudgeAgent(criteria=[
+            "Agent acknowledges the request",
+            "Agent checks the account history",
+            "Agent offers a resolution",
+        ]),
+    ],
+    min_turns=4,  # turns 1-4 always run; earliest verdict on turn 5
+    max_turns=10,
+)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "refund negotiation",
+  description: "User wants a refund for a subscription they forgot to cancel",
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: [
+        "Agent acknowledges the request",
+        "Agent checks the account history",
+        "Agent offers a resolution",
+      ],
+    }),
+  ],
+  minTurns: 4, // turns 1-4 always run; earliest verdict on turn 5
+  maxTurns: 10,
+});
+```
+
+:::
+
+Things to know:
+
+- **It's opt-in.** Unset, nothing changes — the judge behaves exactly as today.
+- **Explicit judgments still work.** A `scenario.judge()` step in a script gets
+  a real verdict even below the floor, and the final turn always gets one. The
+  floor only stops the judge from *volunteering* a verdict early.
+- **It only governs the judge.** Red-team scenarios can still end early when an
+  attack is confirmed successful, and `scenario.succeed()` / `scenario.fail()`
+  script steps still end the run — those are deliberate decisions, not the
+  premature "criteria not met yet" misread that `minTurns` prevents.
+- **`minTurns` must be a non-negative whole number no greater than `maxTurns`**
+  — invalid values are configuration errors raised when the scenario is built.
+  Zero is valid and behaves like an unset floor. Setting the floor and ceiling
+  equal is also valid: the only verdict is the final-turn one.
+
 ## Next Steps
 
 - [How Judging Works](/advanced/how-judging-works) - Deep dive into the judging loop, trace rendering, and progressive discovery

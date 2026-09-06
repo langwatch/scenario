@@ -5,6 +5,7 @@ import {
   UserSimulatorAgentAdapter,
 } from "../../../domain";
 import type { AudioChunk } from "../../audio-chunk";
+import { createAudioMessage } from "../../messages";
 
 /**
  * Build a user-role message carrying an audio (`input_audio` / pcm16) content
@@ -40,6 +41,13 @@ export class AudioUserSimulator extends UserSimulatorAgentAdapter {
     super();
   }
   async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    // A chunk that carries a transcript → a full audio message, so the transcript
+    // reaches the recorded user segment (which is then NOT an STT back-fill
+    // target). An audio-only chunk → the bare `input_audio` content-part (the
+    // original behavior; the recorded segment has no transcript → a target).
+    if (this.chunk.transcript) {
+      return createAudioMessage(this.chunk, "user") as unknown as AgentReturnTypes;
+    }
     return audioMessageContent(this.chunk);
   }
 }

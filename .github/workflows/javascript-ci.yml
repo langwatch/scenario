@@ -8,15 +8,38 @@
 # that branch protection requires.
 name: javascript-ci
 
+# All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
+# AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
+# URLs point every client family at it. Both families the examples use read
+# OPENAI_BASE_URL: the `openai` package, and `@ai-sdk/openai`, whose
+# `createOpenAI` falls back to that variable before api.openai.com.
+#
+# The same key, and how to rotate, revoke and cap it, are described at the
+# top of python-ci.yml. Kept in one place so the two do not drift.
+#
+# The Realtime examples ride it too. Their media websocket still runs to
+# api.openai.com, because the gateway proxies HTTP only, but the credential it
+# opens with is minted first at POST /v1/realtime/client_secrets, which is
+# OpenAI's own path and one the gateway mirrors. So the session is checked
+# against the virtual key's budget and billed there, and no provider key exists
+# in this repository's secrets for it to fall back to.
+env:
+  CI: true
+  OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
+  OPENAI_API_BASE: https://gateway.langwatch.ai/v1
+
 on:
   push:
     branches:
       - main
   pull_request:
+    # `ready_for_review` is what runs the heavy job for a pull request that
+    # opened as a draft, which every release-please pull request now does. The
+    # default trigger types do not include it, so without this line the last run
+    # on a draft, with the heavy job skipped, would stand as the required check
+    # for a release nobody tested. See specs/release-pr-drafts.feature.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
-
-env:
-  CI: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -27,8 +50,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.detect.outputs.relevant }}
+      # Whether this PR changes anything the examples suite covers. The gate
+      # in front of that suite needs it to decide whether a gateway budget
+      # outage is collateral or a genuine loss of coverage.
+      examples: ${{ steps.detect.outputs.examples }}
     steps:
-      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v3
       - uses: ./.github/actions/detect-changes
         id: detect
         with:
@@ -36,24 +63,35 @@ jobs:
             relevant:
               - 'javascript/**'
               - '.github/workflows/javascript-ci.yml'
+            examples:
+              - 'javascript/examples/**'
 
   ci-checks:
     needs: changes
     if: needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
 
+    # `pull-requests: write` is what lets the examples gate say on the pull
+    # request that the suite did not run. Without it the tolerated-outage case
+    # goes green and reports that fact only inside the Actions UI. Declaring a
+    # block here drops every scope not listed, so `contents: read` is restated
+    # for the checkout.
+    permissions:
+      contents: read
+      pull-requests: write
+
     strategy:
       matrix:
         node-version: [24.x]
 
     steps:
-      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v3
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.22.0
 
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           cache-dependency-path: "javascript/pnpm-lock.yaml"
           node-version: ${{ matrix.node-version }}
@@ -66,6 +104,14 @@ jobs:
       # Covers typecheck
       - name: Build
         run: pnpm build:all
+        working-directory: javascript
+
+      # Loads both built entrypoints with plain Node (no bundler resolution).
+      # Catches publish-breaking output bugs the vitest suite cannot see:
+      # extensionless deep imports that only bundlers resolve, and CJS-shim
+      # import.meta crashes — both shipped in releases up to 0.5.4.
+      - name: Smoke-load dist (ESM + CJS)
+        run: pnpm smoke:dist
         working-directory: javascript
 
       - name: Lint
@@ -88,13 +134,48 @@ jobs:
         run: pnpm run test:ci
         working-directory: javascript
 
-      # Examples — skipped for Dependabot PRs since they don't have access to repo secrets
+      # The custom-observability probes assert that importing @langwatch/scenario
+      # does not auto-initialize OpenTelemetry, and that scenarioOnly filtering
+      # works both from setupScenarioTracing() and from a scenario.config.mjs.
+      # They run in-process against an InMemorySpanExporter with no network and
+      # no LLM, so unlike the step below they need no secrets and carry no fork
+      # guard: a fork PR that breaks the auto-init contract should go red.
+      - name: Test (Custom observability probes)
+        run: pnpm -F custom-observability-example test:all
+        working-directory: javascript
+
+      # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
       - name: Test (Examples)
-        if: github.actor != 'dependabot[bot]'
-        run: pnpm -F vitest-examples test
+        if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        # Wrapped so a shared-budget outage is told apart from a broken
+        # example. See scripts/ci/examples-suite-gate.sh.
+        # The junit reporter is what lets the gate decide per failed test
+        # rather than by grepping the log. See the python-ci counterpart.
+        run: ../scripts/ci/examples-suite-gate.sh pnpm -F vitest-examples test --reporter=junit --outputFile="$EXAMPLES_REPORT"
         env:
+          EXAMPLES_TOUCHED: ${{ needs.changes.outputs.examples }}
+          EXAMPLES_REPORT: ${{ runner.temp }}/examples-junit.xml
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        working-directory: javascript
+
+      # The inverse condition of the step above, so exactly one of the two runs.
+      # Without it a fork pull request that changes javascript/examples/** goes
+      # green with nothing having read the file it changed: the examples suite
+      # is the only JavaScript step that reads them, it is skipped for forks,
+      # and javascript-complete accepts a job whose steps were all skipped.
+      # That is #893, which was closed on the Python side alone by its
+      # `Collect (Examples)` fallback. This is the JavaScript half.
+      #
+      # `vitest list` imports every example file to enumerate its tests and
+      # makes no provider call, so it needs no secrets. It catches what a fork
+      # can break without any key: an import that does not resolve, a syntax
+      # error, a renamed export. It does not catch a wrong assertion, so this
+      # is weaker than running the suite, and is deliberately not presented as
+      # equivalent.
+      - name: List (Examples)
+        if: github.actor == 'dependabot[bot]' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+        run: pnpm -F vitest-examples exec vitest list
         working-directory: javascript
 
   # One required check for the whole workflow. Reports success if every

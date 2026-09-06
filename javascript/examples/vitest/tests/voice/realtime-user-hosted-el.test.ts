@@ -18,32 +18,27 @@
  * SUCCESS METRIC (Drew's "count utterances"): ≥3 user turns AND ≥3 agent turns
  * where real audio flowed, in one coherent conversation.
  *
- * Env-gated: self-skips without ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID +
+ * Env-gated: self-skips without ELEVENLABS_CONVAI_API_KEY + ELEVENLABS_AGENT_ID +
  * OPENAI_API_KEY, so CI without the hosted EL secret stays green.
  */
 
 import scenario, { AgentRole, voice, type ScenarioResult } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
+import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
+
 const { OPENAI_REALTIME_MODEL } = voice;
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_CONVAI_KEY = voice.resolveElevenLabsConvAIApiKey();
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-const hasHostedKey = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
+const hasHostedKey = Boolean(ELEVENLABS_CONVAI_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
 
 describe("#705 — realtime user drives hosted EL via scenario.run()", () => {
-  it(
+  it.skipIf(!hasHostedKey)(
     "realtime USER + hosted EL agent: ≥3 user + ≥3 agent audio turns, coherent",
     async () => {
-      if (!hasHostedKey) {
-        console.log(
-          "SKIP: needs ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID + OPENAI_API_KEY",
-        );
-        return;
-      }
-
       const result: ScenarioResult = await scenario.run({
         name: "realtime_user_drives_hosted_el",
         description:
@@ -53,7 +48,6 @@ describe("#705 — realtime user drives hosted EL via scenario.run()", () => {
         agents: [
           scenario.elevenLabsAgent({
             agentId: ELEVENLABS_AGENT_ID!,
-            apiKey: ELEVENLABS_API_KEY!,
           }),
           // REALTIME user — the model itself speaks, role=USER.
           scenario.openAIRealtimeAgent({
@@ -65,7 +59,7 @@ describe("#705 — realtime user drives hosted EL via scenario.run()", () => {
             role: AgentRole.USER,
           }),
           scenario.judgeAgent({
-            criteria: ["The conversation completed multiple coherent turns"],
+            criteria: [AGENTS_HEARD_EACH_OTHER],
           }),
         ],
         // EL sends first_message on connect → lead with agent() so the greeting

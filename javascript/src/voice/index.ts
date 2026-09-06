@@ -156,6 +156,18 @@ export {
   type TranscribeSegmentsOptions,
 } from "./transcribe";
 
+// Where an ElevenLabs request goes, and which credential it carries. Exported
+// so a caller writing its own gate ("do I have what the hosted adapter needs?")
+// asks the same function the adapter does, instead of restating the fallback
+// order and drifting from it.
+export {
+  ELEVENLABS_BASE_URL_ENV,
+  ELEVENLABS_CONVAI_API_KEY_ENV,
+  normalizeElevenLabsBaseUrl,
+  resolveElevenLabsBaseUrl,
+  resolveElevenLabsConvAIApiKey,
+} from "./elevenlabs-base-url";
+
 // Judge STT pre-pass (EDR §3.3 / §7.7) — automatic transcription of audio
 // `file` parts to text BEFORE the judge's buildTranscriptFromMessages. NOT a
 // "judge requests transcript" tool (no such tool, §7.3); STT is upstream.
@@ -209,7 +221,6 @@ export {
   ComposableVoiceAgent,
   ElevenLabsAgentAdapter,
   ElevenLabsVoiceAgent,
-  ELEVENLABS_CONVAI_URL_TEMPLATE,
   type ComposableVoiceAgentOptions,
   type ElevenLabsAgentAdapterOptions,
   type ElevenLabsVoiceAgentOptions,

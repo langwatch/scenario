@@ -121,25 +121,4 @@ describe("elevenlabs-hosted-shape guard", () => {
     expect(collapsed).toContain("Hosted ElevenLabs");
     expect(collapsed).toContain("ConvAI");
   });
-
-  it("adapter streams real audio and never text-commits", () => {
-    // The real-audio-only contract: sendAudio streams the user's actual PCM as a
-    // `user_audio_chunk` frame, so EL's STT runs on turns 2+. It must NOT inject a
-    // `user_message` text commit — that was the text-commit regression (it
-    // discarded the audio and bypassed STT). This guard pins the shipped source
-    // to that contract: `user_audio_chunk` present, `user_message` absent from
-    // the CODE (the doc-comments may still name `user_message` to explain why
-    // the adapter deliberately does NOT send one, so we strip line-comments
-    // before that check — assert on behavior, not prose).
-    const source = fs.readFileSync(ADAPTER_FILE, "utf-8");
-    expect(source).toContain("user_audio_chunk");
-
-    // Strip BOTH /* … */ block comments and // line comments before the negative
-    // check — the JSDoc deliberately names `user_message` to explain why the
-    // adapter does NOT send one; assert on code, not prose.
-    const codeOnly = source
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/.*$/gm, "");
-    expect(codeOnly).not.toContain("user_message");
-  });
 });

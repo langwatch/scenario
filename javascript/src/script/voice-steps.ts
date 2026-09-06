@@ -11,9 +11,10 @@
  * active adapter advertises `capabilities.dtmf`.
  *
  * Part of the TS voice parity slice (#372). The interruption / barge-in path
- * (`interrupt`, `proceed({ interruptions })`) is wired end-to-end through the
- * executor; the `backgroundNoise` mixing sink is still deferred (the step
- * records its config on the executor state for that future consumer).
+ * (`interrupt`, plus probabilistic barge-ins driven by the user simulator's
+ * `interruptProbability`) is wired end-to-end through the executor; the
+ * `backgroundNoise` mixing sink is still deferred (the step records its config
+ * on the executor state for that future consumer).
  */
 
 import { spawnSync } from "node:child_process";
@@ -25,7 +26,6 @@ import type { ModelMessage } from "ai";
 
 import type {
   ScenarioExecutionLike,
-  ScenarioExecutionStateLike,
   ScriptStep,
 } from "../domain";
 import {
@@ -35,7 +35,6 @@ import {
   VoiceAgentAdapter,
 } from "../voice";
 import { resolveFfmpegPath } from "../voice/ffmpeg";
-import type { InterruptionConfig } from "../voice/interruption";
 import { sleep as sleepMs } from "../voice/utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
 
@@ -339,47 +338,6 @@ export const voiceAgentStep = (options: VoiceAgentOptions = {}): ScriptStep => {
       return;
     }
     return executor.agent(options.content);
-  };
-};
-
-export interface VoiceProceedOptions {
-  /** Number of turns to proceed automatically. */
-  turns?: number;
-  /** Callback fired at the end of each turn. */
-  onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>;
-  /** Callback fired after each agent interaction. */
-  onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>;
-  /** Inject random interruptions during the proceed loop. */
-  interruptions?: InterruptionConfig;
-}
-
-/**
- * Voice variant of {@link import("./index.js").proceed}. Adds the
- * `interruptions` option for injecting random user interruptions during
- * the proceed loop. This script step records the config on the executor
- * state; the loop consumes it via `maybeScheduleInterruptedAgentTurn`
- * (Gap #8, voice path) which dispatches the agent non-blocking PRE-step so
- * the next user-sim turn fires a real mid-stream barge-in. Text-only runs
- * fall back to the post-step `maybeInjectInterruption`.
- */
-export const proceed = (options: VoiceProceedOptions = {}): ScriptStep => {
-  return async (_state, executor) => {
-    const vex = executor as VoiceAwareExecutor;
-    const prev = vex.voiceInterruptions;
-    if (options.interruptions !== undefined) {
-      // Write through the typed VoiceExecutorState surface (Decision 1(b)
-      // — see voice-executor-state.ts) rather than reaching for a private
-      // attribute. The executor reads this inside the proceed loop and
-      // injects interruptions per the configured probability/strategy.
-      vex.voiceInterruptions = options.interruptions;
-    }
-    try {
-      await executor.proceed(options.turns, options.onTurn, options.onStep);
-    } finally {
-      // Restore prior value so a subsequent voiceProceed (or plain proceed)
-      // does not inherit this call's interruption config (P2 config-leak fix).
-      vex.voiceInterruptions = prev;
-    }
   };
 };
 

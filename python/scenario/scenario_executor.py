@@ -16,6 +16,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Union,
@@ -61,17 +62,29 @@ from .types import (
     ScriptStep,
 )
 from ._error_messages import agent_response_not_awaitable
+from ._evaluators import (
+    EvaluationsApiClient,
+    RunEvaluatorsDeps,
+    apply_evaluations_to_result,
+    distinct_message_trace_ids,
+    resolve_evaluations_api_auth,
+    run_scenario_evaluators,
+)
+from .evaluators import EvaluationResult, ScenarioEvaluator
 from .cache import context_scenario
-from .agent_adapter import AgentAdapter
+from .agent_adapter import AgentAdapter, resolve_agent_name
+from .connected_agent import AgentLike, resolve_agents
 from .script import proceed
 from pksuid import PKSUID
 from .scenario_state import ScenarioState
+from scenario._generated.langwatch_api_client.lang_watch_api_client.types import UNSET
 from ._events import (
     ScenarioEventBus,
     ScenarioEvent,
     ScenarioRunStartedEvent,
     ScenarioMessageSnapshotEvent,
     ScenarioRunFinishedEvent,
+    ScenarioRunStartedEventAgent,
     ScenarioRunStartedEventMetadata,
     ScenarioRunFinishedEventResults,
     ScenarioRunFinishedEventVerdict,
@@ -85,6 +98,7 @@ import litellm
 import langwatch
 import langwatch.telemetry.context
 from langwatch.telemetry.tracing import LangWatchTrace
+from opentelemetry import propagate
 from scenario._tracing.sdk_metadata import (
     ATTR_SCENARIO_SDK_NAME,
     ATTR_SCENARIO_SDK_VERSION,
@@ -112,6 +126,18 @@ def _extract_text_content(content: object) -> str:
             if isinstance(part, dict) and part.get("type") == "text"
         )
     return str(content)
+
+
+def _active_propagation_headers() -> Dict[str, str]:
+    """Injects the active OpenTelemetry context into a header carrier.
+
+    Called while the per-agent-call span is active, so the resulting
+    ``traceparent`` carries the current turn's trace id, the same id stamped
+    on the turn's messages. Returns an empty dict when no span is active.
+    """
+    carrier: Dict[str, str] = {}
+    propagate.inject(carrier)
+    return carrier
 
 
 class ScenarioExecutor:
@@ -164,19 +190,25 @@ class ScenarioExecutor:
         self,
         name: str,
         description: str,
-        agents: List[AgentAdapter] = [],
+        agents: Sequence[AgentLike] = [],
         script: Optional[List[ScriptStep]] = None,
+        parameters: Optional[Dict[str, Any]] = None,
         # Config
         max_turns: Optional[int] = None,
+        min_turns: Optional[int] = None,
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
+        fetch_remote_traces: Optional[bool] = None,
+        trace_wait_timeout: Optional[float] = None,
         event_bus: Optional[ScenarioEventBus] = None,
         set_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         on_audio_chunk: Optional[Callable[[Any], None]] = None,
         on_voice_event: Optional[Callable[[Any], None]] = None,
         audio_playback: bool = False,
+        fields: Optional[Dict[str, Any]] = None,
+        evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
     ):
         """
         Initialize a scenario executor.
@@ -189,7 +221,13 @@ class ScenarioExecutor:
                    Typically includes: agent under test, user simulator, and judge.
             script: Optional list of script steps to control scenario flow.
                    If not provided, defaults to automatic proceeding.
+            parameters: Run parameters for connected agent functions in
+                   ``agents``. A parameter not set here takes the default
+                   the function declares.
             max_turns: Maximum number of conversation turns before timeout.
+                      Overrides global configuration for this scenario.
+            min_turns: Minimum turns guaranteed before the judge may volunteer
+                      a verdict. Must be a non-negative integer; zero is valid.
                       Overrides global configuration for this scenario.
             verbose: Whether to show detailed output during execution.
                     Can be True/False or integer level (2 for extra details).
@@ -197,29 +235,58 @@ class ScenarioExecutor:
                       Overrides global configuration for this scenario.
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
+            fetch_remote_traces: Whether the judge fetches the traces the
+                  agent under test reported to LangWatch for this
+                  conversation's trace ids (default: False). Requires the
+                  agent adapter to forward ``AgentInput.propagation_headers``.
+                  Overrides global configuration for this scenario.
+            trace_wait_timeout: Maximum seconds the judge waits at verdict
+                  time for remote traces to arrive and stabilize (default: 30).
+                  Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor's events
             set_id: Optional set identifier for grouping related scenarios
             metadata: Optional metadata to attach to the scenario run.
                      Accepts arbitrary key-value pairs. The ``langwatch`` key
                      is reserved for platform-internal use.
+            fields: Values the scenario carries next to its description,
+                     keyed by field name. Evaluator inputs read them through
+                     ``scenario.field(name)`` or by inference.
+            evaluators: LangWatch evaluators to run once the scenario has a
+                     verdict. A required evaluator that fails fails the
+                     scenario; results land on ``ScenarioResult.evaluations``.
         """
         self.name = name
         self.description = description
-        self.agents = agents
+        self.agents = resolve_agents(agents, parameters)
         self.script = script or [proceed()]
         self.metadata = metadata
+        self.fields: Dict[str, Any] = dict(fields or {})
+        self.evaluators: List[ScenarioEvaluator] = list(evaluators or [])
         self._on_audio_chunk = on_audio_chunk
         self._on_voice_event = on_voice_event
         self._audio_playback = audio_playback
 
         config = ScenarioConfig(
             max_turns=max_turns,
+            min_turns=min_turns,
             verbose=verbose,
             cache_key=cache_key,
             debug=debug,
             headless=None,
+            fetch_remote_traces=fetch_remote_traces,
+            trace_wait_timeout=trace_wait_timeout,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
+
+        effective_max_turns = self.config.max_turns or 10
+        if (
+            self.config.min_turns is not None
+            and self.config.min_turns > effective_max_turns
+        ):
+            raise ValueError(
+                f"min_turns ({self.config.min_turns}) cannot exceed "
+                f"max_turns ({effective_max_turns})"
+            )
 
         self.batch_run_id = get_batch_run_id()
         self.scenario_set_id = set_id or "default"
@@ -227,6 +294,7 @@ class ScenarioExecutor:
 
         # Create executor's own event stream
         self._events = Subject()
+        self._finished_emitted: bool = False
 
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
@@ -330,6 +398,7 @@ class ScenarioExecutor:
         message = cast(ChatCompletionMessageParamWithTrace, message)
         message["trace_id"] = self._trace.trace_id
         self._state.messages.append(message)
+        self._state.record_turn(message)
 
         # Broadcast the message to other agents
         for idx, _ in enumerate(self.agents):
@@ -390,6 +459,7 @@ class ScenarioExecutor:
         removed_ids = set(id(m) for m in removed)
 
         del self._state.messages[index:]
+        self._state.forget_turns(removed)
 
         for idx in self._pending_messages:
             self._pending_messages[idx] = [
@@ -595,32 +665,37 @@ class ScenarioExecutor:
         """
         scenario_run_id = generate_scenario_run_id()
         self._scenario_run_id = scenario_run_id
+        self._finished_emitted = False
         _check_failure: Optional[BaseException] = None
 
-        # Connect all voice adapters before script runs; disconnect in finally.
-        await self._voice_connect_all()
-
-        # Resolve modality per role and store for span stamping.
-        from .voice.modality_resolver import resolve_modality
-        from .user_simulator_agent import UserSimulatorAgent
-        from .judge_agent import JudgeAgent
-
-        self._modality_resolutions: dict = {}  # role -> tier value string
-        for agent in self.agents:
-            if isinstance(agent, UserSimulatorAgent):
-                decl = getattr(agent, 'modality', None)
-                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
-                for w in _mod_warnings:
-                    logger.warning(w)
-                self._modality_resolutions['simulator'] = tier.value
-            elif isinstance(agent, JudgeAgent):
-                decl = getattr(agent, 'modality', None)
-                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
-                for w in _mod_warnings:
-                    logger.warning(w)
-                self._modality_resolutions['judge'] = tier.value
-
+        # Voice connect and modality resolution stay inside the guarded scope:
+        # a failure in either one is still a run that has to report itself as
+        # finished, and the finally below disconnects whatever was connected.
         try:
+            # Connect all voice adapters before script runs; disconnect in finally.
+            await self._voice_connect_all()
+
+            # Resolve modality per role and store for span stamping.
+            from .voice.modality_resolver import resolve_modality
+            from .user_simulator_agent import UserSimulatorAgent
+            from .judge_agent import JudgeAgent
+
+            # role -> tier value string
+            self._modality_resolutions: dict[str, str] = {}
+            for agent in self.agents:
+                if isinstance(agent, UserSimulatorAgent):
+                    decl = getattr(agent, 'modality', None)
+                    tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                    for w in _mod_warnings:
+                        logger.warning(w)
+                    self._modality_resolutions['simulator'] = tier.value
+                elif isinstance(agent, JudgeAgent):
+                    decl = getattr(agent, 'modality', None)
+                    tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                    for w in _mod_warnings:
+                        logger.warning(w)
+                    self._modality_resolutions['judge'] = tier.value
+
             self._emit_run_started_event(scenario_run_id)
 
             if self.config.verbose:
@@ -657,20 +732,29 @@ class ScenarioExecutor:
                             "voice harvest failed on script-result path; returning result without voice fields",
                             exc_info=True,
                         )
-                    self._emit_run_finished_event(scenario_run_id, result, status)
-                    return result
+                    return await self._finish_run(scenario_run_id, result)
 
             if _check_failure is not None:
-                compiled_passed, compiled_failed = self._compiled_checkpoints
-                error_result = ScenarioResult(
-                    success=False,
-                    messages=self._state.messages,
-                    reasoning=f"Scenario failed with error: {str(_check_failure)}",
-                    passed_criteria=compiled_passed,
-                    failed_criteria=compiled_failed + [str(_check_failure)],
-                    total_time=time.time() - self._total_start_time,
-                    agent_time=0,
-                )
+                # Build the result defensively: a failure while assembling it
+                # must not cost us the finished event or mask the original
+                # AssertionError (#922).
+                try:
+                    compiled_passed, compiled_failed = self._compiled_checkpoints
+                    error_result = ScenarioResult(
+                        success=False,
+                        messages=self._state.messages,
+                        reasoning=f"Scenario failed with error: {str(_check_failure)}",
+                        passed_criteria=compiled_passed,
+                        failed_criteria=compiled_failed + [str(_check_failure)],
+                        total_time=time.time() - self._total_start_time,
+                        agent_time=0,
+                    )
+                except Exception:
+                    logger.warning(
+                        "failed to build check-failure result; falling back to a minimal result",
+                        exc_info=True,
+                    )
+                    error_result = self._minimal_error_result(_check_failure)
                 # Harvest voice output before emitting/raising so the
                 # check-failure (AssertionError in a script step) exit carries
                 # result.audio/timeline/latency for voice runs (AC E2b).
@@ -683,7 +767,7 @@ class ScenarioExecutor:
                         "voice harvest failed on check-failure path; preserving original error",
                         exc_info=True,
                     )
-                self._emit_run_finished_event(
+                self._emit_finished_once(
                     scenario_run_id,
                     error_result,
                     ScenarioRunFinishedEventStatus.ERROR,
@@ -721,13 +805,7 @@ class ScenarioExecutor:
                         exc_info=True,
                     )
 
-                status = (
-                    ScenarioRunFinishedEventStatus.SUCCESS
-                    if result.success
-                    else ScenarioRunFinishedEventStatus.FAILED
-                )
-                self._emit_run_finished_event(scenario_run_id, result, status)
-                return result
+                return await self._finish_run(scenario_run_id, result)
             else:
                 result = self._reached_max_turns(
                     """Reached end of script without conclusion, add one of the following:
@@ -738,45 +816,92 @@ class ScenarioExecutor:
                     """
                 )
 
-                status = (
-                    ScenarioRunFinishedEventStatus.SUCCESS
-                    if result.success
-                    else ScenarioRunFinishedEventStatus.FAILED
-                )
-                self._emit_run_finished_event(scenario_run_id, result, status)
-                return result
+                return await self._finish_run(scenario_run_id, result)
 
-        except Exception as e:
+        except BaseException as e:
+            # Publish the failure event before propagating the error. Catching
+            # BaseException keeps KeyboardInterrupt and CancelledError
+            # propagating while still reporting the run as finished, and the
+            # exactly-once guard covers the case where the finished event was
+            # already emitted above but its emit path raised afterwards (#922).
+            self._emit_error_run_finished_event(
+                scenario_run_id, error=_check_failure or e
+            )
             if _check_failure is not None:
-                # Already handled above — just propagate
-                raise
-
-            # Publish failure event before propagating the error
-            error_result = ScenarioResult(
-                success=False,
-                messages=self._state.messages,
-                reasoning=f"Scenario failed with error: {str(e)}",
-                total_time=time.time() - self._total_start_time,
-                agent_time=0,
-            )
-            # Harvest voice output before emitting/raising so the generic
-            # exception exit carries result.audio/timeline/latency for voice
-            # runs (AC E2).
-            # Guard: if harvest itself raises, log and continue so the
-            # original exception is not masked.
-            try:
-                error_result = self._attach_voice_output(error_result)
-            except Exception:
-                logger.warning(
-                    "voice harvest failed on except-Exception path; preserving original error",
-                    exc_info=True,
-                )
-            self._emit_run_finished_event(
-                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
-            )
+                # The emit path raised after the check-failure branch emitted;
+                # surface the original AssertionError, not the emit failure.
+                raise _check_failure from None
             raise  # Re-raise the exception after cleanup
         finally:
             await self._voice_disconnect_all()
+
+    async def _finish_run(
+        self, scenario_run_id: str, result: ScenarioResult
+    ) -> ScenarioResult:
+        """
+        Concludes a run that reached a verdict: runs the scenario's
+        evaluators over the final state, applies their gate to the result,
+        then emits the run finished event. Runs that ended in an error skip
+        the evaluators.
+        """
+        if self.evaluators:
+            try:
+                evaluations = await self._run_evaluators()
+            except Exception as error:
+                logger.warning("Evaluators did not run, the verdict stands: %s", error)
+                evaluations = []
+            if evaluations:
+                result = apply_evaluations_to_result(result=result, evaluations=evaluations)
+            if self.config.verbose:
+                for evaluation in evaluations:
+                    details = f" ({evaluation.details})" if evaluation.details else ""
+                    print(f"Evaluator {evaluation.name}: {evaluation.status}{details}")
+
+        status = (
+            ScenarioRunFinishedEventStatus.SUCCESS
+            if result.success
+            else ScenarioRunFinishedEventStatus.FAILED
+        )
+        self._emit_finished_once(scenario_run_id, result, status)
+        return result
+
+    async def _run_evaluators(self) -> List[EvaluationResult]:
+        """
+        Runs the evaluators against the run state. Each mapping reads the
+        state a script step reads: the messages, the fields and the spans
+        already collected. When a mapping read the trace and found nothing,
+        the remote traces of the run are fetched once, waiting the same
+        budget the judge uses, and the mapping is called again.
+        """
+        from ._tracing import judge_span_collector, remote_trace_fetcher
+        from ._tracing.remote_trace_fetcher import DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS
+
+        auth = resolve_evaluations_api_auth()
+        api = EvaluationsApiClient(auth)
+        thread_id = self._state.thread_id
+        trace_ids = distinct_message_trace_ids(self._state.messages)
+
+        async def fetch_remote_traces() -> None:
+            if not trace_ids or not auth.api_key:
+                return
+            await remote_trace_fetcher.settle_traces(
+                thread_id=thread_id,
+                trace_ids=trace_ids,
+                collector=judge_span_collector,
+                timeout=self.config.trace_wait_timeout
+                or DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS,
+            )
+
+        return await run_scenario_evaluators(
+            evaluators=self.evaluators,
+            state=self._state,
+            trace_id=trace_ids[-1] if trace_ids else None,
+            deps=RunEvaluatorsDeps(
+                get_evaluator_spec=api.get_evaluator_spec,
+                evaluate=api.evaluate,
+                fetch_remote_traces=fetch_remote_traces,
+            ),
+        )
 
     async def _voice_connect_all(self) -> None:
         """Invoke ``connect()`` on every VoiceAgentAdapter in the scenario."""
@@ -822,10 +947,29 @@ class ScenarioExecutor:
 
         # Phase 2: connect with live-transport failure catching
         from .voice.adapters._stub import PendingTransportError
+        from .voice._telemetry import voice_span
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
+                caps = getattr(agent, "capabilities", None)
+                role = getattr(agent, "role", None)
+                connect_attrs = {
+                    "voice.adapter.class": type(agent).__name__,
+                    "voice.adapter.role": getattr(role, "value", None),
+                    "voice.adapter.capabilities.native_vad": getattr(
+                        caps, "native_vad", None
+                    ),
+                    "voice.adapter.capabilities.streaming_transcripts": getattr(
+                        caps, "streaming_transcripts", None
+                    ),
+                    "voice.adapter.capabilities.dtmf": getattr(caps, "dtmf", None),
+                }
                 try:
-                    await agent.connect()
+                    # Wrap ``connect()`` itself so the span records the ORIGINAL
+                    # transport error before the ModalityNegotiationError re-wrap
+                    # below. Adapters stamp vendor attrs (e.g. EL agent_id) onto
+                    # this span from inside their own connect().
+                    with voice_span("voice.adapter.connect", connect_attrs):
+                        await agent.connect()
                 except PendingTransportError as e:
                     raise ModalityNegotiationError(
                         f"Live transport {type(agent).__name__!r} cannot honor "
@@ -893,12 +1037,20 @@ class ScenarioExecutor:
         are logged but do not mask the primary scenario result.
         """
         from .voice.adapter import VoiceAgentAdapter
+        from .voice._telemetry import voice_span
 
         for agent in self.agents:
             if not isinstance(agent, VoiceAgentAdapter):
                 continue
             try:
-                await agent.disconnect()
+                # Wrap the disconnect() call so the span's OK/ERROR status is set
+                # BEFORE the executor's outer swallow below discards the error.
+                # Adapters stamp vendor attrs (e.g. EL pump counters) from inside.
+                with voice_span(
+                    "voice.adapter.disconnect",
+                    {"voice.adapter.class": type(agent).__name__},
+                ):
+                    await agent.disconnect()
             except Exception:
                 logger.warning(
                     "voice adapter %s disconnect failed",
@@ -987,6 +1139,7 @@ class ScenarioExecutor:
                                 new_messages=self._pending_messages.get(idx, []),
                                 judgment_request=judgment_request,
                                 scenario_state=self._state,
+                                propagation_headers=_active_propagation_headers(),
                             )
                         )
                         if not isinstance(agent_response, Awaitable):
@@ -1311,8 +1464,23 @@ class ScenarioExecutor:
             #    the bot's buffered outbound audio on transports that honor
             #    it (Twilio ``clear``, OpenAI Realtime ``response.cancel``).
             if adapter.capabilities.interruption:
+                from .voice._telemetry import voice_span
+
                 try:
-                    await adapter.interrupt()
+                    # ``voice.adapter.interrupt`` — the executor-owned base span
+                    # (mirrors ``_voice_connect_all`` / ``_voice_disconnect_all``).
+                    # Rule for executor-owned spans: executor-invoked + no shared
+                    # base body to instrument. connect/disconnect are abstract;
+                    # interrupt() is concrete (default raises UnsupportedCapability)
+                    # but wholesale-overridden with no super(), so the call-site is
+                    # the one seam. Adapters stamp vendor outcome attrs onto it from
+                    # inside their own interrupt(); the span's OK/ERROR status is set
+                    # BEFORE the swallow below discards a transport error.
+                    with voice_span(
+                        "voice.adapter.interrupt",
+                        {"voice.adapter.class": type(adapter).__name__},
+                    ):
+                        await adapter.interrupt()
                     native_interrupt_fired = True
                 except Exception:
                     # Best-effort native cancel — adapters' interrupt() may
@@ -1697,15 +1865,18 @@ class ScenarioExecutor:
                     # Checkpoint passed: continue script
                     return None
                 else:
-                    # Checkpoint failed: compile all results into the failing result.
-                    compiled_passed, compiled_failed = self._compiled_checkpoints
-                    result.passed_criteria = compiled_passed
+                    # Checkpoint failed: compile the failed criteria into the
+                    # failing result. This checkpoint's own passes are already
+                    # in _compiled_checkpoints (recorded just above), and run()
+                    # prepends those to every ScenarioResult a script step
+                    # returns — so anything left here would be reported twice.
+                    _, compiled_failed = self._compiled_checkpoints
+                    result.passed_criteria = []
                     result.failed_criteria = compiled_failed
                     return result
             else:
-                # Final judge evaluation — merge prior checkpoint criteria
-                compiled_passed, _ = self._compiled_checkpoints
-                result.passed_criteria = compiled_passed + result.passed_criteria
+                # Final judge evaluation. Prior checkpoint criteria are merged
+                # by run(), not here.
                 return result
 
     # Event handling methods
@@ -1764,13 +1935,29 @@ class ScenarioExecutor:
             scenario_run_id: Unique identifier for the current scenario run
         """
         common_fields = self._create_common_event_fields(scenario_run_id)
+
+        # A run reports an agent only when it can name it, so the platform never
+        # reads a blank target name.
+        agents: List[ScenarioRunStartedEventAgent] = []
+        for agent in self.agents:
+            name = resolve_agent_name(agent)
+            if name:
+                agents.append(
+                    ScenarioRunStartedEventAgent(
+                        name=name,
+                        role=agent.role.value.lower(),
+                    )
+                )
+
         metadata = ScenarioRunStartedEventMetadata(
             name=self.name,
             description=self.description,
+            agents=agents,
+            fields=dict(self.fields) if self.fields else UNSET,
         )
         if self.metadata:
             for key, value in self.metadata.items():
-                if key not in ("name", "description"):
+                if key not in ("name", "description", "agents", "fields"):
                     metadata.additional_properties[key] = value
 
         event = ScenarioRunStartedEvent(
@@ -1812,6 +1999,88 @@ class ScenarioExecutor:
                 exc_info=True,
             )
 
+    def _emit_finished_once(
+        self,
+        scenario_run_id: str,
+        result: ScenarioResult,
+        status: ScenarioRunFinishedEventStatus,
+    ) -> None:
+        """
+        Emit the run finished event exactly once per run.
+
+        Every exit path of :meth:`run` reports the run as finished through
+        this guard, so a path that already emitted (or an error path entered
+        after a successful emit) can never double-post the event or replay
+        the stream-completion side effects.
+        """
+        if self._finished_emitted:
+            return
+        self._emit_run_finished_event(scenario_run_id, result, status)
+
+    def _minimal_error_result(self, error: BaseException) -> ScenarioResult:
+        """
+        Smallest valid ERROR result, for when building the full one fails.
+
+        Every field is read through a default. ``reset()`` runs after the run
+        started event is emitted, so a failure in that emit reaches here with
+        the timing attributes still unset; a raise here would leave the run
+        with no terminal event at all, which is the failure this path exists
+        to prevent.
+        """
+        started_at = getattr(self, "_total_start_time", None)
+        return ScenarioResult(
+            success=False,
+            messages=[],
+            reasoning=f"Scenario failed with error: {str(error)}",
+            total_time=(
+                time.time() - started_at if started_at is not None else 0.0
+            ),
+            agent_time=0,
+        )
+
+    def _emit_error_run_finished_event(
+        self, scenario_run_id: str, error: BaseException
+    ) -> None:
+        """
+        Report the run as finished with status ERROR without ever masking
+        ``error``: every step is guarded, and a failure to emit only logs.
+        """
+        if self._finished_emitted:
+            return
+        try:
+            try:
+                state = getattr(self, "_state", None)
+                error_result = ScenarioResult(
+                    success=False,
+                    messages=state.messages if state is not None else [],
+                    reasoning=f"Scenario failed with error: {str(error)}",
+                    total_time=time.time() - self._total_start_time,
+                    agent_time=0,
+                )
+            except Exception:
+                logger.warning(
+                    "failed to build error result; falling back to a minimal result",
+                    exc_info=True,
+                )
+                error_result = self._minimal_error_result(error)
+            # Harvest voice output before emitting/raising so error exits
+            # carry result.audio/timeline/latency for voice runs (AC E2).
+            try:
+                error_result = self._attach_voice_output(error_result)
+            except Exception:
+                logger.warning(
+                    "voice harvest failed on error path; preserving original error",
+                    exc_info=True,
+                )
+            self._emit_finished_once(
+                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
+            )
+        except Exception:
+            logger.warning(
+                "failed to emit run finished event; preserving original error",
+                exc_info=True,
+            )
+
     def _emit_run_finished_event(
         self,
         scenario_run_id: str,
@@ -1842,34 +2111,71 @@ class ScenarioExecutor:
             met_criteria=result.passed_criteria,
             unmet_criteria=result.failed_criteria,
         )
+        # Sent only when the run ran evaluators: an absent key is what lets a
+        # platform-run scenario evaluate server-side.
+        if self.evaluators:
+            results.evaluations = [
+                evaluation.to_wire() for evaluation in result.evaluations
+            ]
 
         event = ScenarioRunFinishedEvent(
             **common_fields,
             status=status,
             results=results,
         )
-        self._emit_event(event)
+        # Marked before the event reaches the stream. on_next delivers to each
+        # subscriber in turn, so a later subscriber that raises would leave the
+        # event already delivered to the bus while the guard was still unset,
+        # and the outer error path would then publish a second finished event.
+        self._finished_emitted = True
+        try:
+            self._emit_event(event)
+        finally:
+            # The stream has to complete and the trace has to close even when
+            # publication raised: a subscriber that never sees on_completed
+            # keeps its worker waiting, and an open trace is never exported.
+            try:
+                self._events.on_completed()
+            except Exception:
+                logger.warning(
+                    "failed to complete the scenario event stream",
+                    exc_info=True,
+                )
 
-        # Signal end of event stream
-        self._events.on_completed()
-        self._trace.__exit__(None, None, None)
+            # reset() creates the trace, and it runs after the started event is
+            # emitted, so an early failure reaches here with no trace at all.
+            trace = getattr(self, "_trace", None)
+            if trace is not None:
+                try:
+                    trace.__exit__(None, None, None)
+                except Exception:
+                    logger.warning(
+                        "failed to close the scenario trace",
+                        exc_info=True,
+                    )
 
 
 def _build_scenario(
     *,
     name: str,
     description: str,
-    agents: List[AgentAdapter],
+    agents: Sequence[AgentLike],
     max_turns: Optional[int],
+    min_turns: Optional[int],
     verbose: Optional[Union[bool, int]],
     cache_key: Optional[str],
     debug: Optional[bool],
+    fetch_remote_traces: Optional[bool],
+    trace_wait_timeout: Optional[float],
     script: Optional[List[ScriptStep]],
     set_id: Optional[str],
     metadata: Optional[Dict[str, Any]],
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
+    parameters: Optional[Dict[str, Any]] = None,
+    fields: Optional[Dict[str, Any]] = None,
+    evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
 ) -> "ScenarioExecutor":
     """Shared setup used by both ``run()`` (threaded) and ``arun()`` (async-native)."""
     from ._tracing import ensure_tracing_initialized
@@ -1882,40 +2188,54 @@ def _build_scenario(
         description=description,
         agents=agents,
         max_turns=max_turns,
+        min_turns=min_turns,
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
+        fetch_remote_traces=fetch_remote_traces,
+        trace_wait_timeout=trace_wait_timeout,
         script=script,
         set_id=set_id,
         metadata=metadata,
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
+        parameters=parameters,
+        fields=fields,
+        evaluators=evaluators,
     )
 
 
 def _cleanup_scenario_spans(scenario: "ScenarioExecutor") -> None:
-    """Clear judge spans for this scenario's thread_id to prevent memory buildup."""
-    from ._tracing import judge_span_collector
+    """Clear judge spans and remote trace fetch state for this scenario's
+    thread_id to prevent memory buildup."""
+    from ._tracing import judge_span_collector, remote_trace_fetcher
 
     if hasattr(scenario, "_state") and scenario._state:
         judge_span_collector.clear_spans_for_thread(scenario._state.thread_id)
+        remote_trace_fetcher.clear_thread(scenario._state.thread_id)
 
 
 async def arun(
     name: str,
     description: str,
-    agents: List[AgentAdapter] = [],
+    agents: Sequence[AgentLike] = [],
     max_turns: Optional[int] = None,
+    min_turns: Optional[int] = None,
     verbose: Optional[Union[bool, int]] = None,
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
+    fetch_remote_traces: Optional[bool] = None,
+    trace_wait_timeout: Optional[float] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
+    parameters: Optional[Dict[str, Any]] = None,
+    fields: Optional[Dict[str, Any]] = None,
+    evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
@@ -1938,15 +2258,21 @@ async def arun(
         description=description,
         agents=agents,
         max_turns=max_turns,
+        min_turns=min_turns,
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
+        fetch_remote_traces=fetch_remote_traces,
+        trace_wait_timeout=trace_wait_timeout,
         script=script,
         set_id=set_id,
         metadata=metadata,
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
+        parameters=parameters,
+        fields=fields,
+        evaluators=evaluators,
     )
 
     try:
@@ -1963,17 +2289,23 @@ async def arun(
 async def run(
     name: str,
     description: str,
-    agents: List[AgentAdapter] = [],
+    agents: Sequence[AgentLike] = [],
     max_turns: Optional[int] = None,
+    min_turns: Optional[int] = None,
     verbose: Optional[Union[bool, int]] = None,
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
+    fetch_remote_traces: Optional[bool] = None,
+    trace_wait_timeout: Optional[float] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
     audio_playback: bool = False,
+    parameters: Optional[Dict[str, Any]] = None,
+    fields: Optional[Dict[str, Any]] = None,
+    evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -1995,14 +2327,38 @@ async def run(
         description: Detailed description of what the scenario tests
         agents: List of agent adapters (agent under test, user simulator, judge)
         max_turns: Maximum conversation turns before timeout (default: 10)
+        min_turns: Minimum turns guaranteed before the judge may volunteer a
+                 verdict — its finish_test tool is withheld on earlier turns.
+                 Explicit judge() steps and the final turn still deliver a
+                 terminal verdict. Must be a non-negative integer no greater
+                 than max_turns; zero is valid (invalid values raise ValueError).
         verbose: Show detailed output during execution
         cache_key: Cache key for deterministic behavior
         debug: Enable debug mode for step-by-step execution
+        fetch_remote_traces: Have the judge fetch the traces the agent under
+                 test reported to LangWatch for this conversation and evaluate
+                 them alongside locally collected spans (default: False).
+                 Requires the agent adapter to forward
+                 ``AgentInput.propagation_headers`` to the remote agent.
+        trace_wait_timeout: Maximum seconds the judge waits at verdict time
+                 for remote traces to arrive and stabilize (default: 30)
         script: Optional script steps to control scenario flow
         set_id: Optional set identifier for grouping related scenarios
         metadata: Optional metadata to attach to the scenario run.
                  Accepts arbitrary key-value pairs. The ``langwatch`` key
                  is reserved for platform-internal use.
+        parameters: Run parameters for the connected agent functions in
+                 ``agents`` (the objects ``langwatch.connect_agent``
+                 returns). A parameter not set here takes the default the
+                 function declares.
+        fields: Values the scenario carries next to its description, keyed
+                 by field name, for example a golden SQL query. Evaluator
+                 inputs read them through ``scenario.field(name)`` or by
+                 inference.
+        evaluators: LangWatch evaluators to run once the scenario has a
+                 verdict, built with ``scenario.evaluator(...)``. A required
+                 evaluator that fails fails the scenario; every result lands
+                 on ``result.evaluations`` and on the run in LangWatch.
 
     Returns:
         ScenarioResult containing the test outcome, conversation history,
@@ -2053,15 +2409,21 @@ async def run(
         description=description,
         agents=agents,
         max_turns=max_turns,
+        min_turns=min_turns,
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
+        fetch_remote_traces=fetch_remote_traces,
+        trace_wait_timeout=trace_wait_timeout,
         script=script,
         set_id=set_id,
         metadata=metadata,
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
         audio_playback=audio_playback,
+        parameters=parameters,
+        fields=fields,
+        evaluators=evaluators,
     )
 
     # We'll use a thread pool to run the execution logic, we

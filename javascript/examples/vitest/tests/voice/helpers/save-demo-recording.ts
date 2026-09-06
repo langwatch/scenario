@@ -72,15 +72,18 @@ export interface SaveDemoOptions {
  * Mirrors `python/examples/voice/_recording_helper.py:save_demo_recording`.
  */
 export function saveDemoRecording(
-  audio: SavableRecording | null | undefined,
+  audio: SavableRecording | voice.VoiceRecording | null | undefined,
   demoName: string,
   options: SaveDemoOptions = {},
 ): string | null {
   if (!audio || !audio.segments || audio.segments.length === 0) {
     return null;
   }
+  // The published VoiceRecording d.ts does not declare saveSegments, but the
+  // runtime object always carries it (see the SavableRecording note above).
+  const savable = audio as SavableRecording;
   const target = resolve(RECORDINGS_ROOT, demoName);
-  audio.saveSegments(target, { manifest: true });
+  savable.saveSegments(target, { manifest: true });
   pruneOrphanSegments(target);
   if (options.downsampleHz) {
     const fullWav = join(target, "full.wav");

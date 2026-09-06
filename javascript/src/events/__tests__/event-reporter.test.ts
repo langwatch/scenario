@@ -56,6 +56,19 @@ function makeAudioSnapshotEvent(): ScenarioEvent {
   } as unknown as ScenarioEvent;
 }
 
+/** A base64 run long enough to be recognised as an audio payload. */
+const LONG_BASE64_AUDIO = "QUJDRA".repeat(60);
+
+/** The same snapshot shape, with an audio payload of realistic size. */
+function makeLongAudioSnapshotEvent(): ScenarioEvent {
+  const event = makeAudioSnapshotEvent() as unknown as {
+    messages: { content: { input_audio?: { data: string } }[] }[];
+  };
+  const audioPart = event.messages[0]!.content[1]!;
+  audioPart.input_audio!.data = LONG_BASE64_AUDIO;
+  return event as unknown as ScenarioEvent;
+}
+
 function makeEvent(): ScenarioRunStartedEvent {
   return {
     type: ScenarioEventType.RUN_STARTED,
@@ -217,6 +230,96 @@ describe("EventReporter", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result).toEqual({});
+  });
+
+  it("throws on a non-2xx response so the bus can retry, carrying the status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("boom", { status: 500 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(reporter.postEvent(makeEvent())).rejects.toMatchObject({
+      status: 500,
+    });
+  });
+
+  it("throws on a network failure so the bus can retry", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("connection refused"));
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(reporter.postEvent(makeEvent())).rejects.toThrow(
+      "connection refused"
+    );
+  });
+
+  it("succeeds after the bus retries a fetch that failed twice", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient failure"))
+      .mockRejectedValueOnce(new Error("transient failure"))
+      .mockResolvedValue(
+        new Response(JSON.stringify({ url: "https://app.langwatch.ai/s/run-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(reporter.postEvent(makeEvent())).rejects.toThrow("transient failure");
+    await expect(reporter.postEvent(makeEvent())).rejects.toThrow("transient failure");
+    const result = await reporter.postEvent(makeEvent());
+
+    expect(result.setUrl).toBe("https://app.langwatch.ai/s/run-1");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("treats a 2xx response with a body that is not JSON as delivered", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    const result = await reporter.postEvent(makeEvent());
+
+    expect(result.setUrl).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps base64 audio out of the failure log", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(
+      reporter.postEvent(makeLongAudioSnapshotEvent()),
+    ).rejects.toMatchObject({ status: 500 });
+
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).not.toContain(LONG_BASE64_AUDIO);
+    expect(logged).toContain("b64 chars elided");
+    errorLog.mockRestore();
   });
 
   it("returns setUrl from a successful response", async () => {

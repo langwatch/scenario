@@ -12,6 +12,7 @@ The force-verdict path must:
 
 import json
 from types import SimpleNamespace
+from typing import Any, Dict, List, cast
 from unittest.mock import patch
 
 from scenario import JudgeAgent
@@ -203,6 +204,51 @@ class TestForceVerdictHardening:
             "function": {"name": "finish_test"},
         }
 
+    def test_strips_wait_for_traces_from_the_forced_call(self):
+        """The forced call offers finish_test and nothing else.
+
+        The verdict phase also offers wait_for_traces while the extension is
+        unused. A deny-list on the discovery names alone would leave it in,
+        and a model that ignores the pin and calls it reaches
+        _parse_response as an invalid tool call.
+        """
+        agent = JudgeAgent(criteria=["Agent works"], model="openai/gpt-5-mini")
+        tools = [
+            {"type": "function", "function": {"name": "expand_trace"}},
+            {"type": "function", "function": {"name": "wait_for_traces"}},
+            {"type": "function", "function": {"name": "finish_test"}},
+        ]
+
+        captured: Dict[str, object] = {}
+
+        def fake_completion(**kwargs: object) -> SimpleNamespace:
+            captured.update(kwargs)
+            return _mock_llm_response(
+                "finish_test",
+                {
+                    "criteria": {"agent_works": "true"},
+                    "reasoning": "ok",
+                    "verdict": "success",
+                },
+            )
+
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=fake_completion
+        ):
+            agent._force_verdict(
+                messages=[
+                    {"role": "system", "content": "sys"},
+                    {"role": "user", "content": "judge"},
+                ],
+                tools=tools,
+                effective_criteria=["Agent works"],
+                input_messages=[],
+            )
+
+        forced_tools = cast(List[Dict[str, Any]], captured["tools"])
+        forced_tool_names = {t["function"]["name"] for t in forced_tools}
+        assert forced_tool_names == {"finish_test"}
+
 
 class TestParseResponseSafetyNet:
     def test_leaked_discovery_tool_returns_inconclusive_not_exception(self):
@@ -211,7 +257,11 @@ class TestParseResponseSafetyNet:
             "expand_trace", {"span_ids": ["xx"]}, call_id="tc-leak"
         )
 
-        result = agent._parse_response(leaked, ["A", "B"], messages=[], input_messages=[])
+        # The leak scenario only exists on the force-verdict path, so the
+        # judgment is by definition forced.
+        result = agent._parse_response(
+            leaked, ["A", "B"], messages=[], input_messages=[], verdict_forced=True
+        )
 
         assert isinstance(result, ScenarioResult)
         assert result.success is False

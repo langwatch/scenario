@@ -283,3 +283,37 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
     2000,
   );
 });
+
+describe("OpenAIRealtimeAgentAdapter api key resolution", () => {
+  it("prefers OPENAI_REALTIME_API_KEY over OPENAI_API_KEY for the direct ws", () => {
+    const prevRealtime = process.env.OPENAI_REALTIME_API_KEY;
+    const prevOpenai = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "vk-lw-virtual";
+    process.env.OPENAI_REALTIME_API_KEY = "sk-real-provider";
+    try {
+      const adapter = new OpenAIRealtimeAgentAdapter({});
+      expect((adapter as unknown as { _apiKey: string })._apiKey).toBe(
+        "sk-real-provider"
+      );
+    } finally {
+      process.env.OPENAI_REALTIME_API_KEY = prevRealtime;
+      process.env.OPENAI_API_KEY = prevOpenai;
+    }
+  });
+
+  it("falls back to OPENAI_API_KEY when no realtime key is set", () => {
+    const prevRealtime = process.env.OPENAI_REALTIME_API_KEY;
+    const prevOpenai = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_REALTIME_API_KEY;
+    process.env.OPENAI_API_KEY = "sk-plain";
+    try {
+      const adapter = new OpenAIRealtimeAgentAdapter({});
+      expect((adapter as unknown as { _apiKey: string })._apiKey).toBe(
+        "sk-plain"
+      );
+    } finally {
+      process.env.OPENAI_REALTIME_API_KEY = prevRealtime;
+      process.env.OPENAI_API_KEY = prevOpenai;
+    }
+  });
+});

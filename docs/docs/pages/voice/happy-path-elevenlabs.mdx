@@ -11,22 +11,34 @@ description: Step-by-step guide to test a deployed ElevenLabs Conversational AI 
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.11+ **or** Node.js 20+
 - An ElevenLabs account with a deployed Conversational AI agent (`agent_id`)
 - `ELEVENLABS_API_KEY`
 - `OPENAI_API_KEY` — for the judge LLM and the default user simulator's TTS
 
 > **Why an OpenAI key?** Scenario's judge is an LLM, and the user simulator's default TTS is OpenAI. Both are separate from your ElevenLabs agent. A judge is what turns "did the agent sound warm?" into an automated pass/fail.
 
+> **Routing through a LangWatch AI Gateway? (TypeScript)** Set `ELEVENLABS_BASE_URL` to the gateway host with no `/v1` on the end, and `ELEVENLABS_CONVAI_API_KEY` to your virtual key. The adapter then asks the gateway for the signed URL instead of ElevenLabs, so the call is checked against the key's budget and session cap and billed as one spend record. The conversation websocket the signed URL names still belongs to ElevenLabs, so nothing about latency or the wire protocol changes.
+>
+> The gateway fronts the ConvAI mint route only. ElevenLabs speech-to-text and text-to-speech keep talking to ElevenLabs with `ELEVENLABS_API_KEY`, which is why the ConvAI key has a variable of its own. Leave both new variables unset and every request goes to ElevenLabs as before.
+
 ---
 
 ## Step 1 — Install
 
-```bash
+:::code-group
+
+```bash [python]
 pip install scenario
 ```
 
-Voice is first-class — no `[voice]` extras flag, no separate install step. ffmpeg ships bundled via `imageio-ffmpeg`. You're ready.
+```bash [typescript]
+pnpm install @langwatch/scenario vitest
+```
+
+:::
+
+Voice is first-class — no extras flag, no separate install step. On Python, ffmpeg ships bundled via `imageio-ffmpeg`. You're ready.
 
 ---
 
@@ -46,9 +58,10 @@ OPENAI_API_KEY=your-openai-key
 
 ## Step 3 — Write a scenario
 
-Create `test_my_voice_agent.py`:
+:::code-group
 
-```python
+```python [python]
+# test_my_voice_agent.py
 import os
 import pytest
 import scenario
@@ -83,6 +96,43 @@ async def test_greeting_is_warm():
     assert result.success, result.reasoning
 ```
 
+```typescript [typescript]
+// my-voice-agent.test.ts
+import scenario from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+describe("greeting", () => {
+  it("is warm", async () => {
+    const result = await scenario.run({
+      name: "greeting_warmth",
+      description: "User calls in; agent should greet warmly and offer help.",
+      agents: [
+        // The agent under test — your real ElevenLabs agent.
+        scenario.elevenLabsAgent({
+          agentId: process.env.ELEVENLABS_AGENT_ID!,
+          apiKey: process.env.ELEVENLABS_API_KEY!,
+        }),
+        // The simulated caller — what your agent would hear.
+        scenario.userSimulatorAgent({ voice: "openai/nova" }),
+        // The judge — LLM-evaluates whether criteria were met.
+        scenario.judgeAgent({
+          criteria: ["The agent greeted warmly and offered to help"],
+        }),
+      ],
+      script: [
+        scenario.agent(), // greeting drains first (EL sends first_message on connect)
+        scenario.user("Hi, I have a question about my account"),
+        scenario.agent(),
+        scenario.judge(),
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+:::
+
 **How the three agents fit together:**
 - `ElevenLabsAgentAdapter` is **your real agent under test** — the one whose behavior regressions you're catching.
 - `UserSimulatorAgent` plays the human caller — TTS-es scripted lines so your agent hears real audio.
@@ -97,9 +147,17 @@ async def test_greeting_is_warm():
 
 ## Step 4 — Run it
 
-```bash
+:::code-group
+
+```bash [python]
 pytest test_my_voice_agent.py -v
 ```
+
+```bash [typescript]
+npx vitest run my-voice-agent.test.ts
+```
+
+:::
 
 A pass means your agent met the criteria. A failure includes the judge's reasoning:
 
@@ -114,7 +172,9 @@ That verdict points at the exact drift. Drop the scenario into CI and it fires o
 
 ## Step 5 — What you get back
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(...)
 
 result.success              # bool
@@ -127,6 +187,21 @@ result.timeline                    # ordered VoiceEvent list
 result.latency                     # LatencyMetrics: TTFB, p50, p95
 ```
 
+```typescript [typescript]
+const result = await scenario.run({ ... });
+
+result.success;                // boolean
+result.reasoning;              // judge's verdict text
+result.audio;                  // VoiceRecording object
+result.audio.save("out.wav");  // save full conversation as WAV
+result.audio.save("out.mp3");  // or MP3 (ffmpeg)
+result.audio.segments;         // AudioSegment[] per speaker
+result.timeline;               // ordered VoiceEvent list
+result.latency;                // LatencyMetrics: TTFB, p50, p95
+```
+
+:::
+
 Good next step: `result.audio.save("captured.wav")` after a failed run and listen to the actual conversation. The judge is an LLM — sometimes you need ears.
 
 ---
@@ -135,13 +210,27 @@ Good next step: `result.audio.save("captured.wav")` after a failed run and liste
 
 A noisier scenario:
 
-```python
+:::code-group
+
+```python [python]
 scenario.UserSimulatorAgent(
     voice="openai/nova",
     persona="Frustrated customer calling from a busy cafe",
     audio_effects=[scenario.background_noise("cafe", 0.3)],
 )
 ```
+
+```typescript [typescript]
+import scenario, { voice } from "@langwatch/scenario";
+
+scenario.userSimulatorAgent({
+  voice: "openai/nova",
+  persona: "Frustrated customer calling from a busy cafe",
+  audioEffects: [voice.effects.backgroundNoise("cafe", 0.3)],
+});
+```
+
+:::
 
 **Bundled noise presets** (ship in the SDK, no download):
 - `cafe` — restaurant/coffee shop hum
@@ -168,10 +257,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Python
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install scenario
       - run: pytest test_my_voice_agent.py
+      # …or TypeScript
+      # - uses: actions/setup-node@v4
+      #   with: { node-version: '22' }
+      # - run: pnpm install --frozen-lockfile && npx vitest run
         env:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_AGENT_ID: ${{ secrets.ELEVENLABS_AGENT_ID }}

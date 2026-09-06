@@ -1,6 +1,6 @@
 import logging
 import pytest
-from typing import Any, cast as _cast, List, Tuple, Dict
+from typing import Any, cast as _cast, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 from scenario import JudgeAgent, UserSimulatorAgent, succeed
@@ -46,7 +46,7 @@ class MockEventReporter(EventReporter):
         # Don't call super().__init__() to avoid setting up HTTP client
         self.posted_events: List[ScenarioEvent] = []
 
-    async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+    async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
         """Store events instead of posting them."""
         self.posted_events.append(event)
         return {}
@@ -474,3 +474,134 @@ async def test_empty_user_turn_state_unchanged_after_snapshot() -> None:
         msg.get("role") == "user" and msg.get("content") == ""
         for msg in captured_messages_at_snapshot
     ), "_state.messages must contain the empty-content user turn unchanged after snapshot emission"
+
+
+# ---------------------------------------------------------------------------
+# Ref: specs/agent-adapter-names.feature
+# ---------------------------------------------------------------------------
+
+
+class NamedAgent(AgentAdapter):
+    name = "MyAgent"
+
+    async def call(self, input: AgentInput) -> str:
+        return "Hey, how can I help you?"
+
+
+class PlainAgent(AgentAdapter):
+    async def call(self, input: AgentInput) -> str:
+        return "Hey, how can I help you?"
+
+
+class BlankNameAgent(AgentAdapter):
+    name = "   "
+
+    async def call(self, input: AgentInput) -> str:
+        return "Hey, how can I help you?"
+
+
+class PaddedNameAgent(AgentAdapter):
+    name = "  MyAgent  "
+
+    async def call(self, input: AgentInput) -> str:
+        return "Hey, how can I help you?"
+
+
+async def _run_started_metadata(
+    agent: AgentAdapter,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Run a scenario with the given agent and return the RUN_STARTED metadata dict."""
+    mock_reporter = MockEventReporter()
+    event_bus = ScenarioEventBus(event_reporter=mock_reporter)
+
+    executor = ScenarioExecutor(
+        name="agents scenario",
+        description="test agents metadata",
+        agents=[
+            agent,
+            MockUserSimulatorAgent(model="none"),
+            MockJudgeAgent(model="none", criteria=["test criteria"]),
+        ],
+        event_bus=event_bus,
+        metadata=metadata,
+    )
+
+    events: List[ScenarioEvent] = []
+    executor.events.subscribe(events.append)
+    await executor.run()
+
+    start_event: ScenarioRunStartedEvent = next(
+        e for e in events if isinstance(e, ScenarioRunStartedEvent)
+    )
+    return start_event.metadata.to_dict()
+
+
+@pytest.mark.asyncio
+async def test_adapter_with_explicit_name_reports_it() -> None:
+    """An adapter that sets a name reports that name with role "agent"."""
+    metadata_dict = await _run_started_metadata(NamedAgent())
+
+    assert metadata_dict["agents"][0] == {"name": "MyAgent", "role": "agent"}
+
+
+@pytest.mark.asyncio
+async def test_adapter_without_name_reports_its_class_name() -> None:
+    """An adapter that sets no name reports its class name."""
+    metadata_dict = await _run_started_metadata(PlainAgent())
+
+    assert metadata_dict["agents"][0] == {"name": "PlainAgent", "role": "agent"}
+
+
+@pytest.mark.asyncio
+async def test_name_keeps_no_space_around_it() -> None:
+    """An adapter name reports without the space around it."""
+    metadata_dict = await _run_started_metadata(PaddedNameAgent())
+
+    assert metadata_dict["agents"][0] == {"name": "MyAgent", "role": "agent"}
+
+
+@pytest.mark.asyncio
+async def test_blank_name_counts_as_no_name() -> None:
+    """A blank name reports the class name, the way the TypeScript SDK does."""
+    metadata_dict = await _run_started_metadata(BlankNameAgent())
+
+    assert metadata_dict["agents"][0] == {
+        "name": "BlankNameAgent",
+        "role": "agent",
+    }
+
+
+@pytest.mark.asyncio
+async def test_user_simulator_and_judge_report_their_roles() -> None:
+    """The agents list keeps the scenario order and reports each role."""
+    metadata_dict = await _run_started_metadata(PlainAgent())
+
+    assert metadata_dict["agents"] == [
+        {"name": "PlainAgent", "role": "agent"},
+        {"name": "MockUserSimulatorAgent", "role": "user"},
+        {"name": "MockJudgeAgent", "role": "judge"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agents_stay_out_of_the_langwatch_namespace() -> None:
+    """The agents list is a top level key and the langwatch key is untouched."""
+    metadata_dict = await _run_started_metadata(
+        PlainAgent(), metadata={"langwatch": {"threadId": "thread-1"}}
+    )
+
+    assert metadata_dict["agents"][0]["name"] == "PlainAgent"
+    assert metadata_dict["langwatch"] == {"threadId": "thread-1"}
+
+
+@pytest.mark.asyncio
+async def test_user_metadata_passes_through_next_to_the_agents_list() -> None:
+    """User metadata keys still reach the event alongside the agents list."""
+    metadata_dict = await _run_started_metadata(
+        PlainAgent(), metadata={"promptId": "abc-123", "environment": "staging"}
+    )
+
+    assert metadata_dict["promptId"] == "abc-123"
+    assert metadata_dict["environment"] == "staging"
+    assert len(metadata_dict["agents"]) == 3

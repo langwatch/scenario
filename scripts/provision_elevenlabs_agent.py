@@ -136,6 +136,10 @@ def _create_agent(api_key: str) -> str:
                 "conversation_config_override": {
                     "agent": {
                         "first_message": True,
+                        # Allowlisted so the adapter's `overrides` knob can be
+                        # exercised end-to-end (issue #838). EL rejects any
+                        # override the agent has not opted in to.
+                        "language": True,
                         "prompt": {"prompt": True},
                     }
                 }
@@ -182,6 +186,10 @@ def _patch_agent_prompt(api_key: str, agent_id: str) -> None:
                 "conversation_config_override": {
                     "agent": {
                         "first_message": True,
+                        # Allowlisted so the adapter's `overrides` knob can be
+                        # exercised end-to-end (issue #838). EL rejects any
+                        # override the agent has not opted in to.
+                        "language": True,
                         "prompt": {"prompt": True},
                     }
                 }

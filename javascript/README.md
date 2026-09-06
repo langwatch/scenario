@@ -37,6 +37,7 @@ import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 // 1. Create an adapter for your agent
 const echoAgent: AgentAdapter = {
+  name: "EchoAgent",
   role: AgentRole.AGENT,
   call: async (input) => {
     // This agent simply echoes back the last message content
@@ -94,6 +95,7 @@ describe("Weather Agent", () => {
 
     // 2. Create an adapter for your agent
     const weatherAgent: AgentAdapter = {
+      name: "WeatherAgent",
       role: AgentRole.AGENT,
       call: async (input) => {
         const response = await generateText({
@@ -193,10 +195,18 @@ Agents are the participants in a scenario. They are defined by the `AgentAdapter
 
 ```typescript
 export interface AgentAdapter {
+  name?: string; // Shown by LangWatch as the target of the run
   role: AgentRole; // USER, AGENT, or JUDGE
   call: (input: AgentInput) => Promise<AgentReturnTypes>;
 }
 ```
+
+Each run reports its agents to LangWatch. LangWatch shows the name of the agent as
+the target of the run. When you set no name, the framework uses the class name of
+the adapter. An adapter written as a plain object has no class name of its own, so
+set a name there to see the agent as the target of the run.
+
+A function returned by [`connectAgent`](https://langwatch.ai/docs/agent-testing/connect-your-agent) from the `langwatch` package is accepted as is: `scenario.run({ agents: [supportAgent, userSimulatorAgent(), judgeAgent({ criteria })] })` runs it as the agent under test, and `parameters: { model: "gpt-5-mini" }` on the config sets its run parameters.
 
 Scenario provides built-in agents for common testing needs:
 
@@ -219,7 +229,7 @@ A `ScriptStep` is a function that receives the current `ScenarioExecutionState` 
 - `succeed(reasoning?)`: Ends the scenario with a success verdict.
 - `fail(reasoning?)`: Ends the scenario with a failure verdict.
 
-For voice tests, additional steps are available: `sleep(seconds)`, `silence(duration)`, `audio(pathOrBytes)`, `dtmf(tones)`, `interrupt(options)`, plus the non-blocking `agent({ wait: false })` and `voiceProceed({ interruptions })`. See the [TypeScript voice guide](https://scenario.langwatch.ai/voice/getting-started).
+For voice tests, additional steps are available: `sleep(seconds)`, `silence(duration)`, `audio(pathOrBytes)`, `dtmf(tones)`, `interrupt(options)`, plus the non-blocking `agent({ wait: false })`. See the [TypeScript voice guide](https://scenario.langwatch.ai/voice/getting-started).
 
 You can also provide your own functions as script steps for making assertions:
 
@@ -267,7 +277,7 @@ expect(result.success).toBe(true);
 
 **Shipped adapters** (factory on `scenario`, also exported as classes under the `voice` namespace): `scenario.pipecatAgent` (Pipecat WebSocket), `scenario.openAIRealtimeAgent` (model-as-agent + model-as-user-simulator via `role`), `scenario.geminiLiveAgent`, `scenario.elevenLabsAgent` (hosted ConvAI), `scenario.twilioAgent` (Media Streams), and `scenario.composableAgent` (bring-your-own STT + LLM + TTS). LiveKit / Vapi / generic WebRTC / generic WebSocket are Python-only for now and **not** exported in TS.
 
-**Additional surface:** new script steps `scenario.sleep` / `scenario.silence` / `scenario.audio` / `scenario.dtmf` / `scenario.interrupt` (+ the non-blocking `scenario.agent({ wait: false })` turn, also exported as the alias `scenario.voiceAgent({ wait: false })`, and `scenario.voiceProceed({ interruptions })`); audio effects under `voice.effects` (`backgroundNoise`, `phoneQuality`, `packetLoss`, …); per-run provider config via `run({ voice: { stt, tts } })`; and `result.audio` / `result.timeline` / `result.latency` on the result.
+**Additional surface:** new script steps `scenario.sleep` / `scenario.silence` / `scenario.audio` / `scenario.dtmf` / `scenario.interrupt` (+ the non-blocking `scenario.agent({ wait: false })` turn, also exported as the alias `scenario.voiceAgent({ wait: false })`); audio effects under `voice.effects` (`backgroundNoise`, `phoneQuality`, `packetLoss`, …); per-run provider config via `run({ voice: { stt, tts } })`; and `result.audio` / `result.timeline` / `result.latency` on the result.
 
 - **Full TypeScript voice guide:** [scenario.langwatch.ai/voice/getting-started](https://scenario.langwatch.ai/voice/getting-started) — the real public API, mirroring the worked examples.
 - **Capability matrix (TS):** [`docs/voice/capability-matrix.md`](./docs/voice/capability-matrix.md) — per-adapter features, wire formats, and the errors that reference them.

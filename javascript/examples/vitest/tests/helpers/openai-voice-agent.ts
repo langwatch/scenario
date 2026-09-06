@@ -140,7 +140,7 @@ ${this.constructor.name} TEXT FALLBACK
     return this.openai.chat.completions.create({
       model: "gpt-audio-mini",
       modalities: ["text", "audio"],
-      audio: { voice: this.config.voice, format: "wav" },
+      audio: { voice: this.config.voice ?? "alloy", format: "wav" },
       messages: this.systemMessage
         ? [this.systemMessage, ...messages]
         : messages,

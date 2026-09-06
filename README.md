@@ -122,6 +122,8 @@ scenario.configure(default_model="openai/gpt-4.1-mini")
 @pytest.mark.asyncio
 async def test_vegetarian_recipe_agent():
     class Agent(scenario.AgentAdapter):
+        name = "VegetarianRecipeAgent"
+
         async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
             return vegetarian_recipe_agent(input.messages)
 
@@ -191,6 +193,7 @@ import { describe, it, expect } from "vitest";
 
 describe("Vegetarian Recipe Agent", () => {
   const agent: AgentAdapter = {
+    name: "VegetarianRecipeAgent",
     role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
@@ -255,6 +258,8 @@ This is how it will look like:
 [![asciicast](https://github.com/langwatch/scenario/raw/main/assets/ascii-cinema.svg)](https://asciinema.org/a/nvO5GWGzqKTTCd8gtNSezQw11)
 
 You can find the same code example in [python/examples/](python/examples/test_vegetarian_recipe_agent.py) or [javascript/examples/](javascript/examples/vitest/tests/vegetarian-recipe-agent.test.ts).
+
+An agent already [connected to LangWatch](https://langwatch.ai/docs/agent-testing/connect-your-agent) with `langwatch.connect_agent` (Python) or `connectAgent` (TypeScript) needs no adapter class: pass the decorated function straight to `run`, as in `scenario.run(agents=[support_agent, scenario.UserSimulatorAgent(), scenario.JudgeAgent(...)])`.
 
 Now check out the [full documentation](https://scenario.langwatch.ai) to learn more and next steps.
 

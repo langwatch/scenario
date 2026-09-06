@@ -10,14 +10,8 @@
  * response.cancel on interrupt) without hitting a network.
  */
 
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { afterAll, beforeAll, expect } from "vitest";
-import { WebSocketServer, type WebSocket as WsServerSocket } from "ws";
+import { expect } from "vitest";
 
 import { AgentRole } from "../../../domain/agents";
 import {
@@ -28,18 +22,8 @@ import {
   type OpenAIRealtimeAgentAdapterInit,
   silentChunk,
 } from "../../index";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature",
-);
+import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 
 interface ServerEvent {
   type: string;
@@ -55,67 +39,31 @@ interface MockHandle {
   reset: () => void;
 }
 
-let http: Server;
-let wss: WebSocketServer;
-let activeSocket: WsServerSocket | null = null;
-let socketReadyResolve: (() => void) | null = null;
-let socketReady: Promise<void> = new Promise((r) => {
-  socketReadyResolve = r;
-});
 let observedEvents: ServerEvent[] = [];
 
-beforeAll(
-  async () =>
-    await new Promise<void>((doneStart) => {
-      http = createServer();
-      wss = new WebSocketServer({ server: http });
-      wss.on("connection", (sock) => {
-        activeSocket = sock;
-        if (socketReadyResolve) socketReadyResolve();
-        sock.on("message", (raw) => {
-          const text =
-            typeof raw === "string"
-              ? raw
-              : Buffer.isBuffer(raw)
-                ? raw.toString("utf8")
-                : Buffer.from(raw as ArrayBuffer).toString("utf8");
-          let parsed: Record<string, unknown>;
-          try {
-            parsed = JSON.parse(text);
-          } catch {
-            return;
-          }
-          observedEvents.push({
-            type: String(parsed.type ?? ""),
-            raw: text,
-            data: parsed,
-          });
-        });
-      });
-      http.listen(0, "127.0.0.1", doneStart);
-    }),
-);
-
-afterAll(async () => {
-  wss.close();
-  await new Promise<void>((done) => http.close(() => done()));
+const server = setupMockRealtimeServer((text) => {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return;
+  }
+  observedEvents.push({
+    type: String(parsed.type ?? ""),
+    raw: text,
+    data: parsed,
+  });
 });
 
 function newHandle(): MockHandle {
   observedEvents = [];
-  socketReady = new Promise<void>((r) => {
-    socketReadyResolve = r;
-  });
+  server.arm();
   return {
-    port: (http.address() as AddressInfo).port,
+    port: server.port(),
     events: observedEvents,
-    push: (payload) => {
-      const sock = activeSocket;
-      if (!sock) throw new Error("socket not yet connected");
-      sock.send(JSON.stringify(payload));
-    },
+    push: (payload) => server.push(payload),
     get socketReady() {
-      return socketReady;
+      return server.socketReady();
     },
     reset: () => {
       observedEvents.length = 0;
@@ -137,7 +85,7 @@ function buildAdapter(
   });
 }
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

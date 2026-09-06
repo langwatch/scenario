@@ -226,16 +226,6 @@ describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cl
         },
         [
           async (_state, executor) => {
-            // Non-zero delayRange so interruptBargeInDelayMs is set (to 1000 ms
-            // with sampleDelay RNG=1) before voiceifyText is called on the barge-in turn.
-            (
-              executor as unknown as { voiceInterruptions: InterruptionConfig }
-            ).voiceInterruptions = new InterruptionConfig({
-              probability: 1.0,
-              strategy: "random_phrase",
-              delayRange: [0.5, 1.0],
-            });
-
             // Run 2 turns.  The interruption fires on turn 2's AGENT step
             // (after USER has been processed in turn 1).  voiceifyText throws
             // on the first call → catch block runs → must clear
@@ -251,6 +241,11 @@ describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cl
         "test-batch-id",
       );
 
+      // The InterruptionConfig is pinned via the interruptOverrides.config test
+      // seam so the sampled delay is a known non-zero value. Non-zero delayRange
+      // so interruptBargeInDelayMs is set (to 1000 ms with sampleDelay RNG=1)
+      // before voiceifyText is called on the barge-in turn.
+      //
       // RNG strategy:
       //   call 0 (probability check): returns 0 → 0 < 1.0 → barge-in fires
       //   call 1 (sampleDelay):       returns 1 → delay = 0.5 + 1*(1.0-0.5) = 1.0 s → 1000 ms
@@ -261,16 +256,21 @@ describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cl
       let rngCallCount = 0;
       exec.interruptOverrides = {
         rng: () => (rngCallCount++ === 0 ? 0 : 1),
+        config: new InterruptionConfig({
+          probability: 1.0,
+          strategy: "random_phrase",
+          delayRange: [0.5, 1.0],
+        }),
       };
 
       await exec.execute();
 
       // After the run, interruptBargeInDelayMs must be undefined.
       // - With fix: the catch block cleared it to undefined.
-      // - Without fix: still 500ms (stale from the failed attempt).
+      // - Without fix: still 1000ms (stale from the failed attempt).
       // No successful fireUserInterrupt ran (second barge-in was skipped), so
       // the field has NOT been consumed by a success path — it remains as-set
-      // by the catch (fix: undefined) or as-set by the sample (no fix: 500ms).
+      // by the catch (fix: undefined) or as-set by the sample (no fix: 1000ms).
       const remainingDelay = exec.interruptBargeInDelayMs;
 
       expect(
@@ -285,7 +285,7 @@ describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cl
 
 describe("maybeScheduleInterruptedAgentTurn — rejection propagation (P2 fix)", () => {
   it(
-    "rejects execute() when the background AGENT turn throws during voiceProceed({ interruptions })",
+    "rejects execute() when the background AGENT turn throws during a probability-driven barge-in",
     async () => {
       const voiceAgent = new FailingVoiceAgent();
       const userSim = new VoiceUserSim();
@@ -300,15 +300,6 @@ describe("maybeScheduleInterruptedAgentTurn — rejection propagation (P2 fix)",
           agents: [voiceAgent, userSim, judge],
         },
         [
-          (_state, executor) => {
-            (
-              executor as unknown as { voiceInterruptions: InterruptionConfig }
-            ).voiceInterruptions = new InterruptionConfig({
-              probability: 1.0,
-              strategy: "random_phrase",
-              delayRange: [0, 0],
-            });
-          },
           async (_state, executor) => {
             // Use undefined turns so the proceed loop runs a second iteration
             // (after USER finishes) where maybeScheduleInterruptedAgentTurn sees
@@ -321,8 +312,17 @@ describe("maybeScheduleInterruptedAgentTurn — rejection propagation (P2 fix)",
         ],
         "test-batch-id",
       );
-      // RNG = 0 → always fires (0 < 1.0) and picks phrase[0].
-      exec.interruptOverrides = { rng: () => 0 };
+      // RNG = 0 → always fires (0 < 1.0) and picks phrase[0]. The config is
+      // pinned via the interruptOverrides.config test seam; delayRange:[0,0]
+      // keeps the barge-in immediate and deterministic.
+      exec.interruptOverrides = {
+        rng: () => 0,
+        config: new InterruptionConfig({
+          probability: 1.0,
+          strategy: "random_phrase",
+          delayRange: [0, 0],
+        }),
+      };
 
       await expect(exec.execute()).rejects.toThrow("agent-call-failure");
     },

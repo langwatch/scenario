@@ -470,18 +470,13 @@ Feature: Voice agent testing in Scenario SDK
     Then a clear UnsupportedCapabilityError is raised naming the adapter and the missing capability
     And the error message points to the capability matrix in the docs
 
-  @integration @ts-bound @ts-script-step
-  Scenario: proceed(interruptions=InterruptionConfig(...)) injects random interruptions
-    # Source §4.4, L478-492
-    Given proceed(turns=5, interruptions=InterruptionConfig(probability=0.3, delay_range=(0.5,3.0), strategy="contextual"))
-    When proceed runs
-    Then ~30% of agent turns are interrupted with contextual LLM-generated phrases
-    And delay before each interrupt is sampled uniformly in [0.5, 3.0]
-
   @integration @ts-bound @ts-interruption-cfg
   Scenario: InterruptionConfig strategy="random_phrase" picks from a canned phrase list
-    # Source §4.4, L491
-    Given proceed(interruptions=InterruptionConfig(strategy="random_phrase"))
+    # Source §4.4, L491. InterruptionConfig is the internal interruption-policy
+    # object: probabilistic barge-ins are driven by the user simulator's
+    # interruptProbability during a plain proceed(), with the policy injected via
+    # the interruptOverrides.config test seam. There is no proceed(interruptions=...) API.
+    Given an InterruptionConfig(strategy="random_phrase") interruption policy
     When proceed runs and interrupts
     Then the interruption content is drawn from the canned phrase list
 
@@ -840,27 +835,6 @@ Feature: Voice agent testing in Scenario SDK
     Then the agent recovered and the conversation is multi-turn
     And the agent reply was actually cut off and then recovered
 
-  @e2e @ts-random-interruptions-demo
-  Scenario: Demo — random interruptions via interruptProbability + voiceProceed
-    # Covers §6.7: UserSimulatorAgent({interruptProbability}) + voiceProceed({turns,
-    # interruptions: InterruptionConfig({...})}) injects barge-ins across the run.
-    #
-    # What this proves: probabilistic barge-in fires (user_interrupt event) with a
-    # fired_after_speech outcome (timing correct), canned-phrase strategy ran (user
-    # segment carries a phrase from the pool), cut-off-boundary LABEL fires
-    # (transcriptTruncated on at least one agent seg), and the bot recovers.
-    #
-    # What this does NOT prove: real audio-level mid-stream cut-off. The bundled
-    # Pipecat stub bot generates TTS in a burst and streams faster than realtime —
-    # by the time adapter.interrupt() runs all frames are already sent. The segment
-    # plays in full but is correctly LABELED at the interrupt boundary. For REAL
-    # audio truncation see the gemini-live-interruption scenario (server-side cancel).
-    Given a user simulator with interruptProbability and voiceProceed({ interruptions })
-    When the multi-turn demo script runs via scenario.run()
-    Then at least one barge-in fired mid-utterance and the canned-phrase strategy ran
-    And the agent recovered with non-empty audio after the last interrupt
-    And the conversation involved multiple turns
-
   @e2e @ts-elevenlabs-interruption-demo
   Scenario: Demo — ElevenLabs interruption (server VAD barge-in)
     # Covers: ElevenLabs ConvAI has no client cancel — server VAD detects the
@@ -979,6 +953,39 @@ Feature: Voice agent testing in Scenario SDK
     Given an audio turn exceeding 25 minutes in the default STT provider
     When transcription is requested
     Then the audio is split into chunks under the limit and concatenated
+
+  @unit
+  Scenario: Python swaps STT providers via scenario.set_stt_provider
+    # Python's entry point for the same swap TypeScript spells
+    # run({ voice: { stt } }). configure() carries global execution settings
+    # and has no stt argument (ADR-002, ADR-003).
+    Given a custom STTProvider implementation
+    When scenario.set_stt_provider(CustomProvider()) is called
+    Then the custom provider's transcribe() is invoked instead of the default
+
+  @unit
+  Scenario: scenario.configure rejects an stt argument
+    Given the public scenario.configure entry point
+    When it is called with stt=CustomProvider()
+    Then it raises TypeError naming stt as an unexpected keyword argument
+
+  @unit
+  Scenario: set_stt_provider accepts any object that can transcribe
+    # Structural, matching isSttProvider in the TypeScript resolver, so the
+    # same object is not valid in one runtime and rejected in the other.
+    Given an object with a callable transcribe() that does not subclass STTProvider
+    When it is passed to scenario.set_stt_provider
+    Then it becomes the installed provider and transcribe() routes to it
+    And an object with no transcribe() raises TypeError at the call site
+    And the installed provider is unchanged after that rejection
+
+  @unit
+  Scenario: no shipped docstring or log advertises configure(stt=...)
+    # The claim that configure(stt=...) installs a provider was the whole of
+    # bug #743: the argument never existed, so every caller following the
+    # docs hit a TypeError.
+    Given the shipped scenario package sources and examples
+    Then none of them mention configure(stt=
 
   # ======================================================================
   # Adapter Capability Matrix — new requirement

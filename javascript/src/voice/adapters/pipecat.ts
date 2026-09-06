@@ -22,10 +22,14 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
+import type { Context } from "@opentelemetry/api";
+
 import { AgentRole } from "../../domain/agents";
+import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { currentSpan, setSpanAttributes, voiceReceiveSpanUnder } from "../telemetry";
 import { sleep } from "../utils";
 import { PendingTransportError } from "./pending-transport-error";
 import {
@@ -188,6 +192,14 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
    * subtle risk of one advancing while the other lags.
    */
   private interruptPhase: "idle" | "interrupted" = "idle";
+  /**
+   * The turn context we last emitted a background `voice.audio.receive` span
+   * for — so {@link flushBufferedMulaw} spans only the FIRST wire delivery of
+   * each turn (one span/turn, no per-chunk flood). Reset implicitly: the next
+   * turn publishes a distinct `_voiceTurnContext` (#774).
+   */
+  private bgSpanTurnContext?: Context;
+  private readonly logger = new Logger("PipecatAgentAdapter");
 
   constructor(init: PipecatAgentAdapterInit = {}) {
     super();
@@ -284,6 +296,15 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
         },
       }),
     );
+
+    // Stamp Pipecat transport attrs onto the active `voice.adapter.connect` span
+    // (opened by `startVoiceAdapters`). Base spans are name-owned; the adapter
+    // contributes attributes, never a parallel span name — mirror ElevenLabs'
+    // `voice.elevenlabs.agent_id` seam (`adapters/elevenlabs.ts`).
+    setSpanAttributes(currentSpan(), {
+      "voice.pipecat.transport": this.transport,
+      "voice.pipecat.transport_format": this.transportFormat,
+    });
   }
 
   /** Whether the Media Streams WebSocket is open (Gap #11). */
@@ -481,8 +502,48 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     }
     this.mulawChunks = [];
     this.mulawChunksByteLength = 0;
-    const pcm = mulaw8kToPcm16At24k(mulaw);
-    const chunk = new AudioChunk({ data: pcm });
+    // On the FIRST wire delivery of a turn (base call() published its context on
+    // the adapter), wrap the decode+deliver in a voice.audio.receive span
+    // parented to THAT turn (#774) — so this background ws-callback's receive
+    // work is attributed to the turn instead of the callback's detached/root
+    // context. A producer-side delivery marker (carries the delivered byte
+    // count); the consumer-side wait + timeout/ERROR (P3) live on the base
+    // receive span that wraps receiveAudio, disambiguated by
+    // voice.pipecat.recv.source. Emitted at most once per turn (matching the
+    // base's one-receive-span-per-turn granularity + the epic's no-per-tick-flood
+    // rule). Between turns _voiceTurnContext is undefined and we decode without a
+    // span, so no detached span leaks from a callback firing outside a turn.
+    let chunk: AudioChunk;
+    try {
+      const parent = this._voiceTurnContext;
+      if (parent !== undefined && parent !== this.bgSpanTurnContext) {
+        this.bgSpanTurnContext = parent;
+        chunk = voiceReceiveSpanUnder(
+          parent,
+          {
+            "voice.adapter.class": this.constructor.name,
+            "voice.pipecat.recv.source": "background_loop",
+          },
+          (span) => {
+            const pcm = mulaw8kToPcm16At24k(mulaw);
+            span.setAttribute("voice.audio.bytes", pcm.length);
+            return new AudioChunk({ data: pcm });
+          },
+        );
+      } else {
+        chunk = new AudioChunk({ data: mulaw8kToPcm16At24k(mulaw) });
+      }
+    } catch (err) {
+      // Parity with Python `_recv_loop`'s `except Exception`: a decode/span
+      // failure in this SYNCHRONOUS ws 'message' callback must not propagate —
+      // an uncaught throw here would crash the handler / drop the socket. Log and
+      // drop this one batch; keep receiving.
+      this.logger.warn(
+        "Pipecat: failed to decode/deliver an inbound audio batch; dropping it",
+        err,
+      );
+      return;
+    }
     const waiter = this.inbox.waiter;
     if (waiter) {
       this.inbox.waiter = null;

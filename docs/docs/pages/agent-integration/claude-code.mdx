@@ -71,6 +71,10 @@ const result = await scenario.run({
 | `logger` | `Logger` | no-op | Receives all diagnostic output (`log` and `warn`). Omit for silent operation. |
 | `extraArgs` | `string[]` | `[]` | Extra CLI arguments inserted before the prompt. Use for flags not modelled by config fields. |
 | `claudeBin` | `string` | `"claude"` | Path or name of the Claude Code binary. Resolution order: `claudeBin` → `CLAUDE_BIN` env var → `"claude"`. |
+| `env` | `Record<string, string \| undefined>` | `{}` | Applied over this process's environment. A key set to `undefined` is removed from what the CLI sees. `PATH` set here replaces the inherited one, so prefix it to put a local binary first. `FORCE_COLOR=0` is always set last. See [Environment](#environment). |
+| `output` | `"text" \| "messages"` | `"text"` | What a turn returns: the assistant-visible text with tool calls rendered inline, or AI SDK messages with `tool-call` and `tool-result` parts. See [Structured output](#structured-output). |
+| `maxToolResultChars` | `number` | `8000` | How many characters of one tool result reach the conversation. The rest is replaced by a line saying how many characters were dropped. |
+| `maxToolInputChars` | `number` | `30000` | How many characters of one string inside a tool call input reach the conversation. Nested strings are capped too. |
 
 ## Skill testing
 
@@ -78,9 +82,23 @@ The adapter's distinguishing feature is first-class skill testing:
 
 **Injection via `skillPath`** — pass an absolute path to a `SKILL.md` and the
 factory will copy it into `<workingDirectory>/.skills/<skill-name>/SKILL.md`
-and write a `CLAUDE.md` (if one does not already exist) that instructs Claude
-to read the skill before doing anything else. The injected layout matches
-Claude Code's native discovery conventions.
+and point the working directory's `CLAUDE.md` at it, so Claude reads the skill
+before doing anything else. A `CLAUDE.md` the fixture already ships is kept:
+only the skills it does not mention yet are appended, and the instruction is
+written once. The injected layout matches Claude Code's native discovery
+conventions.
+
+**Skills installed some other way**: when your harness copies skills into
+`.skills/` itself (several skills, a rendered `SKILL.md`, a fixture project),
+call `pointClaudeMdAtSkills(workingDirectory)` after the copy to get the same
+`CLAUDE.md` instruction for every skill it finds there.
+
+```typescript
+import { pointClaudeMdAtSkills } from "@langwatch/scenario";
+
+installMySkills(workingDirectory); // writes .skills/<name>/SKILL.md
+pointClaudeMdAtSkills(workingDirectory);
+```
 
 **Asserting the skill was read** — after the scenario run, call
 `assertSkillWasRead(state, skillName)` to verify that the skill file actually
@@ -97,6 +115,93 @@ assertSkillWasRead(result, "my-skill");
 
 `skillName` is the parent directory name of the `SKILL.md` — i.e. the segment
 in `.skills/<skillName>/SKILL.md`.
+
+**Reading what the agent ran**: with `output: "messages"` (below), the
+shell commands the agent ran are `tool-call` parts naming the `Bash` tool.
+`bashCommands(state)` lists them, and only them: a command quoted in the skill
+text or in the agent's own explanation is not a command that ran.
+
+```typescript
+import { bashCommands } from "@langwatch/scenario";
+
+const commands = bashCommands(result);
+expect(commands.some((c) => c.startsWith("langwatch prompts sync"))).toBe(true);
+```
+
+## Structured output
+
+By default a turn comes back as text, with each tool call and result rendered
+as a readable line (`Tool Called: Bash({"command":"ls"})`, `Tool Result: ...`).
+With `output: "messages"` a turn comes back as AI SDK messages instead: an
+assistant message with a text part and one `tool-call` part per tool the agent
+called, and a `tool` message with a `tool-result` part per result. The judge
+and the user simulator then read the calls structurally, and the LangWatch run
+view renders them as tool calls rather than as prose.
+
+```typescript
+claudeCodeAgent({
+  workingDirectory,
+  output: "messages",
+  maxToolResultChars: 4000,
+});
+```
+
+Both renderings cap what a tool result and a tool call input contribute to the
+conversation (`maxToolResultChars`, `maxToolInputChars`). The judge reads the
+whole conversation on every step, and one exported trace or log file in a tool
+result would push a long run past its context window for a reason that has
+nothing to do with the agent under test. A result keeps its first characters,
+where command names, ids and URLs stand; a call input keeps far more, since it
+is what the agent wrote and is the work under judgement. The dropped count is
+appended so the judge knows the text is cut. Thinking blocks are never part of
+either rendering, and a block the conversation has no part for (an image, a
+document) leaves a line naming it instead of disappearing.
+
+`toModelMessages(rawMessages, limits?)` and `parseStreamJson(stdout)` are
+exported for a harness that reads a stream-json transcript on its own.
+
+## Environment
+
+The CLI inherits this process's environment. `env` applies on top of it, and
+a key set to `undefined` is removed, which is how a test keeps a provider key
+for its judge while hiding it from the agent, or keeps the batch id of the
+harness out of the scenario runs the agent writes itself:
+
+```typescript
+claudeCodeAgent({
+  workingDirectory,
+  env: {
+    PATH: `${localBin}:${process.env.PATH}`,
+    OPENAI_API_KEY: undefined,
+    SCENARIO_BATCH_RUN_ID: undefined,
+  },
+});
+```
+
+`FORCE_COLOR=0` is always set last, so the transcript carries no escape codes.
+
+## Process lifecycle
+
+A `claude -p` run spawns its own children: the shell commands of its Bash
+tool, a test runner, a dev server. When the process that spawned Claude dies
+with a turn still running (a test runner killed under memory pressure, a
+Ctrl-C, a session restart), nothing would tell those processes to stop. They
+would reparent to pid 1 and keep running, burning tokens and memory into a
+pipe nobody reads. The adapter takes three measures so that does not happen:
+
+- The CLI is spawned as the leader of its own process group, so a kill aimed
+  at the group reaches every descendant, not only the CLI. The `timeout` kill
+  is such a group kill: SIGTERM to the group, then SIGKILL two seconds later.
+- On the harness's own `exit` every group still running gets SIGKILL. That
+  covers a normal exit, `process.exit()` and an uncaught exception.
+- A small shell watchdog (`claude-code-watchdog` in `ps`), detached from both,
+  polls the harness pid and the CLI pid once a second and terminates the CLI's
+  group when the harness is gone. That covers SIGKILL and any other death that
+  runs no JavaScript. The watchdog exits by itself the moment the CLI exits,
+  so a healthy turn leaves nothing behind.
+
+Process groups and the watchdog are POSIX. On Windows the CLI is spawned as
+before and only the exit hook applies.
 
 ## Error handling
 

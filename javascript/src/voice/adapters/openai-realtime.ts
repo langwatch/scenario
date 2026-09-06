@@ -32,8 +32,18 @@ import { AgentRole } from "../../domain/agents";
 import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
+import {
+  accumulateRealtimeUsage,
+  acquireRealtimeSocketKey,
+  reportOpenAIRealtimeUsage,
+  resolveRealtimeMintEndpoint,
+  zeroRealtimeUsage,
+  type RealtimeMintEndpoint,
+  type RealtimeUsage,
+} from "../broker";
 import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage, extractAudio } from "../messages";
+import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
 
 // LOG_LEVEL-gated logger so the degraded-path debug line below doesn't bypass
@@ -63,7 +73,24 @@ interface CompletedToolCall {
   arguments: string;
 }
 
+/**
+ * The vendor's own realtime endpoint.
+ *
+ * Overridable per adapter (`url`) and per environment
+ * (`OPENAI_REALTIME_URL`), because the media socket is not always dialled at
+ * OpenAI directly: a proxy in front of it, or a loopback server in a test,
+ * both need a different address while everything else stays the same.
+ */
 const REALTIME_URL_TEMPLATE = "wss://api.openai.com/v1/realtime?model={model}";
+
+/** Resolves the realtime endpoint from an override, the environment, or the vendor default. */
+function resolveRealtimeUrl(override: string | null, model: string): string {
+  const configured = override ?? process.env.OPENAI_REALTIME_URL ?? null;
+  if (!configured) return REALTIME_URL_TEMPLATE.replace("{model}", model);
+  return configured.includes("{model}")
+    ? configured.replace("{model}", model)
+    : configured;
+}
 
 /**
  * Realtime tool definition — structural shape passed through to the
@@ -87,7 +114,13 @@ export interface OpenAIRealtimeAgentAdapterInit {
   instructions?: string;
   /** Tool definitions passed straight through to the Realtime session. */
   tools?: RealtimeToolDef[];
-  /** Explicit API key; falls back to `process.env.OPENAI_API_KEY`. */
+  /**
+   * Explicit API key for dialing the vendor directly; falls back to
+   * `process.env.OPENAI_REALTIME_API_KEY`, then `process.env.OPENAI_API_KEY`.
+   *
+   * This key is only used when the session is not minted, so it matters when
+   * `OPENAI_BASE_URL` points at an endpoint with no mint route. See `mint`.
+   */
   apiKey?: string;
   /**
    * `AGENT` (default) makes the model the agent under test. `USER` turns
@@ -108,6 +141,21 @@ export interface OpenAIRealtimeAgentAdapterInit {
    * Authorization header value.
    */
   wsFactory?: (url: string, authHeader: string) => WebSocket;
+  /**
+   * Where to mint the session credential, overriding `OPENAI_BASE_URL` and
+   * `OPENAI_API_KEY`. `false` skips the mint and dials the vendor directly.
+   *
+   * `POST /v1/realtime/client_secrets` is OpenAI's own path, and a LangWatch
+   * AI Gateway mirrors it, so the same request works against either. Against
+   * OpenAI it returns an ephemeral client secret. Against a gateway it also
+   * checks the virtual key's budget and open-session cap and opens one spend
+   * record, naming the session on the `X-LangWatch-Session-Id` response
+   * header. Usage is reported back only when that header is present.
+   *
+   * The media socket runs to the vendor either way, so latency and the wire
+   * protocol do not change.
+   */
+  mint?: Partial<RealtimeMintEndpoint> | false;
 }
 
 /**
@@ -148,7 +196,14 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   lastAgentTranscript: string | null = null;
 
   private readonly _apiKey: string;
+  private readonly _apiKeySource: string;
   private readonly _urlOverride: string | null;
+  /** Where to mint, or null when there is no key to mint with. */
+  private readonly _mint: RealtimeMintEndpoint | null;
+  /** The gateway's id for the current session, empty unless a gateway minted it. */
+  private _brokerSessionId = "";
+  /** Running usage total for the session, sent when it ends. */
+  private _sessionUsage: RealtimeUsage | null = null;
   private readonly _wsFactory:
     | ((url: string, authHeader: string) => WebSocket)
     | null;
@@ -196,15 +251,49 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this.instructions = init.instructions ?? "";
     this.tools = init.tools ?? [];
     this.role = init.role ?? AgentRole.AGENT;
-    this._apiKey = init.apiKey ?? process.env.OPENAI_API_KEY ?? "";
+    // The fallback key for dialing the vendor directly: explicit param, then
+    // OPENAI_REALTIME_API_KEY, then OPENAI_API_KEY. OPENAI_REALTIME_API_KEY
+    // exists so a deployment whose OPENAI_API_KEY is a virtual key can still
+    // hold a real provider key for this socket.
+    //
+    // A minted session uses none of these on the socket. It dials with the
+    // ephemeral secret the mint returned, so a long-lived key never reaches
+    // the socket. See `mint`.
+    this._apiKey =
+      init.apiKey ??
+      process.env.OPENAI_REALTIME_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      "";
+    // Which of the three the key came from. Only used to name it in the
+    // direct-dial warning, where naming the wrong one sends the reader to a
+    // variable that is not set.
+    this._apiKeySource =
+      init.apiKey !== undefined
+        ? "the apiKey passed to the adapter"
+        : process.env.OPENAI_REALTIME_API_KEY !== undefined
+          ? "OPENAI_REALTIME_API_KEY"
+          : "OPENAI_API_KEY";
     this._urlOverride = init.url ?? null;
     this._wsFactory = init.wsFactory ?? null;
+    this._mint =
+      init.mint === false
+        ? null
+        : resolveRealtimeMintEndpoint(init.mint ?? undefined);
   }
 
   get url(): string {
-    return (
-      this._urlOverride ?? REALTIME_URL_TEMPLATE.replace("{model}", this.model)
-    );
+    return resolveRealtimeUrl(this._urlOverride, this.model);
+  }
+
+  /**
+   * Whether the live session was minted by a gateway rather than the vendor.
+   *
+   * Only true after `connect()`, and only when the mint answered with
+   * `X-LangWatch-Session-Id`. Configuration cannot set it, because the
+   * response is the one thing that cannot be told a lie about what answered.
+   */
+  get brokered(): boolean {
+    return this._brokerSessionId !== "";
   }
 
   /** Hide the API key when this object lands in error messages or logs. */
@@ -232,34 +321,70 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this._deferredResponseCreate = false;
     this._closeReason = null;
 
-    if (!this._apiKey) {
-      throw new Error(
-        "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
+    this._brokerSessionId = "";
+    this._sessionUsage = null;
+
+    // The socket's bearer is the ephemeral secret the mint returned: a
+    // credential for exactly this call, so no long-lived key reaches the
+    // socket. Whether OpenAI or a gateway answers the mint is a property of
+    // OPENAI_BASE_URL, not of this adapter. `acquireRealtimeSocketKey` holds
+    // the mint-or-dial rule for every adapter that opens a realtime socket.
+    const credential = await acquireRealtimeSocketKey(
+      this._mint,
+      { apiKey: this._apiKey, source: this._apiKeySource },
+      {
+        model: this.model,
+        noCredentialMessage:
+          "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
           "pass `{ apiKey }` to the constructor.",
-      );
+      },
+    );
+    const socketKey = credential.socketKey;
+    if (credential.minted) {
+      this._brokerSessionId = credential.sessionId;
+      // Start the session's total at zero rather than at nothing. A session
+      // that never completes a response captures no usage, and a total of null
+      // means disconnect() reports nothing at all, which leaves the record open
+      // and holding one of the key's slots until the gateway's grace expires.
+      // Zero is also the truth for a session that did no work.
+      if (this._brokerSessionId) this._sessionUsage = zeroRealtimeUsage();
+      setSpanAttributes(currentSpan(), {
+        "voice.realtime.brokered": this.brokered,
+        "voice.realtime.session_id": credential.sessionId,
+      });
     }
     // No `OpenAI-Beta: realtime=v1` header — that opt-in is the deprecated
     // Beta. The GA endpoint at `/v1/realtime` rejects the header outright
     // with "The Realtime Beta API is no longer supported." (observed in
     // CI 2026-05-22). Python parity is intentionally broken here; track
     // for back-port.
-    const authHeader = `Bearer ${this._apiKey}`;
+    const authHeader = `Bearer ${socketKey}`;
     const ws = this._wsFactory
       ? this._wsFactory(this.url, authHeader)
       : new WebSocket(this.url, { headers: { Authorization: authHeader } });
 
-    await new Promise<void>((resolve, reject) => {
-      const onOpen = () => {
-        ws.off("error", onError);
-        resolve();
-      };
-      const onError = (err: Error) => {
-        ws.off("open", onOpen);
-        reject(err);
-      };
-      ws.once("open", onOpen);
-      ws.once("error", onError);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onOpen = () => {
+          ws.off("error", onError);
+          resolve();
+        };
+        const onError = (err: Error) => {
+          ws.off("open", onOpen);
+          reject(err);
+        };
+        ws.once("open", onOpen);
+        ws.once("error", onError);
+      });
+    } catch (error) {
+      // The mint booked a session and the socket never opened, so nothing
+      // will ever report against it. Closing it at zero is the truth: an
+      // ephemeral secret that opened no socket used nothing. Leaving it open
+      // would hold one of the key's session slots until the gateway's own
+      // window expires, and book a call that never happened.
+      await this._reportUsage();
+      throw error;
+    }
 
     ws.on("message", (raw: RawData) => this._handleMessage(raw));
     ws.on("close", () => {
@@ -316,6 +441,17 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (this.tools.length > 0) sessionConfig.tools = this.tools;
 
     ws.send(JSON.stringify({ type: "session.update", session: sessionConfig }));
+
+    // Stamp realtime-specific attrs onto the active voice.adapter.connect span
+    // (opened by the executor connect loop). Base spans are name-owned; the
+    // adapter contributes attributes, never a parallel span name (mirrors
+    // ElevenLabs stamping voice.elevenlabs.agent_id).
+    setSpanAttributes(currentSpan(), {
+      "voice.realtime.model": this.model,
+      "voice.realtime.voice": this.voice,
+      "voice.realtime.session_type": "realtime",
+      "voice.realtime.tool_count": this.tools.length,
+    });
   }
 
   /** Whether the Realtime WebSocket is open (Gap #11). */
@@ -328,6 +464,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     const ws = this._ws;
     if (!ws) return;
     this._ws = null;
+    // Report before tearing the socket down. OpenAI reports usage over that
+    // socket, so this is the only path by which the numbers reach the
+    // gateway; a session that never reports settles as cost-unknown on the
+    // gateway's grace rather than being lost.
+    await this._reportUsage();
     // Issue #662: clear response-lifecycle guard state on teardown so a
     // reused adapter instance does not carry a stale active/deferred flag
     // into its next connection.
@@ -500,6 +641,16 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
             this._finalizeToolCall(fc.call_id, fc.name, fc.arguments);
           }
         }
+      } else if (etype === "response.created") {
+        // R2 marker: record the response start on the active voice.audio.receive
+        // span. Two of receiveAudio's three callers run inside that span's
+        // ambient context — the AGENT base drain and the autonomous-USER
+        // voice.audio.receive wrapper in _autonomousUserTurn — so the marker
+        // lands there. The third caller, the scripted speakUserTurn/
+        // _drainSpokenTurn path, is deliberately unwrapped (scope guard):
+        // currentSpan() is root/undefined there, so the optional chain no-ops.
+        currentSpan()?.addEvent("voice.realtime.response.created");
+        this._responseActive = true;
       } else if (etype === "response.done" || etype === "response.cancelled") {
         this._responseActive = false;
         if (this._deferredResponseCreate) {
@@ -512,6 +663,16 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
           // double-fire. Mirrors Python (openai_realtime.py response.done handler).
           this._responseActive = true;
         }
+        // R2 markers: record the response terminal as a span event and stamp the
+        // FINAL tool-call count onto the active voice.audio.receive span. Done
+        // BEFORE the tool-only empty-chunk return below so the count reflects THIS
+        // response — set even when 0, for every response.done/.cancelled actually
+        // observed. A drain that ends on tail-silence before a terminal event is
+        // processed won't stamp it (pre-existing drain timing, not new here).
+        currentSpan()?.addEvent(`voice.realtime.${etype}`);
+        setSpanAttributes(currentSpan(), {
+          "voice.realtime.tool_call_count": this._completedToolCalls.length,
+        });
         // Issue #646: a tool-only turn (function call, NO audio delta) would
         // otherwise loop here forever and hit the receiveAudio timeout — the
         // accumulated tool call is parsed but never returned. When the response
@@ -523,8 +684,6 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         if (this._completedToolCalls.length > 0) {
           return new AudioChunk({ data: new Uint8Array(0) });
         }
-      } else if (etype === "response.created") {
-        this._responseActive = true;
       } else if (etype === "error") {
         const errDetail =
           (event as { error?: { message?: string } }).error ?? {};
@@ -926,12 +1085,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
           input: [],
           output_modalities: ["audio"],
           instructions:
-            // Per-response `instructions` OVERRIDE the session default, and
-            // `conversation:"none"` + `input:[]` strip all session context, so
-            // the persona set via session.update is gone here unless re-injected.
-            // Without it the model has no domain anchor and renders a WRONG opener
-            // (#705, live: "trouble with my internet connection" instead of the
-            // scripted account line). Prepend the persona, guarded for empty.
+            // Prepend the persona (guarded for empty); see the Persona anchor note
+            // in this method's JSDoc for why a per-response `instructions` must
+            // re-inject it.
             (this.instructions ? this.instructions + "\n\n" : "") +
             "You are voicing ONE line spoken by a customer in a support call. " +
             "Say the line below OUT LOUD, in the first person, EXACTLY as written. " +
@@ -966,18 +1122,46 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (!this._ws) {
       throw new Error("OpenAIRealtimeAgentAdapter: not connected");
     }
-    // (1) HEAR the agent: feed the AUT's last-turn audio into the input buffer.
-    // `_speakGeneratedTurn` commits it so the model has it in-context for this
-    // generation. No heard audio (e.g. the very first user turn) still produces
-    // a generated turn from the persona alone.
-    const heard = this._extractHeardAudio(input);
-    if (heard) {
-      await this.sendAudio(heard);
-    }
-    // (2) GENERATE + speak the next customer line, conditioned on what was heard.
-    const chunk = await this.speakGeneratedUserTurn();
-    // (3) Return as the USER's audio turn.
-    return createAudioMessage(chunk, "user");
+    // The USER path bypasses super.call()/defaultVoiceCall (#705), so it opens
+    // NO base span on its own. Emit the base taxonomy here: one voice.turn span
+    // per autonomous user turn, with the send/receive children nesting under it
+    // (the R2 markers land on the receive span). Mirrors defaultVoiceCall's
+    // voice.turn → voice.audio.send/receive shape.
+    const turnIndex = (input as { scenarioState?: { currentTurn?: number } })
+      .scenarioState?.currentTurn;
+    return voiceSpan(
+      "voice.turn",
+      {
+        "voice.adapter.class": this.constructor.name,
+        "voice.turn.index": turnIndex,
+      },
+      async (turnSpan) => {
+        const turnStart = performance.now(); // monotonic — matches #771
+        // (1) HEAR the agent: feed the AUT's last-turn audio into the input buffer.
+        // `_speakGeneratedTurn` commits it so the model has it in-context for this
+        // generation. No heard audio (e.g. the very first user turn) still produces
+        // a generated turn from the persona alone.
+        const heard = this._extractHeardAudio(input);
+        if (heard) {
+          await voiceSpan(
+            "voice.audio.send",
+            { "voice.audio.bytes": heard.data.length },
+            async () => {
+              await this.sendAudio(heard);
+            },
+          );
+        }
+        // (2) GENERATE + speak the next customer line, conditioned on what was heard.
+        const chunk = await voiceSpan("voice.audio.receive", {}, () =>
+          this.speakGeneratedUserTurn(),
+        );
+        setSpanAttributes(turnSpan, {
+          "voice.turn.latency_ms": Math.round(performance.now() - turnStart),
+        });
+        // (3) Return as the USER's audio turn.
+        return createAudioMessage(chunk, "user");
+      },
+    );
   }
 
   /**
@@ -1032,10 +1216,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
    * B): it sets NEITHER `conversation:"none"` NOR `input:[]`, so the committed
    * heard audio + the conversation so far condition the reply. The customer
    * persona/goal ({@link instructions}) is PREPENDED to the per-response
-   * `instructions` here: a per-response `instructions` OVERRIDES the session
-   * default, so relying on the session persona alone drops it every proceed()
-   * turn (#705). The per-turn nudge then keeps the model in the customer role
-   * (not answering as the agent).
+   * `instructions` here (see {@link _speakVerbatim} for why a per-response
+   * `instructions` must re-inject the persona). The per-turn nudge then keeps the
+   * model in the customer role (not answering as the agent).
    * `output_modalities:["audio"]` forces a spoken reply.
    *
    * RESET #2 (heard-audio buffer bleed): if heard audio was appended this turn,
@@ -1067,11 +1250,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         response: {
           output_modalities: ["audio"],
           instructions:
-            // Per-response `instructions` OVERRIDE the session default (it applies
-            // only "if this field is not set"), so the persona set via
-            // session.update is dropped on EVERY proceed() turn unless re-injected
-            // here. Prepend it so the customer goal/domain holds across the whole
-            // generated conversation (#705). Guarded for an empty persona.
+            // Prepend the persona so the customer goal/domain holds across the whole
+            // generated conversation (guarded for empty); see _speakVerbatim's JSDoc
+            // for why a per-response `instructions` must re-inject it.
             (this.instructions ? this.instructions + "\n\n" : "") +
             "You are the CUSTOMER on a support call — never the agent. Listen " +
             "to what the agent just said, then say your NEXT line: one short, " +
@@ -1106,7 +1287,57 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       // Non-JSON frame — match Python adapter behavior and drop it.
       return;
     }
+    this._captureUsage(event);
     this._enqueueEvent(event);
+  }
+
+  /**
+   * Closes the session's spend record with what the socket measured.
+   *
+   * Also the failure path for a mint that succeeded and a socket that never
+   * opened, because the total starts at zero: the report is the same request
+   * either way, so there is one method rather than two that disagree. Zero is
+   * the truth there, not a placeholder, since an ephemeral credential that
+   * opened no socket consumed nothing at the vendor.
+   *
+   * Clearing the captured usage first is what makes a second disconnect a
+   * no-op, so a session cannot be reported twice.
+   */
+  private async _reportUsage(): Promise<void> {
+    if (!this._mint || !this._brokerSessionId || !this._sessionUsage) return;
+    const usage = this._sessionUsage;
+    const sessionId = this._brokerSessionId;
+    this._sessionUsage = null;
+    await reportOpenAIRealtimeUsage(this._mint, {
+      sessionId,
+      usage,
+      onError: (error) =>
+        logger.debug("voice broker usage report failed", { error }),
+    });
+  }
+
+  /**
+   * Adds the usage OpenAI reports on `response.done` into the session total.
+   *
+   * Read from the raw message rather than the receive loop because a drain
+   * that ends on tail silence never reads the terminal event, and a session
+   * whose usage was never captured bills as cost-unknown. Summed rather than
+   * replaced because the vendor reports per response: see
+   * {@link accumulateRealtimeUsage}.
+   */
+  private _captureUsage(event: unknown): void {
+    if (!this._brokerSessionId || !event || typeof event !== "object") return;
+    const record = event as Record<string, unknown>;
+    if (record.type !== "response.done") return;
+    const response = record.response;
+    if (!response || typeof response !== "object") return;
+    const usage = (response as Record<string, unknown>).usage;
+    if (usage && typeof usage === "object") {
+      this._sessionUsage = accumulateRealtimeUsage(
+        this._sessionUsage,
+        usage as RealtimeUsage,
+      );
+    }
   }
 
   private _enqueueEvent(event: unknown): void {

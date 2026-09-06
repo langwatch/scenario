@@ -1,88 +1,49 @@
 /**
- * VOICE KITCHEN-SINK — ONE scenario that exercises the voice-API surface end to
- * end against a HOSTED ElevenLabs agent, driven by an AUTONOMOUS realtime
- * (speech-native) user, and PROVES the artifacts are saved correctly.
+ * Voice kitchen-sink: ONE scenario that drives the voice-API surface end to end
+ * against a hosted ElevenLabs agent with an autonomous realtime (speech-native)
+ * user, then proves the saved artifacts are correct.
  *
- * ONE SCENARIO: a single `scenario.run()` whose one script chains the
- * capabilities into a coherent customer call — verbatim user turn, time-based
- * barge-in (`interrupt({ after })`), silence handling, then a `proceed()`
- * stretch that SHOULD drive autonomous realtime-user turns (currently a no-op —
- * see rough edge [2]) — closed by the coherence judge. (The weaker `interrupt({ afterWords })` path is left OUT of
- * this single flow on purpose: it can throw `UnsupportedCapabilityError` and
- * would fail the whole scenario; probe it in isolation instead.)
+ * The single `scenario.run()` chains a verbatim user opener, a time-based barge-in
+ * (`interrupt({ after })`), silence handling, and a `proceed()` stretch, closed by
+ * the coherence judge. After the run it saves the recording and asserts it landed:
+ * `full.wav` + `manifest.json` + one WAV per segment, every segment carrying a
+ * transcript (issue #705). Skip discipline is `it.skipIf(!hasHostedKey)` so a
+ * keyless run reports SKIPPED, never a hollow PASSED. The judge carries
+ * {@link AGENTS_HEARD_EACH_OTHER}: turn counts prove audio moved, not that the
+ * agents heard each other. The realtime user rides on CUSTOMER_INSTRUCTIONS and the
+ * `description` is a plain call narrative with no framework jargon, since the
+ * simulator voices it.
  *
- * ARTIFACTS: after the run we save the recording AND assert it landed correctly
- * — `full.wav` + `manifest.json` + one WAV per segment, and EVERY segment must
- * carry a transcript (issue #705: transcripts were previously missing). This is
- * the on-disk twin of the LangWatch message snapshot.
- *
- * SKIP DISCIPLINE — `it.skipIf(!hasHostedKey)`, never `if (!key) return` (an
- * early return reports the test as PASSED — a hollow green). COHERENCE — turn
- * counts prove audio moved, not that the agents HEARD each other; the judge
- * carries {@link AGENTS_HEARD_EACH_OTHER}. PERSONA — the realtime user rides on
- * CUSTOMER_INSTRUCTIONS and the `description` is a plain call narrative with NO
- * framework jargon, since the simulator voices it.
- *
- * ⚠️ KNOWN ROUGH EDGES — this scenario PASSES, but the parts below are not
- * working perfectly yet. Each is flagged inline in the script:
- *   [1] `interrupt()` must follow a USER turn or its forced agent turn hangs to
- *       a `receiveAudio` timeout; and every realtime user turn carries ~15s of
- *       drain latency (the model's turn is only detected via an idle timeout).
- *   [2] The autonomous `proceed(N)` stretch drives ZERO turns here: on the wire
- *       `proceed(7)` at turn 3 scheduled no realtime-USER turn and went straight
- *       to the judge. NOT an N-sizing issue (7 > the elapsed 3) — the realtime
- *       user simply is not driven by `proceed()` yet (a #705 gap, tracked). The
- *       scripted turns carry the demo.
- *   [3] A very short user turn immediately before `silence()` may not be captured
- *       as its own recording segment (user message count can exceed user segment
- *       count).
+ * Known rough edges are flagged inline in the script:
+ *   [1] `interrupt()` must follow a user turn or its forced agent turn hangs to a
+ *       `receiveAudio` timeout, and every realtime user turn carries ~15s of drain
+ *       latency.
+ *   [2] the autonomous `proceed(N)` stretch does not yet drive realtime-user turns
+ *       (a #705 gap); the scripted turns carry the demo.
+ *   [3] a very short user turn immediately before `silence()` may not be captured as
+ *       its own recording segment.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import scenario, {
-  AgentRole,
   voice,
   type ScenarioExecutionStateLike,
-  type ScenarioResult,
 } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
 import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
+import { realtimeUser } from "./helpers/realtime-user";
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
-// `OPENAI_REALTIME_MODEL` is the default realtime model id, exported on the
-// `voice` namespace.
-const { OPENAI_REALTIME_MODEL } = voice;
-
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_CONVAI_KEY = voice.resolveElevenLabsConvAIApiKey();
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const hasHostedKey = Boolean(
-  ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY,
+  ELEVENLABS_CONVAI_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY,
 );
-
-// Persona + goal for the AUTONOMOUS realtime user — rides on the adapter
-// `instructions`. Free of framework jargon so nothing framework-y is voiced.
-const CUSTOMER_INSTRUCTIONS =
-  "You are a customer who has called your bank's support line about your " +
-  "account. You are the one being helped — you are NEVER the agent. Speak one " +
-  "short, natural, first-person sentence per turn, in your own words: ask your " +
-  "next question, or answer what the agent just asked. Do not offer assistance, " +
-  "do not present menu options, and do not echo the agent's wording. Across the " +
-  "call you want to check your balance, ask about a recent transaction, and " +
-  "update a setting on your account.";
-
-function realtimeUser() {
-  return scenario.openAIRealtimeAgent({
-    model: OPENAI_REALTIME_MODEL,
-    voice: "marin",
-    instructions: CUSTOMER_INSTRUCTIONS,
-    role: AgentRole.USER,
-  });
-}
 
 /** Per-turn logger for `proceed(turns, onTurn)` — exercises the callback and
  *  makes the autonomous stretch legible turn-by-turn in the run log. */
@@ -97,83 +58,65 @@ describe("voice kitchen-sink — one scenario, full surface + artifact proof", (
     "single scenario: verbatim+autonomous user, barge-in, silence, interruptions — coherent, artifacts saved",
     { retry: 0, timeout: 300_000 },
     async () => {
-      let result: ScenarioResult | null = null;
-      let caught: unknown = null;
-
-      try {
-        result = await scenario.run({
-          name: "voice_kitchensink",
-          description:
-            "A customer calls their bank's support line about their account. " +
-            "They greet the agent, ask about their balance, sometimes change " +
-            "their mind partway through, pause for a moment, then work through " +
-            "a couple more questions about their account.",
-          agents: [
-            scenario.elevenLabsAgent({
-              agentId: ELEVENLABS_AGENT_ID!,
-              apiKey: ELEVENLABS_API_KEY!,
-            }),
-            realtimeUser(),
-            scenario.judgeAgent({
-              criteria: [
-                // Load-bearing coherence gate: counts are not enough — the judge
-                // must verify the agents actually HEARD each other.
-                AGENTS_HEARD_EACH_OTHER,
-                "The agent and user exchanged audio turns via the live WebSocket",
-              ],
-            }),
-          ],
-          script: [
-            scenario.agent(), // EL greeting drains
-            scenario.user("Hi, I have a question about my account balance."), // VERBATIM opener
-            // ⚠️ ROUGH EDGE [1] — BARGE-IN (time): the agent starts REPLYING to
-            // the opener and the user cuts in mid-reply. `interrupt` fires the
-            // agent turn itself, so it MUST follow a USER turn the agent can
-            // answer — placed after an agent turn, the forced agent turn has
-            // nothing to say and `receiveAudio` hangs to a timeout (the framework
-            // should validate this and fail fast; today it does not). NOTE also
-            // that each realtime turn carries ~15s of drain latency.
-            scenario.interrupt({
-              after: 1.5,
-              content:
-                "sorry — actually, can you also tell me about my recent transactions?",
-              waitForSpeechTimeout: 15,
-            }),
-            scenario.agent(), // agent responds to the barged-in request
-            // ⚠️ ROUGH EDGE [3] — this short user turn immediately before
-            // `silence()` was NOT captured as its own recording segment in
-            // practice (user message count > user segment count). Audio moved on
-            // the wire, but the recorder dropped this segment.
-            scenario.user("Hmm, hold on a second."),
-            scenario.silence(2.0), // SILENCE: silent PCM over the wire (dead air)
-            scenario.user("Okay, I'm back — what's my current balance?"), // resume with a real question
-            scenario.agent(), // agent answers the resumed question
-            // Autonomous stretch: `proceed()` SHOULD let the realtime USER drive
-            // the conversation on its own — the core #705 capability.
-            // ⚠️ ROUGH EDGE [2] — but on the wire it drives ZERO turns: `proceed(7)`
-            // at turn 3 scheduled no USER turn and went straight to the judge
-            // (`onTurn` never fired). This is NOT the N-sizing footgun (7 > the
-            // elapsed 3) — the realtime user simply is not driven by `proceed()`
-            // yet (#705 gap). Kept to show the intended surface; the scripted
-            // turns above carry the actual demo.
-            scenario.proceed(7, logTurn),
-            scenario.judge(), // COHERENCE GATE
-          ],
-          maxTurns: 18,
-        });
-      } catch (e) {
-        caught = e;
-      }
-
-      // Fail LOUD on a thrown / null run rather than NPEing on result!.x.
-      if (caught !== null || result === null) {
-        const err =
-          caught instanceof Error
-            ? caught
-            : new Error(String(caught ?? "scenario.run() returned null"));
-        console.log(`[kitchensink] THREW → ${err.message}`);
-        throw err;
-      }
+      const result = await scenario.run({
+        name: "voice_kitchensink",
+        description:
+          "A customer calls their bank's support line about their account. " +
+          "They greet the agent, ask about their balance, sometimes change " +
+          "their mind partway through, pause for a moment, then work through " +
+          "a couple more questions about their account.",
+        agents: [
+          scenario.elevenLabsAgent({
+            agentId: ELEVENLABS_AGENT_ID!,
+          }),
+          realtimeUser(),
+          scenario.judgeAgent({
+            criteria: [
+              // Load-bearing coherence gate: counts are not enough; the judge
+              // must verify the agents actually HEARD each other.
+              AGENTS_HEARD_EACH_OTHER,
+              "The agent and user exchanged audio turns via the live WebSocket",
+            ],
+          }),
+        ],
+        script: [
+          scenario.agent(), // EL greeting drains
+          scenario.user("Hi, I have a question about my account balance."), // VERBATIM opener
+          // ⚠️ ROUGH EDGE [1], BARGE-IN (time): the agent starts REPLYING to
+          // the opener and the user cuts in mid-reply. `interrupt` fires the
+          // agent turn itself, so it MUST follow a USER turn the agent can
+          // answer; placed after an agent turn, the forced agent turn has
+          // nothing to say and `receiveAudio` hangs to a timeout (the framework
+          // should validate this and fail fast; today it does not). NOTE also
+          // that each realtime turn carries ~15s of drain latency.
+          scenario.interrupt({
+            after: 1.5,
+            content:
+              "sorry, actually, can you also tell me about my recent transactions?",
+            waitForSpeechTimeout: 15,
+          }),
+          scenario.agent(), // agent responds to the barged-in request
+          // ⚠️ ROUGH EDGE [3], this short user turn immediately before
+          // `silence()` was NOT captured as its own recording segment in
+          // practice (user message count > user segment count). Audio moved on
+          // the wire, but the recorder dropped this segment.
+          scenario.user("Hmm, hold on a second."),
+          scenario.silence(2.0), // SILENCE: silent PCM over the wire (dead air)
+          scenario.user("Okay, I'm back, what's my current balance?"), // resume with a real question
+          scenario.agent(), // agent answers the resumed question
+          // Autonomous stretch: `proceed()` SHOULD let the realtime USER drive
+          // the conversation on its own, the core #705 capability.
+          // ⚠️ ROUGH EDGE [2], but on the wire it drives ZERO turns: `proceed(7)`
+          // at turn 3 scheduled no USER turn and went straight to the judge
+          // (`onTurn` never fired). This is NOT the N-sizing footgun (7 > the
+          // elapsed 3); the realtime user simply is not driven by `proceed()`
+          // yet (#705 gap). Kept to show the intended surface; the scripted
+          // turns above carry the actual demo.
+          scenario.proceed(7, logTurn),
+          scenario.judge(), // COHERENCE GATE
+        ],
+        maxTurns: 18,
+      });
 
       const userTurns = result.messages.filter((m) => m.role === "user").length;
       const agentTurns = result.messages.filter(
@@ -215,7 +158,22 @@ describe("voice kitchen-sink — one scenario, full surface + artifact proof", (
         segment_count: number;
         segments: Array<{ idx: number; role: string; file: string; transcript?: string }>;
       };
-      expect(manifest.segments.length, "manifest lists segments").toBeGreaterThan(0);
+      // The script drives three user lines (the opener, the brief hold, the resumed
+      // balance question) and an agent reply to each, so a real multi-turn run must
+      // carry at least those three user turns and three agent turns.
+      expect(
+        userTurns,
+        `expected the three scripted user turns; got ${userTurns}`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        agentTurns,
+        `expected an agent reply to each scripted user turn; got ${agentTurns}`,
+      ).toBeGreaterThanOrEqual(3);
+      // Manifest is internally consistent and carries a real recording.
+      expect(
+        manifest.segment_count,
+        "manifest segment_count matches the listed segments",
+      ).toBe(manifest.segments.length);
       expect(manifest.duration, "recording has non-zero duration").toBeGreaterThan(0);
 
       // EVERY recorded segment must carry a transcript (issue #705: transcripts

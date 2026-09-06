@@ -10,29 +10,32 @@ re-engage a response for a scripted turn 2+ (EL ConvAI 2.0 end-of-turn is a
 hybrid VAD + deep-learning turn-detector, not a pure silence threshold), so the
 2nd ``recv_audio`` timed out.
 
-The fix sends an explicit ``{"type": "user_message", "text": <transcript>}``
-turn-commit — the only documented client→server event that deterministically
-forces an agent response without mic-style VAD. On the text path the raw audio
-is NOT also streamed to EL (audio + text in one turn raced the server's
-ingestion and was live-flaky); the user audio is still recorded locally by the
-voice runtime and EL echoes the text back as a ``user_transcript`` event.
+#567 was first fixed with an explicit
+``{"type": "user_message", "text": <transcript>}`` turn-commit. That
+deterministically re-engaged the agent, but it sent NO audio, so EL's STT never
+ran and a green run proved nothing about the agent's own transcription or
+turn-taking. The default is now ``"audio"``: the turn's real PCM is streamed as
+20 ms pump frames followed by *unbounded* closing silence, which is what EL's
+server VAD measures end-of-turn against. Text-commit survives as the opt-in
+``turn_commit_mode="text"`` escape hatch.
 
 These tests drive the adapter through an injected fake WebSocket (patching
 ``websockets.connect``, the same seam the existing EL transport tests use) and
 prove:
  1. a scripted 2nd user turn after an agent turn drives a 2nd ``recv_audio``
-    resolution (the bug), AND each user turn emits a ``user_message`` commit;
+    resolution (the #567 bug), AND each user turn goes out as REAL audio with
+    no text commit and no bounded tail;
  2. the post-interrupt shape (agent audio mid-flight → user re-engages) also
-    commits + re-engages, and ``agent_response_correction`` updates the
-    transcript;
- 3. the committed ``user_message`` is a server-accepted shape (type + text);
- 4. ``turn_commit_mode="silence"`` preserves the legacy pure-audio path;
+    re-engages, and ``agent_response_correction`` updates the transcript;
+ 3. ``turn_commit_mode="text"`` still emits a server-accepted ``user_message``
+    (type + text) and sends no audio;
+ 4. ``turn_commit_mode="silence"`` preserves the bounded-tail audio path;
  5. ``"text"`` mode with no transcript falls back to the silence tail;
  6. ``silence_tail_bytes`` resizes the fallback tail.
 
-Offline — no network, no real EL socket. The LIVE >=2-exchange proof lives in
-``examples/voice/elevenlabs_hosted.py`` (wrapped by
-``test_elevenlabs_hosted_e2e.py``).
+Offline — no network, no real EL socket. The LIVE proof that EL's STT actually
+transcribes the streamed PCM lives in ``examples/voice/elevenlabs_hosted.py``
+(wrapped by ``test_elevenlabs_hosted_e2e.py``).
 """
 
 from __future__ import annotations
@@ -112,7 +115,7 @@ class FakeElevenLabsSocket:
 
 async def _connected_adapter(
     *,
-    turn_commit_mode: str = "text",
+    turn_commit_mode: str = "audio",
     silence_tail_bytes: Optional[int] = None,
 ) -> tuple[ElevenLabsAgentAdapter, FakeElevenLabsSocket]:
     """Build an adapter wired to a fresh fake socket, already connected."""
@@ -127,12 +130,14 @@ async def _connected_adapter(
 
 
 def _user_turn(text: str) -> AudioChunk:
-    """A user audio chunk that carries its transcript (as the voice runtime threads it)."""
-    return AudioChunk(data=b"\x00" * 8, transcript=text)
+    """A user audio chunk that carries its transcript (as the voice runtime
+    threads it). The PCM is non-zero so a speech frame is distinguishable from
+    the pump's all-zero closing silence."""
+    return AudioChunk(data=b"\x7f" * 8, transcript=text)
 
 
 # --------------------------------------------------------------------------- #
-# Text turn-commit (default) — the #567 fix                                    #
+# Audio turn-commit (default) — real voice-in                                  #
 # --------------------------------------------------------------------------- #
 
 
@@ -159,16 +164,54 @@ async def test_scripted_second_user_turn_drives_second_recv_audio():
     agent2 = await adapter.recv_audio(timeout=1.0)
     assert len(agent2.data) > 0
 
-    # Each user turn emitted an explicit user_message turn-commit (not a
-    # silence tail) — the deterministic re-engagement signal.
-    assert socket.user_messages == [
-        {"type": "user_message", "text": "Hello, I have a question about my account."},
-        {"type": "user_message", "text": "Yes, can you check my balance?"},
-    ]
-    # The default "text" path sends ONLY the text commit — NO user_audio_chunk
-    # frames at all (audio + text in one turn raced EL's ingestion and was
-    # live-flaky; the text turn alone re-engages deterministically).
-    assert socket.audio_chunks == []
+    # Both user turns went out as REAL audio: the agent's own STT is what
+    # transcribes them, so a passing run actually exercises it.
+    assert adapter.audio_commit_count == 2
+    # No text commit anywhere — the audio path does not inject transcripts.
+    assert socket.user_messages == []
+
+
+@pytest.mark.asyncio
+async def test_audio_mode_streams_real_pcm_and_appends_no_bounded_tail():
+    """The default path puts the user's PCM on the wire and lets the pump's
+    UNBOUNDED closing silence end the turn — no fixed silence tail."""
+    adapter, socket = await _connected_adapter()
+    # Manual pump control so the drain below is deterministic.
+    await adapter.stop_pump()
+
+    await adapter.send_audio(_user_turn("Hello again."))
+
+    # Exactly the speech frame is queued — no bounded tail behind it. The
+    # closing silence comes from the pump ticking on an empty queue instead,
+    # which is what makes it unbounded (and what fixed scripted turn 2+).
+    assert len(adapter._outbound_frames) == 1
+    assert socket.user_messages == []
+
+    socket.sent.clear()
+    while adapter._outbound_frames:
+        await adapter._pump_tick()
+    emitted = [base64.b64decode(c) for c in socket.audio_chunks]
+    assert emitted, "expected the pump to emit the enqueued speech"
+    assert all(len(f) == 960 for f in emitted), "pump frames are fixed 20 ms"
+    assert any(any(f) for f in emitted), "the user's real PCM reached the wire"
+
+    # Ticking again with an empty queue yields closing silence, indefinitely.
+    socket.sent.clear()
+    for _ in range(3):
+        await adapter._pump_tick()
+    assert [base64.b64decode(c) for c in socket.audio_chunks] == [b"\x00" * 960] * 3
+
+
+@pytest.mark.asyncio
+async def test_empty_chunk_is_not_counted_as_an_audio_turn():
+    """An empty chunk carries no speech: no frame, no turn counted."""
+    adapter, _socket = await _connected_adapter()
+    await adapter.stop_pump()
+
+    await adapter.send_audio(AudioChunk(data=b"", transcript=""))
+
+    assert adapter.audio_commit_count == 0
+    assert len(adapter._outbound_frames) == 0
 
 
 @pytest.mark.asyncio
@@ -197,15 +240,36 @@ async def test_post_interrupt_user_turn_re_engages_and_correction_updates_transc
 
     assert len(corrected.data) > 0
     assert adapter.last_agent_transcript == "Okay, cancelled."
+    # The re-engaging turn went out as real audio, not an injected text commit.
+    assert adapter.audio_commit_count == 1
+    assert socket.user_messages == []
+
+
+# --------------------------------------------------------------------------- #
+# Text turn-commit — the opt-in escape hatch                                   #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_text_mode_commits_transcript_and_sends_no_audio():
+    """``turn_commit_mode="text"`` re-engages without server VAD, at the cost of
+    the agent never hearing the user — no ``user_audio_chunk`` is sent."""
+    adapter, socket = await _connected_adapter(turn_commit_mode="text")
+    await adapter.stop_pump()
+
+    await adapter.send_audio(_user_turn("Hello, I have a question about my account."))
+
     assert socket.user_messages == [
-        {"type": "user_message", "text": "Actually, wait — cancel that."}
+        {"type": "user_message", "text": "Hello, I have a question about my account."}
     ]
+    assert socket.audio_chunks == []
+    assert adapter.audio_commit_count == 0
 
 
 @pytest.mark.asyncio
 async def test_user_message_commit_echoes_through_as_user_transcript():
     """EL echoes the committed text back as user_transcript observability."""
-    adapter, socket = await _connected_adapter()
+    adapter, socket = await _connected_adapter(turn_commit_mode="text")
 
     await adapter.send_audio(_user_turn("What are your hours?"))
     socket.deliver(
@@ -223,7 +287,7 @@ async def test_user_message_commit_echoes_through_as_user_transcript():
 @pytest.mark.asyncio
 async def test_committed_user_message_is_server_accepted_shape():
     """The committed user_message carries exactly ``type`` + ``text``."""
-    adapter, socket = await _connected_adapter()
+    adapter, socket = await _connected_adapter(turn_commit_mode="text")
 
     await adapter.send_audio(_user_turn("ping"))
 
@@ -272,7 +336,7 @@ async def test_silence_mode_preserves_legacy_pure_audio_path():
 async def test_text_mode_without_transcript_falls_back_to_silence_tail():
     """``"text"`` mode with no transcript falls back to the silence tail —
     now queued as fixed 960-byte pump frames, not a direct blob write."""
-    adapter, socket = await _connected_adapter()  # default "text"
+    adapter, socket = await _connected_adapter(turn_commit_mode="text")
     # Take manual pump control (stop the background task, clear its queue) so
     # the drain below is deterministic; the pump is the single WS audio writer.
     await adapter.stop_pump()

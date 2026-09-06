@@ -8,8 +8,12 @@ import {
   ScenarioExecutionState,
   StateChangeEventType,
 } from "./scenario-execution-state";
+import { resolveAgents } from "../agents/connected-agent";
+import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getGlobalSettings } from "../config/configure";
+import { getProjectConfig } from "../config/get-project-config";
 import {
+  type EvaluationResult,
   type ScenarioResult,
   type ScenarioConfig,
   AgentRole,
@@ -23,7 +27,9 @@ import {
   ScenarioExecutionStateLike,
   ScenarioConfigFinal,
   DEFAULT_MAX_TURNS,
+  DEFAULT_TRACE_WAIT_TIMEOUT_MS,
   DEFAULT_VERBOSE,
+  resolveAgentName,
 } from "../domain";
 import {
   isRealtimeUserAgent,
@@ -33,6 +39,12 @@ import {
   type VoiceUserSimulator,
 } from "../domain/agents/agent-shapes";
 import {
+  applyEvaluationsToResult,
+  EvaluationsApiClient,
+  resolveEvaluationsApiAuth,
+  runScenarioEvaluators,
+} from "../evaluators";
+import {
   ScenarioEvent,
   ScenarioEventType,
   ScenarioMessageSnapshotEvent,
@@ -41,6 +53,11 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
+import { buildPropagationHeaders } from "../tracing/propagation";
+import {
+  collectMessageTraceIds,
+  remoteTraceFetcher,
+} from "../tracing/remote-trace-fetcher";
 import {
   ATTR_SCENARIO_SDK_NAME,
   ATTR_SCENARIO_SDK_VERSION,
@@ -78,6 +95,7 @@ import {
 import { AudioPlaybackSink } from "../voice/playback";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
+  AudioSegment,
   LatencyMetrics,
   VoiceEvent,
   VoiceRecording,
@@ -86,6 +104,7 @@ import {
   deriveInterruptResponseTime,
   markTruncatedAgentSegments,
 } from "../voice/segment-utils";
+import { voiceSpan } from "../voice/telemetry";
 import { sleep } from "../voice/utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
 
@@ -181,6 +200,49 @@ const DEFAULT_WAIT_FOR_SPEECH_MS = 15_000;
  * console.log("Scenario result:", result.success);
  * ```
  */
+/**
+ * A background agent turn, and what the interrupt path needs to know about it.
+ *
+ * `done` is polled rather than awaited, because the barge-in has to fire while
+ * the turn is still in flight: awaiting it would mean the bot always finished
+ * first and the interrupt never happened. `error` captures a rejection instead
+ * of letting it escape as an unhandled promise, so it can be re-thrown at
+ * drain or interrupt time by whoever is in a position to report it.
+ */
+interface AgentTaskEntry {
+  promise: Promise<void>;
+  done: boolean;
+  /** Captured rejection, if any. Re-thrown by {@link ScenarioExecution.fireUserInterrupt}. */
+  error: unknown | null;
+}
+
+/**
+ * Wrap a background agent turn so its settling is observable without awaiting
+ * it.
+ *
+ * The `.catch` and `.finally` close over the entry that is being assigned in
+ * the same statement, which is the part worth doing once: they run only after
+ * the turn settles, by which point the field holds the real promise, so there
+ * is no placeholder to leak. Written out at each call site, the two copies
+ * agreed by inspection and nothing held them together.
+ */
+function makeTaskEntry(run: () => Promise<unknown>): AgentTaskEntry {
+  const entry: AgentTaskEntry = {
+    promise: run()
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        // Captured, not swallowed: re-thrown at drain or interrupt time.
+        entry.error = err;
+      })
+      .finally(() => {
+        entry.done = true;
+      }),
+    done: false,
+    error: null,
+  };
+  return entry;
+}
+
 export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorState {
   /** LangWatch tracer for scenario execution */
   private tracer = getLangWatchTracer("@langwatch/scenario");
@@ -216,11 +278,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    */
   voiceConfig: ResolvedVoiceConfig | null = null;
   /**
-   * Interruption config recorded by `voiceProceed({ interruptions })`. Read
-   * at the top of each `proceed()` iteration to decide barge-ins (Gap #8).
-   */
-  voiceInterruptions?: InterruptionConfig;
-  /**
    * Background ambience recorded by `backgroundNoise(source, volume)` — read
    * by the user-simulator audio path when mixing turns (Gap #8).
    */
@@ -248,12 +305,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `error` captures any rejection from the background turn so it can be
    * re-thrown after the promise settles (rather than silently swallowed).
    */
-  private pendingAgentTask: {
-    promise: Promise<void>;
-    done: boolean;
-    /** Captured rejection, if any. Re-thrown by {@link fireUserInterrupt}. */
-    error: unknown | null;
-  } | null = null;
+  private pendingAgentTask: AgentTaskEntry | null = null;
 
   /**
    * Snapshot of voice adapters for the in-flight execution. Captured at
@@ -267,6 +319,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
   /** Logger for debugging and monitoring */
   private logger = new Logger("scenario.execution.ScenarioExecution");
+  private finishedEmitted = false;
 
   /** Finalized configuration with all defaults applied */
   private config: ScenarioConfigFinal;
@@ -340,17 +393,37 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       throw new Error("batchRunId is required");
     }
     this.batchRunId = batchRunId;
+    const maxTurns = config.maxTurns ?? DEFAULT_MAX_TURNS;
+    if (
+      config.minTurns != null &&
+      (!Number.isInteger(config.minTurns) || config.minTurns < 0)
+    ) {
+      throw new Error("minTurns must be a non-negative integer");
+    }
+    if (config.minTurns != null && config.minTurns > maxTurns) {
+      throw new Error(
+        `minTurns (${config.minTurns}) cannot exceed maxTurns (${maxTurns})`
+      );
+    }
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
       description: config.description,
-      agents: config.agents,
+      agents: resolveAgents(config.agents, config.parameters),
       script: script,
       verbose: config.verbose ?? DEFAULT_VERBOSE,
-      maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
+      maxTurns,
+      minTurns: config.minTurns,
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId || "default",
       metadata: config.metadata,
+      // Remote trace judging carriers: the judge resolves fetchRemoteTraces,
+      // the wait budgets and the langwatch endpoint/key override off
+      // `AgentInput.scenarioConfig`, so they must survive onto `this.config`.
+      fetchRemoteTraces: config.fetchRemoteTraces,
+      traceWaitTimeoutMs: config.traceWaitTimeoutMs,
+      traceWaitExtensionMs: config.traceWaitExtensionMs,
+      langwatch: config.langwatch,
       // Voice carriers (ADR-002): the per-run voice config + audio hooks must
       // survive onto `this.config` so they reach every `call()` via
       // `AgentInput.scenarioConfig`. `run({ voice })` seeds `cfg.voice`; the
@@ -360,6 +433,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       voice: config.voice,
       onAudioChunk: config.onAudioChunk,
       onVoiceEvent: config.onVoiceEvent,
+      // Evaluators run once the run has a verdict; the fields are what their
+      // scenario mappings read.
+      fields: config.fields,
+      evaluators: config.evaluators,
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
@@ -368,6 +445,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // Set once here so adapters fetched via AgentInput.scenarioState can
     // find their voice fields.
     this.state.setExecutor(this);
+    this.state.setSpanProvider(() =>
+      judgeSpanCollector.getSpansForThread(this.config.threadId)
+    );
     this.preAssignedRunId = runId;
 
     // Pull voice-side hooks off the user-supplied config. They fan out
@@ -553,6 +633,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     const scenarioRunId = this.preAssignedRunId || generateScenarioRunId();
     this.scenarioRunId = scenarioRunId;
+    this.finishedEmitted = false;
 
     // Create the initial turn span via newTurn() and then reset the counter
     // back to 0. This matches the original reset() behavior — newTurn() creates
@@ -625,27 +706,31 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           const cp = this.compiledCheckpoints;
           this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
 
-          this.emitRunFinished({
-            scenarioRunId,
-            status: this.result.success
-              ? ScenarioRunStatus.SUCCESS
-              : ScenarioRunStatus.FAILED,
-            result: this.result,
-          });
-
-          return this.result;
+          return await this.finishRun({ scenarioRunId, result: this.result });
         }
 
       }
 
       if (checkFailure) {
-        const cp = this.compiledCheckpoints;
-        const result = this.setResult({
-          success: false,
-          reasoning: `Scenario failed with error: ${checkFailure.message}`,
-          metCriteria: cp.metCriteria,
-          unmetCriteria: [...cp.unmetCriteria, checkFailure.message],
-        });
+        // Build the result defensively: a failure while assembling it must
+        // not cost us the finished event or mask the original assertion
+        // error (#922).
+        let result: ScenarioResult;
+        try {
+          const cp = this.compiledCheckpoints;
+          result = this.setResult({
+            success: false,
+            reasoning: `Scenario failed with error: ${checkFailure.message}`,
+            metCriteria: cp.metCriteria,
+            unmetCriteria: [...cp.unmetCriteria, checkFailure.message],
+          });
+        } catch (buildError) {
+          this.logger.warn(
+            `[${this.config.id}] failed to build check-failure result; falling back to a minimal result`,
+            buildError
+          );
+          result = this.minimalErrorResult(scenarioRunId, checkFailure);
+        }
 
         this.emitRunFinished({
           scenarioRunId,
@@ -665,13 +750,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           unmetCriteria: cp.unmetCriteria,
         });
 
-        this.emitRunFinished({
-          scenarioRunId,
-          status: result.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
-          result,
-        });
-
-        return result;
+        return await this.finishRun({ scenarioRunId, result });
       }
 
       const result = this.reachedMaxTurns(
@@ -683,34 +762,18 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         ].join("\n")
       );
 
-      this.emitRunFinished({
-        scenarioRunId,
-        status: result.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
-        result,
-      });
-
-      return result;
+      return await this.finishRun({ scenarioRunId, result });
     } catch (error) {
-      if (checkFailure) {
-        // Already handled above — just propagate
-        throw error;
+      // Report the run as finished before propagating. The exactly-once guard
+      // covers the case where the finished event was already emitted above
+      // but its emit path raised afterwards (#922).
+      this.emitErrorRunFinished({ scenarioRunId, error: checkFailure ?? error });
+
+      if (checkFailure && error !== checkFailure) {
+        // The emit path raised after the check-failure branch; surface the
+        // original assertion error, not the emit failure.
+        throw checkFailure;
       }
-
-      const errorInfo = extractErrorInfo(error);
-
-      const result = this.setResult({
-        success: false,
-        reasoning: `Scenario failed with error: ${errorInfo.message}`,
-        metCriteria: [],
-        unmetCriteria: [],
-        error: JSON.stringify(errorInfo),
-      });
-
-      this.emitRunFinished({
-        scenarioRunId,
-        status: ScenarioRunStatus.ERROR,
-        result,
-      });
 
       // Re-throw the error in case it was a vitest assertion error
       throw error;
@@ -772,20 +835,89 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         (s.transcriptTruncated || !s.transcript || s.transcript.trim() === ""),
     );
     if (targets.length === 0) return;
-    await Promise.all(
-      targets.map(async (seg) => {
-        try {
-          const chunk = new AudioChunk({ data: seg.audio });
-          const text = (await stt.transcribe(chunk)).trim();
-          if (text) seg.transcript = text;
-        } catch (err) {
-          this.logger.warn(
-            `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
-              `manifest transcript left unset (${(err as Error).message})`,
-          );
-        }
-      }),
+    // voice.stt.backfill — a per-RUN batch span parenting one
+    // voice.stt.transcribe child per segment (#776). TS transcribes per-run in
+    // this finally (no per-turn STT, unlike Python's _ensure_transcript), and
+    // there is no run-root span here to nest under — so the batch span groups
+    // the otherwise-orphaned per-run spans into one coherent trace and encodes
+    // "per-run, not per-turn" in the trace SHAPE. Python's mirror is per-turn
+    // under voice.turn; the shared voice.stt.transcribe span carries the same
+    // attributes at each language's position, disambiguated by voice.stt.scope.
+    //
+    // Correlation attrs mirror newTurn()'s "Scenario Turn" root (scenario.run_id
+    // / thread_id / origin) so this per-run batch — its own trace, since it has
+    // no run-root parent — is attributable to the run in the dashboard (grouped
+    // by scenario.run_id), not an anonymous orphan trace.
+    await voiceSpan(
+      "voice.stt.backfill",
+      {
+        "voice.stt.scope": "run",
+        "voice.stt.segment_count": targets.length,
+        "langwatch.origin": "simulation",
+        "scenario.run_id": this.scenarioRunId ?? "",
+        [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+      },
+      async () => {
+        await Promise.all(targets.map((seg) => this.transcribeSegment(seg, stt)));
+      },
     );
+  }
+
+  /**
+   * Back-fill ONE segment's transcript under a `voice.stt.transcribe` span
+   * (attribute-parity with Python's per-turn span; #776).
+   *
+   * The per-segment try/catch is LOAD-BEARING for finally-safety, not just
+   * best-effort transcripts: it keeps a provider failure from rejecting the
+   * batch's `Promise.all`, which would re-throw out of
+   * `backfillSegmentTranscripts` in `execute()`'s `finally` and MASK the
+   * scenario result / primary exception. Do not remove it.
+   */
+  private async transcribeSegment(
+    seg: AudioSegment,
+    stt: ResolvedVoiceConfig["stt"],
+  ): Promise<void> {
+    try {
+      await voiceSpan(
+        "voice.stt.transcribe",
+        {
+          "voice.stt.scope": "run",
+          "voice.stt.speaker": seg.speaker,
+          "voice.stt.audio_bytes": seg.audio.length,
+        },
+        async (span) => {
+          const chunk = new AudioChunk({ data: seg.audio });
+          let text: string;
+          try {
+            text = (await stt.transcribe(chunk)).trim();
+          } catch (err) {
+            // Sanitize BEFORE the span records it: provider SDK errors
+            // (OpenAI/ElevenLabs) can embed the raw response body — and a key
+            // fragment on a 401 — in `.message`, which `voiceSpan`'s
+            // `recordException` would EXPORT to telemetry. Log the detail
+            // locally at debug (non-exported); surface a minimal,
+            // provider-agnostic error so the span still marks ERROR without
+            // leaking (mirrors `ElevenLabsSTTProvider` in voice/stt).
+            this.logger.debug(
+              `voice: STT provider error on a ${seg.speaker} segment`,
+              err,
+            );
+            throw new Error(
+              `STT provider failed: ${(err as Error)?.constructor?.name ?? "Error"}`,
+            );
+          }
+          if (text) {
+            seg.transcript = text;
+            span.setAttribute("voice.stt.transcript_chars", text.length);
+          }
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
+          `manifest transcript left unset (${(err as Error).message})`,
+      );
+    }
   }
 
   /**
@@ -853,8 +985,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     }
 
     const currentRole = this.pendingRolesOnTurn[0];
-    const { idx, agent: nextAgent } = this.nextAgentForRole(currentRole);
-    if (!nextAgent) {
+    const next = this.findNextAgentForRole(currentRole);
+    if (!next) {
       this.logger.debug(
         `[${this.config.id}] No agent for role ${currentRole}, removing role`
       );
@@ -862,15 +994,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       return this._step(goToNextTurn, onTurn);
     }
 
+    const { index, agent: nextAgent } = next;
     this.logger.debug(`[${this.config.id}] Calling agent`, {
       role: currentRole,
-      agentIdx: idx,
+      agentIdx: index,
       agentName: nextAgent.name ?? nextAgent.constructor.name,
     });
 
     this.removePendingAgent(nextAgent);
 
-    await this.callAgent(idx, currentRole);
+    await this.callAgent(index, currentRole);
   }
 
   /**
@@ -915,15 +1048,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     });
 
     const startTime = Date.now();
-    const agentInput: AgentInput = {
-      threadId: this.state.threadId,
-      messages: this.state.messages,
-      newMessages: this.pendingMessages.get(idx) ?? [],
-      requestedRole: role,
-      judgmentRequest: judgmentRequest,
-      scenarioState: this.state,
-      scenarioConfig: this.config,
-    };
 
     // Create agent span as child of the turn span
     // Following OpenTelemetry docs: create context with parent span right before creating child
@@ -956,6 +1080,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
           // Set input for the span
           agentSpan.setInput("chat_messages", this.state.messages);
+
+          // Built inside the agent-call span so the injected traceparent
+          // carries this turn's trace id — the same id stamped below on the
+          // messages this call produces. HTTP adapters spread
+          // propagationHeaders onto their outgoing requests so the remote
+          // agent's spans join the turn's trace.
+          const agentInput: AgentInput = {
+            threadId: this.state.threadId,
+            messages: this.state.messages,
+            newMessages: this.pendingMessages.get(idx) ?? [],
+            requestedRole: role,
+            judgmentRequest: judgmentRequest,
+            propagationHeaders: buildPropagationHeaders(),
+            scenarioState: this.state,
+            scenarioConfig: this.config,
+          };
 
           const agentResponse = await agent.call(agentInput);
           const endTime = Date.now();
@@ -1273,14 +1413,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * @param role - The role the agent was called for.
    * @returns The messages to add/broadcast — voiced where applicable.
    * @throws {Error} ({@link USER_TURN_NO_AUDIO_FOR_VOICE_AUT}, the fail-closed
-   *   invariant) when the FINAL (post-voiceify) user turn for a voice agent
-   *   under test carries no audio. Adapter-AGNOSTIC and strictly stronger than
-   *   the old realtime-user type-check it replaced: it trips on the produced
-   *   ARTIFACT (a no-audio turn) regardless of producer type — catching a
-   *   realtime adapter that returns text AND a non-realtime/non-voice-sim
-   *   producer the type-check let through silently — rather than degrade the
-   *   user side to a text turn the voice agent can't hear. The autonomous
-   *   OpenAI Realtime user PASSES it (its `call()` returns audio).
+   *   invariant) when the FINAL (post-voiceify) user turn for a voice agent under
+   *   test carries no content. See {@link USER_TURN_NO_AUDIO_FOR_VOICE_AUT} for the
+   *   full rationale.
    */
   private async voiceifyGeneratedUserTurn(
     messages: ModelMessage[],
@@ -1319,20 +1454,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       outgoing = voiced;
     }
 
-    // Fail-closed invariant (adapter-AGNOSTIC): a USER turn for a voice agent
-    // under test MUST carry REAL content — audio bytes the AUT can hear, or a
-    // transcript (for a text-commit adapter) — the why is on
-    // USER_TURN_NO_AUDIO_FOR_VOICE_AUT.
+    // Fail-closed invariant: a USER turn for a voice agent under test MUST carry
+    // REAL content (audio bytes the AUT can hear, or a transcript for a text-commit
+    // adapter); the why is on USER_TURN_NO_AUDIO_FOR_VOICE_AUT.
     // LOAD-BEARING ORDER: this runs AFTER the voiceify/TTS step, on the FINAL
-    // outgoing turn — so a legitimate voice-user-sim TEXT turn (text is PRE-TTS)
-    // is allowed through ONCE voiced, while a realtime adapter that returns text,
-    // or any producer that yields a CONTENT-LESS user turn, fails loud rather
-    // than silently degrading the agent under test to a turn it can't hear.
-    // NB: test real content, not `messageHasAudio` — a ZERO-byte audio part still
+    // outgoing turn, so a legitimate voice-user-sim TEXT turn (text is PRE-TTS) is
+    // allowed through ONCE voiced, while a realtime adapter that returns text, or
+    // any producer that yields a CONTENT-LESS user turn, fails loud.
+    // NB: test real content, not `messageHasAudio`: a ZERO-byte audio part still
     // "has audio" (extractAudio is non-null), so an empty-audio #708-flake turn
     // would sail through and feed the AUT silence (a receiveAudio-timeout hang).
-    // It is the produced ARTIFACT, not the producer's TYPE, that trips it —
-    // strictly stronger than the old isRealtimeUserAgent check.
     const carriesContent = outgoing.some((message) => {
       const audio = extractAudio(message);
       return (
@@ -1387,23 +1518,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `void executor.agent().catch()` call sites did.
    */
   agentNonBlocking(content?: string | ModelMessage): void {
-    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
-      // Assigned in the same statement; the `.finally` below closes over
-      // `entry` and only runs after this turn settles, by which point the field
-      // holds the real promise (no dead Promise.resolve() placeholder — review
-      // H6).
-      promise: this.scriptCallAgent(AgentRole.AGENT, content)
-        .then(() => undefined)
-        .catch((err: unknown) => {
-          entry.error = err; // capture, don't swallow — re-thrown at drain/interrupt time
-        })
-        .finally(() => {
-          entry.done = true;
-        }),
-      done: false,
-      error: null,
-    };
-    this.pendingAgentTask = entry;
+    this.pendingAgentTask = makeTaskEntry(() =>
+      this.scriptCallAgent(AgentRole.AGENT, content),
+    );
   }
 
   /**
@@ -1568,6 +1685,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     rng?: () => number;
     waitForSpeechMs?: number;
     bargeInDelayMs?: number;
+    /** Test seam: force a specific InterruptionConfig (replaces the removed per-call interruption-injection path). */
+    config?: InterruptionConfig;
   };
 
   /**
@@ -1689,17 +1808,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // Walk pendingRolesOnTurn to find the next role that will actually run.
     let nextRole: AgentRole | null = null;
     for (const r of this.pendingRolesOnTurn) {
-      const { agent } = this.nextAgentForRole(r);
-      if (agent !== null) {
+      if (this.findNextAgentForRole(r)) {
         nextRole = r;
         break;
       }
     }
     if (nextRole !== AgentRole.AGENT) return null;
 
-    const { idx, agent } = this.nextAgentForRole(AgentRole.AGENT);
-    if (!agent) return null;
-    return { idx, agent };
+    const next = this.findNextAgentForRole(AgentRole.AGENT);
+    if (!next) return null;
+    return { idx: next.index, agent: next.agent };
   }
 
   /**
@@ -1739,23 +1857,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    *
    * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
    */
-  private dispatchAgentBackground(idx: number): {
-    promise: Promise<void>;
-    done: boolean;
-    error: unknown | null;
-  } {
-    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
-      promise: this.callAgent(idx, AgentRole.AGENT)
-        .then(() => undefined)
-        .catch((err: unknown) => {
-          entry.error = err; // captured, re-thrown by fireUserInterrupt/drain
-        })
-        .finally(() => {
-          entry.done = true;
-        }),
-      done: false,
-      error: null,
-    };
+  private dispatchAgentBackground(idx: number): AgentTaskEntry {
+    const entry = makeTaskEntry(() => this.callAgent(idx, AgentRole.AGENT));
     this.pendingAgentTask = entry;
     return entry;
   }
@@ -1772,7 +1875,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   private async prepareAndFireBargeIn(
     config: InterruptionConfig,
     voiceUserSim: VoiceUserSimulator,
-    entry: { promise: Promise<void>; done: boolean; error: unknown | null },
+    entry: AgentTaskEntry,
   ): Promise<boolean> {
     // Sample the delay BEFORE voiceifyText so it is applied AFTER
     // agentSpeakingEvent fires (in fireUserInterrupt) — not before TTS.
@@ -1815,19 +1918,14 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
   /**
    * Resolve the active {@link InterruptionConfig} for the run:
-   * - `voiceProceed({ interruptions })` config (on the executor state) wins.
+   * - a test-seam override config (`interruptOverrides.config`) wins;
    * - else, when a user simulator declares `interruptProbability > 0`, build
-   *   a default config from it.
+   *   a default config from it;
    * - else `null` (no interruptions).
    */
   private resolveInterruptionConfig(): InterruptionConfig | null {
-    if (this.voiceInterruptions instanceof InterruptionConfig) {
-      return this.voiceInterruptions;
-    }
-    if (this.voiceInterruptions) {
-      // A plain InterruptionConfigInit-shaped object was recorded — wrap it.
-      return new InterruptionConfig(this.voiceInterruptions);
-    }
+    const override = this.interruptOverrides?.config;
+    if (override) return override;
     const prob = this.userSimulatorInterruptProbability();
     if (prob > 0) {
       return new InterruptionConfig({ probability: prob });
@@ -2014,7 +2112,19 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // 1. Native cancel first (Twilio clear / OpenAI Realtime response.cancel).
       if (adapter.capabilities.interruption) {
         try {
-          await adapter.interrupt();
+          // voice.adapter.interrupt — executor-owned base span (mirrors
+          // startVoiceAdapters / stopVoiceAdapters). Rule: executor-invoked + no
+          // shared base body to instrument — connect/disconnect are abstract,
+          // interrupt() is concrete but wholesale-overridden with no super(), so
+          // the call-site is the one seam. The adapter stamps vendor outcome
+          // attrs onto it from inside its own interrupt().
+          await voiceSpan(
+            "voice.adapter.interrupt",
+            { "voice.adapter.class": adapter.constructor.name },
+            async () => {
+              await adapter.interrupt();
+            },
+          );
           nativeFired = true;
         } catch {
           // Best-effort: step 2 (push audio) is the load-bearing barge-in.
@@ -2201,12 +2311,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     this.consumeUntilRole(role);
 
-    let nextAgent = this.getNextAgentForRole(role);
+    let nextAgent = this.findNextAgentForRole(role);
     if (!nextAgent) {
       this.newTurn();
       this.consumeUntilRole(role);
 
-      nextAgent = this.getNextAgentForRole(role);
+      nextAgent = this.findNextAgentForRole(role);
     }
 
     if (!nextAgent) {
@@ -2317,6 +2427,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // so adapters reaching `input.scenarioState._executor` would see
     // `null` for the rest of the run otherwise.
     this.state.setExecutor(this);
+    this.state.setSpanProvider(() =>
+      judgeSpanCollector.getSpansForThread(this.config.threadId)
+    );
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
     // Initialize turn state without creating a span yet. execute() calls
@@ -2346,21 +2459,40 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     return { metCriteria, unmetCriteria };
   }
 
-  private nextAgentForRole(role: AgentRole): {
-    idx: number;
-    agent: AgentAdapter | null;
-  } {
-    for (const agent of this.agents) {
-      if (
-        agent.role === role &&
-        this.pendingAgentsOnTurn.has(agent) &&
-        this.pendingRolesOnTurn.includes(role)
-      ) {
-        return { idx: this.agents.indexOf(agent), agent };
+  /**
+   * Finds the next agent that may act for `role` on the current turn: the
+   * first agent of that role still pending on the turn.
+   *
+   * The two lookups this replaced differed by one extra condition,
+   * `pendingRolesOnTurn.includes(role)`, present on the automatic-loop side
+   * and absent on the scripted side. That condition cannot be false at any of
+   * the automatic call sites, so dropping it changes nothing there:
+   *
+   * - {@link _step} passes `pendingRolesOnTurn[0]`, so the condition asks
+   *   whether an array contains its own head. When the queue is empty the role
+   *   is `undefined` and no agent matches on role either way.
+   * - The inline-barge lookup iterates `for (const r of pendingRolesOnTurn)`,
+   *   and its second call asks for AGENT only after `nextRole` was assigned
+   *   from that same iteration, with no mutation of the array in between.
+   *
+   * On the scripted side the absence is load-bearing rather than incidental:
+   * {@link scriptCallAgent} has already run {@link consumeUntilRole}, which
+   * drains the queue entirely when the role is not in it, and the agent must
+   * still be reachable afterwards. Python's `_next_agent_for_role` keeps the
+   * condition and so takes a `newTurn()` there instead, a turn-count
+   * divergence pinned by `script-call-role-pending.test.ts`. See issue #210.
+   */
+  private findNextAgentForRole(
+    role: AgentRole
+  ): { index: number; agent: AgentAdapter } | null {
+    for (let index = 0; index < this.agents.length; index++) {
+      const agent = this.agents[index];
+      if (agent.role === role && this.pendingAgentsOnTurn.has(agent)) {
+        return { index, agent };
       }
     }
 
-    return { idx: -1, agent: null };
+    return null;
   }
 
   /**
@@ -2427,18 +2559,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
   private removePendingAgent(agent: AgentAdapter): void {
     this.pendingAgentsOnTurn.delete(agent);
-  }
-
-  private getNextAgentForRole(
-    role: AgentRole
-  ): { index: number; agent: AgentAdapter } | null {
-    for (let i = 0; i < this.agents.length; i++) {
-      const agent = this.agents[i];
-      if (agent.role === role && this.pendingAgentsOnTurn.has(agent)) {
-        return { index: i, agent };
-      }
-    }
-    return null;
   }
 
   private setAgents(agents: AgentAdapter[]): void {
@@ -2522,6 +2642,19 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         ...this.config.metadata,
         name: this.config.name,
         description: this.config.description,
+        agents: this.config.agents.flatMap((agent) => {
+          const name = resolveAgentName(agent);
+          if (!name) return [];
+          return [
+            {
+              name,
+              role: agent.role.toLowerCase() as "agent" | "user" | "judge",
+            },
+          ];
+        }),
+        ...(this.config.fields && Object.keys(this.config.fields).length > 0
+          ? { fields: this.config.fields }
+          : {}),
       },
     } as ScenarioRunStartedEvent);
   }
@@ -2539,7 +2672,156 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
-   * Emits a run finished event with the final execution status.
+   * Smallest valid ERROR result, for when building the full one fails.
+   */
+  private minimalErrorResult(
+    scenarioRunId: string,
+    error: unknown
+  ): ScenarioResult {
+    return {
+      runId: scenarioRunId,
+      success: false,
+      messages: [],
+      reasoning: `Scenario failed with error: ${extractErrorInfo(error).message}`,
+      metCriteria: [],
+      unmetCriteria: [],
+    };
+  }
+
+  /**
+   * Reports the run as finished with status ERROR without ever masking
+   * `error`: every step is guarded, and a failure to emit only logs.
+   */
+  private emitErrorRunFinished({
+    scenarioRunId,
+    error,
+  }: {
+    scenarioRunId: string;
+    error: unknown;
+  }): void {
+    if (this.finishedEmitted) return;
+    try {
+      const errorInfo = extractErrorInfo(error);
+      let result: ScenarioResult;
+      try {
+        result = this.setResult({
+          success: false,
+          reasoning: `Scenario failed with error: ${errorInfo.message}`,
+          metCriteria: [],
+          unmetCriteria: [],
+          error: JSON.stringify(errorInfo),
+        });
+      } catch (buildError) {
+        this.logger.warn(
+          `[${this.config.id}] failed to build error result; falling back to a minimal result`,
+          buildError
+        );
+        result = this.minimalErrorResult(scenarioRunId, error);
+      }
+
+      this.emitRunFinished({
+        scenarioRunId,
+        status: ScenarioRunStatus.ERROR,
+        result,
+      });
+    } catch (emitError) {
+      this.logger.warn(
+        `[${this.config.id}] failed to emit run finished event; preserving original error`,
+        emitError
+      );
+    }
+  }
+
+  /**
+   * Concludes a run that reached a verdict: runs the scenario's evaluators
+   * over the final state, applies their gate to the result, then emits the
+   * run finished event. Runs that ended in an error skip the evaluators.
+   */
+  private async finishRun({
+    scenarioRunId,
+    result,
+  }: {
+    scenarioRunId: string;
+    result: ScenarioResult;
+  }): Promise<ScenarioResult> {
+    let finalResult = result;
+    if (this.config.evaluators && this.config.evaluators.length > 0) {
+      let evaluations: EvaluationResult[] = [];
+      try {
+        evaluations = await this.runEvaluators();
+      } catch (error) {
+        this.logger.warn(
+          `Evaluators did not run, the verdict stands: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      if (evaluations.length > 0) {
+        finalResult = applyEvaluationsToResult({ result, evaluations });
+        this._result = finalResult;
+      }
+      if (this.config.verbose) {
+        for (const evaluation of evaluations) {
+          console.log(
+            `Evaluator ${evaluation.name}: ${evaluation.status}${evaluation.details ? ` (${evaluation.details})` : ""}`
+          );
+        }
+      }
+    }
+
+    this.emitRunFinished({
+      scenarioRunId,
+      status: finalResult.success
+        ? ScenarioRunStatus.SUCCESS
+        : ScenarioRunStatus.FAILED,
+      result: finalResult,
+    });
+    return finalResult;
+  }
+
+  /**
+   * Runs the evaluators against the run state. Each mapping reads the state
+   * a script step reads: the messages, the fields and the spans already
+   * collected. When a mapping read the trace and found nothing, the remote
+   * traces of the run are fetched once, waiting the same budget the judge
+   * uses, and the mapping is called again.
+   */
+  private async runEvaluators() {
+    const auth = resolveEvaluationsApiAuth(this.config.langwatch);
+    const api = new EvaluationsApiClient(auth);
+    const threadId = this.config.threadId;
+    const traceIds = collectMessageTraceIds(this.state.messages);
+    const lastTraceId = traceIds.at(-1);
+
+    const fetchRemoteTraces = async () => {
+      if (traceIds.length === 0 || !auth.apiKey) return;
+      const projectConfig = await getProjectConfig();
+      await remoteTraceFetcher.settleWait({
+        threadId,
+        traceIds,
+        collector: judgeSpanCollector,
+        langwatch: this.config.langwatch,
+        timeoutMs:
+          this.config.traceWaitTimeoutMs ??
+          projectConfig?.traceWaitTimeoutMs ??
+          DEFAULT_TRACE_WAIT_TIMEOUT_MS,
+      });
+    };
+
+    return runScenarioEvaluators({
+      evaluators: this.config.evaluators ?? [],
+      state: this.state,
+      traceId: lastTraceId,
+      deps: {
+        getEvaluatorSpec: (ref) => api.getEvaluatorSpec(ref),
+        evaluate: (args) => api.evaluate(args),
+        fetchRemoteTraces,
+      },
+    });
+  }
+
+  /**
+   * Emits a run finished event with the final execution status, exactly once
+   * per run: every exit path reports through this guard, so an error path
+   * entered after a successful emit can never double-post the event.
    */
   private emitRunFinished({
     scenarioRunId,
@@ -2550,6 +2832,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     status: ScenarioRunStatus;
     result?: ScenarioResult;
   }) {
+    if (this.finishedEmitted) return;
     const event: ScenarioRunFinishedEvent = {
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.RUN_FINISHED,
@@ -2560,10 +2843,14 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         unmetCriteria: result?.unmetCriteria ?? [],
         reasoning: result?.reasoning,
         error: result?.error,
+        ...(result?.evaluations ? { evaluations: result.evaluations } : {}),
       },
     };
 
     this.emitEvent(event);
+    // Marked as soon as the event is on the stream, so a failure in the
+    // closing steps below can never cause a second event to be emitted.
+    this.finishedEmitted = true;
     this.eventSubject.complete();
 
     // End the final turn span

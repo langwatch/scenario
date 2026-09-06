@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langwatch-scenario"
-version = "0.7.31"
+version = "1.5.0"
 description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [{ name = "LangWatch Team", email = "support@langwatch.ai" }]
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
@@ -33,16 +33,16 @@ dependencies = [
     # Revert when wrapt 2.x stabilises and the stubs are correct.
     "wrapt>=1.17.2,<2",
     "pytest-asyncio>=0.26.0",
-    "rich>=13.3.3,<15.0.0",
+    "rich>=13.3.3,<16.0.0",
     "pksuid>=1.1.2",
     "httpx>=0.27.0",
     "rx>=3.2.0",
     "python-dateutil>=2.9.0.post0",
-    "pydantic-settings>=2.9.1",
-    # Pin <0.3 — 0.22.0 imports pandas at module load (via langwatch.evaluation),
-    # which breaks `test (3.12)` CI since pandas is in the [report] extra not
-    # installed by default. Reverting an unbounded floor that surfaced on rebase.
-    "langwatch>=0.2.19,<0.3",
+    "pydantic-settings>=2.14.2",
+    # Floor 1.0: the first langwatch that imports pandas-free. Older versions
+    # pull pandas in at module load through langwatch.evaluations, which
+    # breaks installs without the [report] extra.
+    "langwatch>=1.0.0,<2",
     "opentelemetry-sdk>=1.20.0",
     # Voice agent support (issue #350). Hard deps: voice is first-class.
     # imageio-ffmpeg bundles the ffmpeg binary (not ffplay) for audio
@@ -74,7 +74,7 @@ dev = [
     "pytest-cov",
     "pre-commit",
     "pyright",
-    "pydantic-ai-slim[openai]>=1.56.0",
+    "pydantic-ai-slim[openai]>=1.102.0,<2.0.0",
     "function-schema",
     "pdoc3",
     "respx",
@@ -112,7 +112,7 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 [tool.uv]
 constraint-dependencies = [
     "urllib3>=2.7.0",
-    "python-liquid>=2.2.0",
+    "python-liquid>=2.2.1",
     "filelock>=3.20.3",
     "virtualenv>=20.36.1",
 ]
@@ -122,7 +122,7 @@ constraint-dependencies = [
 dev = [
     "function-schema>=0.4.5",
     "pre-commit>=4.2.0",
-    "pydantic-ai-slim[openai]>=1.56.0",
+    "pydantic-ai-slim[openai]>=1.102.0,<2.0.0",
     "pyright>=1.1.405",
     "pytest-asyncio-concurrent>=0.4.1",
     "pdoc3>=0.11.6",

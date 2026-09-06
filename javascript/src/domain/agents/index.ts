@@ -3,6 +3,7 @@ import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
 export * from "./types/agent-return.types";
+export * from "./connected-agent.types";
 export {
   isRealtimeUserAgent,
   isVoiceUserSim,
@@ -73,6 +74,27 @@ export interface AgentInput {
    */
   judgmentRequest?: JudgmentRequest;
   /**
+   * W3C trace context headers for the current turn, built by injecting the
+   * active OpenTelemetry context at AgentInput construction time. Contains
+   * `traceparent` (and `tracestate` when set); the traceparent's trace id
+   * equals the trace id stamped on this turn's messages. Empty object when
+   * no span is active.
+   *
+   * Always set by the scenario runtime at call time; optional so hand-built
+   * inputs keep compiling.
+   *
+   * HTTP adapters spread these onto their outgoing request headers so the
+   * remote agent's spans join the turn's trace:
+   *
+   * ```typescript
+   * await fetch(url, {
+   *   headers: { "Content-Type": "application/json", ...input.propagationHeaders },
+   *   ...
+   * });
+   * ```
+   */
+  propagationHeaders?: Record<string, string>;
+  /**
    * The current state of the scenario execution.
    */
   scenarioState: ScenarioExecutionStateLike;
@@ -93,6 +115,7 @@ export interface AgentInput {
  * @example
  * ```typescript
  * class MyAgent extends AgentAdapter {
+ *   name = "MyAgent";
  *   role = AgentRole.AGENT;
  *
  *   async call(input: AgentInput): Promise<AgentReturnTypes> {
@@ -106,6 +129,10 @@ export interface AgentInput {
  * ```
  */
 export abstract class AgentAdapter {
+  /**
+   * The name that LangWatch shows as the target of the run. When you do not set
+   * it, the framework uses the class name of the adapter.
+   */
   name?: string;
   role: AgentRole = AgentRole.AGENT;
 
@@ -120,6 +147,52 @@ export abstract class AgentAdapter {
    * @returns The agent's response.
    */
   abstract call(input: AgentInput): Promise<AgentReturnTypes>;
+}
+
+/**
+ * The name a run reports for an agent adapter.
+ *
+ * The adapter's own name comes first, without the space around it. A blank name
+ * counts as no name, so the class name of the adapter is used instead. An
+ * adapter written as a plain object has no class of its own, and an anonymous
+ * class carries no name either: both return undefined, and the run leaves the
+ * agent out of the list instead of reporting a name that means nothing. The
+ * Python SDK follows the same steps.
+ *
+ * Only a string counts as a name. A test double built by a mocking library
+ * answers every property with a function, and a JavaScript caller can set any
+ * value, so the type says less here than it does elsewhere. Reading a name
+ * raises nothing, whatever the adapter carries.
+ *
+ * @param agent - The adapter that takes part in the run. Its `name` may come
+ *   from the class body, from the instance, or not at all.
+ * @returns The name to report, or `undefined` when the adapter carries no
+ *   usable name: a blank name on a plain object, or an anonymous class.
+ *
+ * @example
+ * ```ts
+ * class SupportAgent extends AgentAdapter {}
+ * resolveAgentName(new SupportAgent());              // "SupportAgent"
+ * resolveAgentName({ name: "  Support  ", ... });    // "Support"
+ * resolveAgentName({ role: AgentRole.AGENT, ... });  // undefined
+ * ```
+ */
+export function resolveAgentName(agent: AgentAdapter): string | undefined {
+  const explicit = nameFrom(agent.name);
+  if (explicit) return explicit;
+
+  // The class comes from the prototype, not from the object: an adapter that
+  // carries a `constructor` key of its own would otherwise name the run.
+  const ownClass = (Object.getPrototypeOf(agent) as { constructor?: unknown })
+    ?.constructor;
+  if (!ownClass || ownClass === Object) return undefined;
+  return nameFrom((ownClass as { name?: unknown }).name);
+}
+
+/** The value when it is a string that holds more than space. */
+function nameFrom(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value.trim() || undefined;
 }
 
 /**

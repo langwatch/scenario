@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import open from "open";
+import { showBatchRun } from "../browser/tab-handoff";
 import { getEnv, getProjectConfig } from "../config";
 import { getBatchRunId } from "../utils/ids";
 
@@ -58,6 +58,9 @@ export class EventAlertMessageLogger {
     scenarioSetId: string;
     scenarioRunId: string;
     setUrl: string;
+    endpoint?: string;
+    apiKey?: string;
+    projectId?: string;
   }): Promise<void> {
     if (this.isGreetingDisabled()) {
       return;
@@ -93,26 +96,43 @@ export class EventAlertMessageLogger {
     }
   }
 
-  private async displayWatchMessage(params: { setUrl: string }): Promise<void> {
+  private async displayWatchMessage(params: {
+    setUrl: string;
+    scenarioSetId?: string;
+    endpoint?: string;
+    apiKey?: string;
+    projectId?: string;
+  }): Promise<void> {
     const separator = "─".repeat(60);
     const setUrl = params.setUrl;
-    const batchUrl = `${setUrl}/${getBatchRunId()}`;
+    const batchRunId = getBatchRunId();
+    const batchUrl = `${setUrl}/${batchRunId}`;
 
     console.log(`\n${separator}`);
     console.log("🎭  Running Scenario Tests");
     console.log(`${separator}`);
     console.log(`Follow it live: ${batchUrl}`);
-    console.log(`${separator}\n`);
 
     const projectConfig = await getProjectConfig();
 
-    if (!projectConfig?.headless) {
-      try {
-        open(batchUrl);
-        // eslint-disable-next-line unused-imports/no-unused-vars, @typescript-eslint/no-unused-vars
-      } catch (_) {
-        // Do nothing
+    const outcome = await showBatchRun(
+      {
+        batchUrl,
+        batchRunId,
+        scenarioSetId: params.scenarioSetId,
+      },
+      {
+        headless: Boolean(projectConfig?.headless),
+        endpoint: params.endpoint,
+        apiKey: params.apiKey,
+        projectId: params.projectId,
       }
+    );
+
+    if (outcome === "handed_off") {
+      console.log("↻ Sent to the LangWatch tab you already have open");
     }
+
+    console.log(`${separator}\n`);
   }
 }

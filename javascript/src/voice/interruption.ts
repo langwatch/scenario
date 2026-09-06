@@ -1,5 +1,6 @@
 /**
- * Interruption configuration for `proceed({ interruptions })`.
+ * Interruption configuration for user-simulator interruptions (driven by
+ * `interruptProbability`).
  *
  * Source §4.4 L478-492. Two strategies:
  * - `"contextual"`: an LLM generates a short interruption phrase from the
@@ -52,7 +53,8 @@ export interface InterruptionConfigInit {
 }
 
 /**
- * Configuration for random interruptions during `proceed({ interruptions })`.
+ * Interruption configuration for user-simulator interruptions (driven by
+ * `interruptProbability`).
  *
  * Defaults match the Python source. `pickRandomPhrase`/`sampleDelay`/
  * `shouldInterrupt` accept an optional `rng` so callers can pass a seeded

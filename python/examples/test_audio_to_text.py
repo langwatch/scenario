@@ -17,18 +17,20 @@ import scenario
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
-from helpers import encode_audio_to_base64, wrap_judge_for_audio
+from helpers import AUDIO_JUDGE_CRITERIA, encode_audio_to_base64, wrap_judge_for_audio
 
-# Skipped in CI: live end-to-end test — calls OpenAI's `gpt-audio-mini` audio
-# model and the real LangWatch backend (cost, API keys, non-deterministic
-# audio), so it runs live/locally rather than in CI. (The skip historically
-# also guarded the now-deleted `gpt-4o-audio-preview`; that model was swapped
-# for `gpt-audio-mini`, so the model is no longer the blocker — the skip is
-# CI-cost/live-only now.)
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CI") == "true",
-    reason="Live E2E test (real OpenAI gpt-audio-mini + LangWatch backend, cost, non-deterministic audio) — runs live/locally, not in CI.",
-)
+# Runs in CI, like its two JavaScript siblings.
+#
+# This was skipped on `CI == "true"` for cost and audio non-determinism. The
+# cost is real, but the skip is also what let #864 sit: the judge could not
+# reach a verdict on a reasoning model at all, and `python-ci`'s Test (Examples)
+# step reported green with this file skipped while the two JavaScript siblings —
+# which run live against the same model — passed. An example that only ever runs
+# on someone's laptop reports nothing about `main`.
+#
+# The wire-shape rule itself is pinned offline and deterministically in
+# `tests/test_judge_transport_reasoning.py`; that is the gate. This example is
+# the live end-to-end check that the siblings agree.
 
 
 # Type definitions for multimodal messages with file content
@@ -213,12 +215,8 @@ async def test_audio_to_text():
     # Wrap with audio handler in case the judge needs to process audio
     audio_judge = wrap_judge_for_audio(
         scenario.JudgeAgent(
-            model="openai/gpt-4o",
-            criteria=[
-                "The agent's response demonstrates it processed the audio content (e.g. it addresses what was in the audio, attempts to answer the audio question, or acknowledges what it heard)",
-                "The agent provides a coherent, on-topic response — not an error message, refusal, or unrelated reply",
-                "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
-            ],
+            model="openai/gpt-5.6-luna",
+            criteria=list(AUDIO_JUDGE_CRITERIA),
         )
     )
 
@@ -228,7 +226,7 @@ async def test_audio_to_text():
         description="User sends audio file, agent analyzes and responds with text",
         agents=[
             AudioToTextAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4o"),
+            scenario.UserSimulatorAgent(model="openai/gpt-5.6-luna"),
             audio_judge,
         ],
         script=[

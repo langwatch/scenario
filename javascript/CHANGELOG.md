@@ -1,5 +1,156 @@
 # Changelog
 
+## [1.6.0](https://github.com/langwatch/scenario/compare/javascript/v1.5.0...javascript/v1.6.0) (2026-09-06)
+
+
+### Features
+
+* evaluators on scenario runs with mappings as functions of the state ([#966](https://github.com/langwatch/scenario/issues/966)) ([a2c8070](https://github.com/langwatch/scenario/commit/a2c8070f5120b59330d34b526c8ac37c8e2fc4f9))
+* **javascript:** claude code adapter returns structured messages, shapes the CLI env and leaves no orphan process ([#972](https://github.com/langwatch/scenario/issues/972)) ([11d7f14](https://github.com/langwatch/scenario/commit/11d7f1424b2e5e3054da868982f7e03f08084577))
+
+
+### Bug Fixes
+
+* **#922:** always report a scenario run as finished, and make event delivery retry ([#928](https://github.com/langwatch/scenario/issues/928)) ([7f5e220](https://github.com/langwatch/scenario/commit/7f5e220a4678345912e6842cc6f9fce4ea6aa42a))
+* evaluator client refuses redirects, saved evaluators declare their inputs, repeated tool calls stay distinct ([#971](https://github.com/langwatch/scenario/issues/971)) ([212728e](https://github.com/langwatch/scenario/commit/212728e3c34b65f87d9c7176245913c9a6e384ff))
+
+## [1.5.0](https://github.com/langwatch/scenario/compare/javascript/v1.4.0...javascript/v1.5.0) (2026-09-01)
+
+
+### Features
+
+* agent adapters carry a name and runs report their agents ([#952](https://github.com/langwatch/scenario/issues/952)) ([6df4e12](https://github.com/langwatch/scenario/commit/6df4e1296f23079e70a1ea7c40dd0877bbd15d7a))
+* scenario.run accepts a connected agent function ([#954](https://github.com/langwatch/scenario/issues/954)) ([5cb7758](https://github.com/langwatch/scenario/commit/5cb7758a1197a7e97e023257e68608a86d05b968))
+
+
+### Miscellaneous
+
+* **audio-examples:** bring the fourth sibling into the shared judge criteria ([#682](https://github.com/langwatch/scenario/issues/682)) ([#936](https://github.com/langwatch/scenario/issues/936)) ([5e1bd79](https://github.com/langwatch/scenario/commit/5e1bd79fff5ce5733dd60db915bf2a91a552c861))
+
+
+### Code Refactoring
+
+* **voice:** one constructor for a background agent turn ([#576](https://github.com/langwatch/scenario/issues/576)) ([#949](https://github.com/langwatch/scenario/issues/949)) ([52006f0](https://github.com/langwatch/scenario/commit/52006f08e3faa76f50ea5e2bcfc0674fc19c104e))
+
+## [1.4.0](https://github.com/langwatch/scenario/compare/javascript/v1.3.0...javascript/v1.4.0) (2026-08-26)
+
+
+### Features
+
+* **voice:** let the realtime adapters mint through a voice gateway ([#935](https://github.com/langwatch/scenario/issues/935)) ([a3f40b4](https://github.com/langwatch/scenario/commit/a3f40b4dbfd25528df5c9c06e51563d47ba92f6f))
+* **voice:** mint every JavaScript voice session through the gateway ([#937](https://github.com/langwatch/scenario/issues/937)) ([fae2e9c](https://github.com/langwatch/scenario/commit/fae2e9c6b6aa4c8571986b3f7ce23afe5a92e2c4))
+
+
+### Miscellaneous
+
+* **deps-dev:** bump @amiceli/vitest-cucumber from 6.5.0 to 7.0.0 in /javascript ([#816](https://github.com/langwatch/scenario/issues/816)) ([2bccab9](https://github.com/langwatch/scenario/commit/2bccab9305b7a4734682ef7675bef29cea54e69d))
+* **deps-dev:** bump @amiceli/vitest-cucumber in /javascript ([2bccab9](https://github.com/langwatch/scenario/commit/2bccab9305b7a4734682ef7675bef29cea54e69d))
+* **deps-dev:** bump @types/node ([71ffc8e](https://github.com/langwatch/scenario/commit/71ffc8e1bf17a0f20c082698601f13b706d67071))
+* **deps-dev:** bump @types/node from 24.12.4 to 26.2.0 in /javascript in the types group across 1 directory ([#811](https://github.com/langwatch/scenario/issues/811)) ([71ffc8e](https://github.com/langwatch/scenario/commit/71ffc8e1bf17a0f20c082698601f13b706d67071))
+* **deps-dev:** bump @typescript/native-preview ([dfc7f98](https://github.com/langwatch/scenario/commit/dfc7f9821a085a457d789c2414deccab19db9d31))
+* **deps-dev:** bump @typescript/native-preview from 7.0.0-dev.20251128.1 to 7.0.0-dev.20260707.2 in /javascript in the typescript-native-preview group across 1 directory ([#810](https://github.com/langwatch/scenario/issues/810)) ([dfc7f98](https://github.com/langwatch/scenario/commit/dfc7f9821a085a457d789c2414deccab19db9d31))
+* **deps-dev:** bump @vitejs/plugin-react from 5.2.0 to 6.0.5 in /javascript ([#819](https://github.com/langwatch/scenario/issues/819)) ([5417d51](https://github.com/langwatch/scenario/commit/5417d5111587f55ef31eecd0fd701c70697a138a))
+* **deps-dev:** bump @vitejs/plugin-react in /javascript ([5417d51](https://github.com/langwatch/scenario/commit/5417d5111587f55ef31eecd0fd701c70697a138a))
+* **deps-dev:** bump concurrently from 9.2.1 to 10.0.5 in /javascript ([#821](https://github.com/langwatch/scenario/issues/821)) ([eb7ff06](https://github.com/langwatch/scenario/commit/eb7ff0618cec1111ad3a10481eddca32f61fd7ff))
+* **deps-dev:** bump globals from 16.5.0 to 17.11.0 in /javascript ([#818](https://github.com/langwatch/scenario/issues/818)) ([3f74952](https://github.com/langwatch/scenario/commit/3f74952274cb3b04119af255d0dc43f28c990bc8))
+* **deps-dev:** bump vitest-mock-extended from 3.1.0 to 5.1.1 in /javascript ([#817](https://github.com/langwatch/scenario/issues/817)) ([a79a3a2](https://github.com/langwatch/scenario/commit/a79a3a26824c923c71e85eb564893b07caba9c4c))
+* **deps-dev:** bump vitest-mock-extended in /javascript ([a79a3a2](https://github.com/langwatch/scenario/commit/a79a3a26824c923c71e85eb564893b07caba9c4c))
+* **deps:** bump lucide-react from 0.555.0 to 1.31.0 in /javascript ([#822](https://github.com/langwatch/scenario/issues/822)) ([f30fbdb](https://github.com/langwatch/scenario/commit/f30fbdb924f1e02670218ede3b3c9fe33de5be1b))
+* **deps:** bump the minor-and-patch group across 2 directories with 24 updates ([#923](https://github.com/langwatch/scenario/issues/923)) ([8263c6f](https://github.com/langwatch/scenario/commit/8263c6feca84cc00ddae67a9967ff9f43aba0649))
+* **deps:** bump the opentelemetry group across 1 directory with 4 updates ([#844](https://github.com/langwatch/scenario/issues/844)) ([dcf9d8e](https://github.com/langwatch/scenario/commit/dcf9d8e581562e03ad0693f985dc8a5e810862d9))
+* **deps:** bump the vitest group across 1 directory with 2 updates ([#805](https://github.com/langwatch/scenario/issues/805)) ([658bfde](https://github.com/langwatch/scenario/commit/658bfde0a3bad6f71c33dd42c08524ddcf9ed6e0))
+* **deps:** the ElevenLabs SDK installs only for the people who use it ([#945](https://github.com/langwatch/scenario/issues/945)) ([8b6de26](https://github.com/langwatch/scenario/commit/8b6de2653f77f07785d90e07255ed07d30161f41))
+
+## [1.3.0](https://github.com/langwatch/scenario/compare/javascript/v1.2.0...javascript/v1.3.0) (2026-08-18)
+
+
+### Features
+
+* judge fetches remote traces with per-turn trace propagation ([#909](https://github.com/langwatch/scenario/issues/909)) ([149778c](https://github.com/langwatch/scenario/commit/149778cc222252db05cfb534e397bf7975a8fff3))
+
+## [1.2.0](https://github.com/langwatch/scenario/compare/javascript/v1.1.1...javascript/v1.2.0) (2026-08-17)
+
+
+### Features
+
+* **judge:** minTurns — a guaranteed-turns floor the judge cannot end early ([#900](https://github.com/langwatch/scenario/issues/900)) ([c9b58bb](https://github.com/langwatch/scenario/commit/c9b58bbf730d5a90ea8a1c2c8310d5b9748565ed))
+
+## [1.1.1](https://github.com/langwatch/scenario/compare/javascript/v1.1.0...javascript/v1.1.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **voice:** align the JS response timeout with Python and split the two receiveAudio timeouts ([#895](https://github.com/langwatch/scenario/issues/895)) ([cdb955f](https://github.com/langwatch/scenario/commit/cdb955faae9b04e8e8b442fec61504f352e31a70))
+
+## [1.1.0](https://github.com/langwatch/scenario/compare/javascript/v1.0.0...javascript/v1.1.0) (2026-08-12)
+
+
+### Features
+
+* **sdk:** reuse the LangWatch tab instead of opening one per run ([#847](https://github.com/langwatch/scenario/issues/847)) ([ce9a014](https://github.com/langwatch/scenario/commit/ce9a014f51d11d634349f220c691a375e6054877))
+
+
+### Bug Fixes
+
+* **judge:** treat an unforced inconclusive finish_test as continue instead of failing the run ([#889](https://github.com/langwatch/scenario/issues/889)) ([457d3a2](https://github.com/langwatch/scenario/commit/457d3a29a2276ec9659b157e90ccba5c332ff2e2))
+* **realtime:** prefer OPENAI_REALTIME_API_KEY in RealtimeAgentAdapter, and move live judges to gpt-5.6-luna ([80d2b1c](https://github.com/langwatch/scenario/commit/80d2b1cdee8fc23cd53baa67293ccb324434dae5))
+* **realtime:** stop the virtual key leaking into the realtime websocket, move live judges to gpt-5.6-luna ([#856](https://github.com/langwatch/scenario/issues/856)) ([80d2b1c](https://github.com/langwatch/scenario/commit/80d2b1cdee8fc23cd53baa67293ccb324434dae5))
+* **voice:** real voice-in on Python ElevenLabs, per-call personalisation, agent hangup, and corrected docs ([#848](https://github.com/langwatch/scenario/issues/848)) ([7c2f4d1](https://github.com/langwatch/scenario/commit/7c2f4d125fc2de4cb819915181740f16f3bb1a8b))
+
+
+### Code Refactoring
+
+* **execution:** consolidate the two next-agent-for-role lookups ([#210](https://github.com/langwatch/scenario/issues/210)) ([#860](https://github.com/langwatch/scenario/issues/860)) ([240839c](https://github.com/langwatch/scenario/commit/240839c7fbbe95bd872e4fc823af7c468af0a1b6))
+
+## [1.0.0](https://github.com/langwatch/scenario/compare/javascript/v0.5.5...javascript/v1.0.0) (2026-07-24)
+
+Stable release. The package surface has been stable for a long time; 1.0.0 makes that explicit.
+
+
+### ⚠ BREAKING CHANGES
+
+* **voice:** `silenceTailBytes` removed from `ElevenLabsAgentAdapterOptions` — no longer needed after the ElevenLabs SDK migration; remove from any adapter config.
+* **voice:** `ELEVENLABS_CONVAI_URL_TEMPLATE` constant removed from public exports — construct the URL directly or read it from the SDK.
+* **voice:** `.url` getter removed from public exports.
+
+
+### Features
+
+* graduate to 1.0.0 ([6379130](https://github.com/langwatch/scenario/commit/6379130a)) 
+* 1.0 release prep, stable classifiers and unstuck langwatch pins ([#842](https://github.com/langwatch/scenario/issues/842)) ([616c506](https://github.com/langwatch/scenario/commit/616c506a))
+
+
+### Code Refactoring
+
+* **voice:** [#707](https://github.com/langwatch/scenario/issues/707) follow-up cleanup bundle ([#716](https://github.com/langwatch/scenario/issues/716)) ([e018d76](https://github.com/langwatch/scenario/commit/e018d769))
+
+## [0.5.5](https://github.com/langwatch/scenario/compare/javascript/v0.5.4...javascript/v0.5.5) (2026-07-20)
+
+
+### Bug Fixes
+
+* **javascript:** make published dist loadable by plain Node ([885e65c](https://github.com/langwatch/scenario/commit/885e65cb39174ba7b3e25655046c54cb880b0ef7))
+* **javascript:** make published dist loadable by plain Node (ESM + CJS) ([#830](https://github.com/langwatch/scenario/issues/830)) ([885e65c](https://github.com/langwatch/scenario/commit/885e65cb39174ba7b3e25655046c54cb880b0ef7))
+
+## [0.5.4](https://github.com/langwatch/scenario/compare/javascript/v0.5.3...javascript/v0.5.4) (2026-07-20)
+
+
+### Features
+
+* **voice:** instrument base + ElevenLabs adapter with LangWatch spans ([#777](https://github.com/langwatch/scenario/issues/777)) ([2b32872](https://github.com/langwatch/scenario/commit/2b32872aa57b13f80e6b063425efac38a0c7604b))
+* **voice:** instrument Gemini Live adapter with LangWatch spans ([#780](https://github.com/langwatch/scenario/issues/780)) ([8ba8687](https://github.com/langwatch/scenario/commit/8ba8687cf38849074fe97a83a0ea4733cfdec09a))
+* **voice:** instrument OpenAI Realtime adapter with LangWatch spans ([#782](https://github.com/langwatch/scenario/issues/782)) ([3152969](https://github.com/langwatch/scenario/commit/315296936f1d1465f97305431cdedba7730f9136))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#774](https://github.com/langwatch/scenario/issues/774)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#781](https://github.com/langwatch/scenario/issues/781)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Twilio adapter with LangWatch spans ([#788](https://github.com/langwatch/scenario/issues/788)) ([8747eed](https://github.com/langwatch/scenario/commit/8747eed1a8e36db0dfba3ebd08359822fa6d1e52))
+
+
+### Bug Fixes
+
+* **security:** bump [@opentelemetry](https://github.com/opentelemetry) sdk-node/exporter-prometheus to 0.217.0 ([87d5509](https://github.com/langwatch/scenario/commit/87d5509f8421f7b2370e9b64ab71daf4612e0a1a))
+* **security:** bump [@opentelemetry](https://github.com/opentelemetry) sdk-node/exporter-prometheus to 0.217.0 (with ReadableSpan migration) ([#702](https://github.com/langwatch/scenario/issues/702)) ([87d5509](https://github.com/langwatch/scenario/commit/87d5509f8421f7b2370e9b64ab71daf4612e0a1a))
+* **security:** raise esbuild, js-yaml, and dompurify override floors across JS workspaces ([#671](https://github.com/langwatch/scenario/issues/671)) ([c76bab2](https://github.com/langwatch/scenario/commit/c76bab247cd69395bcd55b85046dc4f17c783618))
+
 ## [0.5.3](https://github.com/langwatch/scenario/compare/javascript/v0.5.2...javascript/v0.5.3) (2026-07-16)
 
 
@@ -50,6 +201,7 @@
 
 ### ⚠ BREAKING CHANGES
 
+* **voice:** `scenario.voiceProceed()` and `VoiceProceedOptions` are removed ([#714](https://github.com/langwatch/scenario/issues/714)). Migrate: set `interruptProbability` on `userSimulatorAgent` to drive probabilistic barge-ins during `proceed()` — the parity-clean path both SDKs share.
 * **voice:** the EL adapter's SDK migration removes the public `WebSocketLike` test-seam type (superseded by the SDK's own WebSocketFactory). Niche, but note it for the version bump.
 
 ### Bug Fixes

@@ -21,6 +21,7 @@ HTTPS integration is ideal when your agent is deployed as a web service, microse
 import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 const httpsAgentAdapter: AgentAdapter = {
+  name: "HTTPSAgent",
   role: AgentRole.AGENT,
   call: async (input) => {
     // Extract the latest user message
@@ -37,6 +38,8 @@ const httpsAgentAdapter: AgentAdapter = {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.API_KEY}`,
+        // Forward the scenario turn's trace context (traceparent)
+        ...input.propagationHeaders,
       },
       body: JSON.stringify({
         message: content,
@@ -67,6 +70,8 @@ import os
 
 
 class HTTPSAgentAdapter(scenario.AgentAdapter):
+    name = "HTTPSAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Extract the latest user message
         last_message = input.last_new_user_message_str()
@@ -82,6 +87,8 @@ class HTTPSAgentAdapter(scenario.AgentAdapter):
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {os.getenv('API_KEY')}",
+                    # Forward the scenario turn's trace context (traceparent)
+                    **input.propagation_headers,
                 },
             ) as response:
                 if response.status != 200:
@@ -103,8 +110,11 @@ await scenario.run(
 
 :::
 
+Both adapters forward `input.propagationHeaders` / `input.propagation_headers`, the scenario turn's W3C trace context, so a server that adopts it writes its spans into the same trace as the scenario. That is what lets the judge [fetch and evaluate your agent's real traces](/advanced/remote-traces) when `fetchRemoteTraces` / `fetch_remote_traces` is enabled.
+
 ## Next Steps
 
+- [Remote Traces](/advanced/remote-traces) - Judge the deployed agent on its real traces, not only its responses
 - Explore [Testing Remote Agents](/examples/testing-remote-agents) for advanced HTTP patterns (streaming, SSE, authentication, error handling)
 - Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
 - Check out [Scenario Basics](/basics/concepts) for advanced testing patterns

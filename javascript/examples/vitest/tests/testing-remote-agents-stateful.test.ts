@@ -119,7 +119,10 @@ describe("Testing Remote Agents - Stateful with Thread ID", () => {
             threadId: input.threadId, // Server uses this to look up history
           }),
         });
-        return (await response.json()).response;
+        if (!response.ok) {
+          throw new Error(`Remote agent returned HTTP ${response.status}`);
+        }
+        return ((await response.json()) as { response: string }).response;
       },
     };
 

@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import pytest
 
-from scenario.voice import TwilioAgentAdapter
+from scenario.voice import AudioChunk, TwilioAgentAdapter
 
 
 def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
@@ -112,11 +112,43 @@ def _install_fake_rest(monkeypatch: Any) -> list[FakeREST]:
 
 # ---------------------------------------------------------------- connect/disconnect
 
+
+class _ObservableAudioQueue(asyncio.Queue[AudioChunk]):
+    """Queue double that exposes when a consumer has entered ``get()``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.consumer_waiting = asyncio.Event()
+
+    async def get(self) -> AudioChunk:
+        self.consumer_waiting.set()
+        return await super().get()
+
+
 @pytest.mark.asyncio
 async def test_connect_requires_public_base_url():
     a = _make_adapter(public_base_url=None)
     with pytest.raises(RuntimeError, match="public_base_url"):
         await a.connect()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_wakes_recv_audio_waiting_on_inbound_queue():
+    """A disconnect racing an in-flight receive must not wait for its 60s budget."""
+    a = _make_adapter()
+    queue = _ObservableAudioQueue()
+    a._rest = object()  # type: ignore[assignment]  # connected-state sentinel
+    a._inbound_queue = queue
+    a._stream_ws = object()
+    a._stream_sid = "MZ757"
+
+    receive = asyncio.create_task(a.recv_audio(timeout=60.0))
+    await asyncio.wait_for(queue.consumer_waiting.wait(), timeout=1.0)
+
+    await a.disconnect()
+
+    chunk = await asyncio.wait_for(receive, timeout=1.0)
+    assert chunk.data == b""
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,26 @@
 name: voice-integration
 
+# All OpenAI traffic rides the LangWatch AI Gateway, the realtime voice
+# sessions included. OPENAI_API_KEY holds a LangWatch virtual key, and these
+# base URLs point every client family (openai SDK, litellm, ai-sdk) at the
+# gateway.
+#
+# The realtime lane used to be the exception: the websocket dialled OpenAI
+# with OPENAI_REALTIME_API_KEY, a real provider key, so the one part of the
+# suite that spends the most money was the one part the gateway could not
+# meter. The adapter now mints at POST {OPENAI_BASE_URL}/realtime/client_secrets
+# and dials with the ephemeral secret that mint returns, so the session is
+# budgeted and billed while the media socket still runs client to vendor.
+#
+# OPENAI_REALTIME_API_KEY is deliberately absent. With no provider key in the
+# job there is nothing to fall back to, so a run that reached OpenAI directly
+# could not pass. That is the same proof the python-ci examples lane already
+# relies on: routing is demonstrated by the absence of an alternative, not
+# asserted in a comment.
+env:
+  OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
+  OPENAI_API_BASE: https://gateway.langwatch.ai/v1
+
 # On-demand workflow for voice tests that hit live providers (OpenAI Realtime,
 # Twilio, ElevenLabs, Gemini Live). These tests cost real API money and/or
 # provision real phone lines, so they do NOT run on every PR and do NOT run on
@@ -14,13 +35,30 @@ name: voice-integration
 #     `integration` by tests/voice/conftest.py).
 #
 # Secrets required (configure in repo settings):
-#   - OPENAI_API_KEY     — STT, TTS, Realtime API
+#   - OPENAI_API_KEY     : the LangWatch virtual key. STT, TTS, Realtime mint
 #   - LANGWATCH_API_KEY  — telemetry export
 #   - GEMINI_API_KEY     — Gemini Live adapter
-#   - ELEVENLABS_API_KEY — ElevenLabs adapter + STT
+#   - ELEVENLABS_API_KEY : ElevenLabs adapter, STT, and agent provisioning
 #   - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER,
 #     TWILIO_PHONE_NUMBER_2 — two Twilio-owned numbers for fully automated
 #     inbound/outbound demos
+#
+# The ElevenLabs ConvAI lane still mints at the vendor. The adapter can mint
+# through the gateway instead, at
+# GET {ELEVENLABS_BASE_URL}/v1/convai/conversation/get-signed-url, and the
+# route is live. What blocks it here is the credential, not the code. The
+# gateway resolves whatever arrives in xi-api-key as a LangWatch virtual key,
+# so brokering needs ELEVENLABS_API_KEY to hold the virtual key. In this job
+# that one variable also authenticates ElevenLabs speech-to-text and the
+# agent-provisioning step, and the gateway fronts neither, so changing it
+# would break both. Enable the lane by giving ElevenLabs STT and provisioning
+# their own credential, then adding:
+#
+#   ELEVENLABS_BASE_URL: https://gateway.langwatch.ai
+#   ELEVENLABS_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+#
+# ELEVENLABS_BASE_URL must NOT carry /v1: the adapter appends it, so a value
+# that includes it would request /v1/v1/convai/... and 404.
 #
 # If a secret is absent the relevant tests FAIL with a clear diagnosis message
 # (`_require_env` -> pytest.fail, deliberately: "e2e tests fail on missing
@@ -53,12 +91,19 @@ jobs:
     env:
       CI: true
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      # A voice adapter that cannot find a mint route warns and dials the
+      # vendor directly. That is right for a library, and wrong here: an
+      # unbilled session looks exactly like a billed one in the log, so a run
+      # that proved nothing would read as a run that proved everything. This
+      # filter turns the warning into a test failure, so a job can only go
+      # green if every voice session was actually minted.
+      FALLBACK_IS_A_FAILURE: error::scenario.voice.broker.VoiceGatewayFallbackWarning
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -68,7 +113,7 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Cache dependencies
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .venv
@@ -148,7 +193,7 @@ jobs:
           # `--reruns 1` (pytest-rerunfailures, already a dep): absorb a single
           # ambient hosted-EL flake (#708) while a genuine failure that fails
           # both attempts still propagates.
-          uv run pytest tests/voice -m "integration and not voice_multiturn" -v --tb=short --reruns 1 --timeout=540 || rc=$?
+          uv run pytest tests/voice -m "integration and not voice_multiturn" -v --tb=short --reruns 1 --timeout=540 -W "$FALLBACK_IS_A_FAILURE" || rc=$?
           if [ "$rc" -eq 5 ]; then
             echo "No integration-marked tests collected — treating as pass."
             exit 0
@@ -164,32 +209,6 @@ jobs:
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
           TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
-
-      - name: Run example-suite voice integration tests
-        # Reachability gate (issue #491), now belt-and-suspenders with #796. The step
-        # above collects three Twilio-gated tests (test_twilio_inbound/outbound/
-        # dtmf_ivr_e2e.py). Since #796 their fixtures SKIP when TWILIO_* env is absent
-        # (option b) instead of failing, so a missing-secret repo no longer aborts the
-        # job here — but this gate stays as defense-in-depth: any OTHER failure in the
-        # step above (an unrelated test, a live-provider blip) would still abort every
-        # step below it. Historically that abort — Twilio fixtures failing on absent
-        # env — is why voice-integration was 30/30 red with 0 runs of the isolated step.
-        # Un-skipping the demos while leaving them unreachable would just trade
-        # "@pytest.mark.skip" for "step never executes" — the same asserted-but-never-run
-        # hole in a new costume.
-        #
-        # So: run whenever the stub bot came up, regardless of an unrelated step's
-        # failure. This does NOT hide anything — a failed step still fails the JOB, so
-        # there is no hollow green; it only stops one missing secret from silencing
-        # every other test in the suite. Gated on the bot rather than always() so a
-        # bot-startup failure doesn't spawn 6 doomed 10-minute demo runs.
-        if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
-        run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short --timeout=300
-        working-directory: python
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       # ---------------------------------------------------------------
       # Run the @e2e voice demos (fail-fast on missing infrastructure).
@@ -208,7 +227,7 @@ jobs:
           # `--reruns 1` (pytest-rerunfailures): absorb a single ambient
           # hosted-EL flake (#708); a genuine failure that fails both attempts
           # still propagates through `pipefail` and fails the step.
-          uv run pytest tests/voice/ -m "not voice_multiturn" -v --tb=short -q --reruns 1 --timeout=540 2>&1 | tee /tmp/e2e-voice-results.log
+          uv run pytest tests/voice/ -m "not voice_multiturn" -v --tb=short -q --reruns 1 --timeout=540 -W "$FALLBACK_IS_A_FAILURE" 2>&1 | tee /tmp/e2e-voice-results.log
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -289,7 +308,7 @@ jobs:
             # Outer (`timeout 600`): hard backstop for a hang pytest cannot
             # interrupt at all, capping one bad demo at 10 min rather than letting
             # it ride the job timeout.
-            timeout 600 uv run pytest -p no:cacheprovider -x "$f" -v --tb=short --timeout=540 || rc=1
+            timeout 600 uv run pytest -p no:cacheprovider -x "$f" -v --tb=short --timeout=540 -W "$FALLBACK_IS_A_FAILURE" || rc=1
             echo "::endgroup::"
           done
           exit $rc
@@ -317,7 +336,7 @@ jobs:
 
       - name: Upload voice demo recordings
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: voice-demo-recordings
           path: python/outputs/recordings/**
@@ -326,7 +345,7 @@ jobs:
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: voice-integration-logs
           path: |

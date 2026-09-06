@@ -1,5 +1,5 @@
 """
-E2E wrapper for Demo — STT provider swap via scenario.configure.
+E2E wrapper for Demo — STT provider swap via scenario.set_stt_provider.
 
 AC: ElevenLabsSTTProvider.transcribe() is exercised (not the default OpenAI path);
 result.success is True.

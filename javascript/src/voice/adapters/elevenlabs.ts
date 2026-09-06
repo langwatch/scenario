@@ -64,12 +64,11 @@ import { openai } from "@ai-sdk/openai";
 // constructs the base client directly. (STT/TTS keep using the root wrapper.)
 // EXPLICIT-FILE imports: a directory/package import of `.../conversation` resolves
 // to its `index.js` barrel, which fails under our ESM (`moduleResolution: bundler`)
-// build — import the concrete files instead.
-import { AudioInterface } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/AudioInterface";
-import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation";
-import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/ConversationClient";
-import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client";
+// build — import the concrete files instead. The runtime (non-type) imports also
+// need the explicit `.js` extension: @elevenlabs/elevenlabs-js ships no exports
+// map, so Node resolves these deep paths as literal files. Extensionless they
+// only resolve under bundler semantics (vitest/tsx/webpack) and crash plain
+// `node` consumers of the published dist/index.mjs with ERR_MODULE_NOT_FOUND.
 import type { LanguageModel } from "ai";
 
 import { AgentRole } from "../../domain/agents";
@@ -77,6 +76,19 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import {
+  resolveElevenLabsBaseUrl,
+  resolveElevenLabsConvAIApiKey,
+} from "../elevenlabs-base-url";
+import {
+  type ElevenLabsAudioInterface,
+  type ElevenLabsAudioInterfaceCtor,
+  type ElevenLabsConversation,
+  type ElevenLabsConversationClient,
+  type ElevenLabsWebSocketFactory,
+  loadElevenLabsConversationRuntime,
+} from "../elevenlabs-sdk";
+import { currentSpan, setSpanAttributes } from "../telemetry";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
   ELEVENLABS_DEFAULT_VOICE_ID,
@@ -87,15 +99,6 @@ import {
   type STTProvider,
   type SynthesizeOptions,
 } from "./composable";
-
-/**
- * Canonical hosted-ConvAI endpoint for an agent. Informational: the SDK opens the
- * socket itself (and, with `requiresAuth`, derives a short-lived *signed* URL from
- * this base and appends `&source`/`&version`), so this template is no longer used
- * to dial — it documents where a hosted ConvAI agent lives.
- */
-export const ELEVENLABS_CONVAI_URL_TEMPLATE =
-  "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}";
 
 /**
  * One 20 ms PCM16/24 kHz mono frame: 24000 Hz × 2 bytes/sample × 0.020 s = 960
@@ -133,6 +136,61 @@ const PUMP_INTERVAL_MS = 20;
  */
 const KEEPALIVE_HARD_CEILING_S = 45;
 
+/** Deep link to the section that expands on both receiveAudio timeouts. */
+const RECEIVE_TIMEOUT_DOCS_URL =
+  "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs";
+
+/**
+ * Rejection text for the IDLE deadline: nothing at all reached the socket, not
+ * even a keepalive ping, for `timeoutS` seconds. A fully silent agent.
+ *
+ * Distinct from {@link ceilingTimeoutMessage} on purpose: silence and
+ * pings-but-no-audio are different diagnoses with different remedies, so one
+ * shared message would send the reader to check the wrong things.
+ */
+function idleTimeoutMessage(timeoutS: number): string {
+  return (
+    `ElevenLabsAgentAdapter: receiveAudio timed out. The idle deadline of ${timeoutS}s ` +
+    "elapsed with no message of any kind from the hosted agent, not even a keepalive " +
+    "ping. For a scripted multi-turn run this usually means the agent ended or " +
+    "transferred its turn (e.g. an escalation/handoff request), or the user turn did " +
+    "not commit. If the agent is only slower than that, raise the adapter's " +
+    `responseTimeout, currently ${timeoutS}s, for example agent.responseTimeout = 180. ` +
+    `See ${RECEIVE_TIMEOUT_DOCS_URL}`
+  );
+}
+
+/**
+ * Rejection text for the ABSOLUTE ceiling: the agent kept sending frames, which
+ * re-arm the idle deadline, but never sent audio.
+ */
+function ceilingTimeoutMessage(timeoutS: number, ceilingS: number): string {
+  return (
+    `ElevenLabsAgentAdapter: receiveAudio timed out. The absolute ceiling of ${ceilingS}s ` +
+    "elapsed while the hosted agent kept sending frames, keepalive pings or transcripts, " +
+    "but never audio. Every inbound frame re-arms the idle deadline, so this ceiling, " +
+    `max(responseTimeout, ${KEEPALIVE_HARD_CEILING_S}s), is what bounds the wait. It usually ` +
+    "means a wedged server tool or retrieval call, or an agent that ended or " +
+    "transferred its turn. If the agent is only slower than that, raise the adapter's " +
+    `responseTimeout, currently ${timeoutS}s, past ${KEEPALIVE_HARD_CEILING_S}s and the ceiling rises with it, ` +
+    "for example agent.responseTimeout = 180. " +
+    `See ${RECEIVE_TIMEOUT_DOCS_URL}`
+  );
+}
+
+/**
+ * EL system tools whose successful invocation means the AGENT ended the call, so
+ * the socket close that follows is deliberate rather than a dropped transport
+ * (#839). `transfer_to_*` also hands the caller off and ends this session, so it
+ * is a hangup from the harness's point of view.
+ */
+const HANGUP_TOOL_NAMES = new Set([
+  "end_call",
+  "transfer_to_agent",
+  "transfer_to_number",
+  "transfer_to_genesys",
+]);
+
 /**
  * One all-zero (silence) {@link PUMP_FRAME_BYTES} frame — the closing-silence frame
  * of the continuous mic pump. {@link ElevenLabsAgentAdapter.pumpTick} feeds this on
@@ -155,33 +213,41 @@ const SILENCE_FRAME = Buffer.alloc(PUMP_FRAME_BYTES);
  * members private — the closures are created inside the adapter and close over
  * `this`.
  */
-class BridgeAudioInterface extends AudioInterface {
-  constructor(
-    private readonly hooks: {
-      onStart: (inputCallback: (audio: Buffer) => void) => void;
-      onStop: () => void;
-      onOutput: (audio: Buffer) => void;
-      onInterrupt: () => void;
-    },
-  ) {
-    super();
-  }
+interface BridgeAudioHooks {
+  onStart: (inputCallback: (audio: Buffer) => void) => void;
+  onStop: () => void;
+  onOutput: (audio: Buffer) => void;
+  onInterrupt: () => void;
+}
 
-  override start(inputCallback: (audio: Buffer) => void): void {
-    this.hooks.onStart(inputCallback);
-  }
+/**
+ * Built rather than declared, because the base class arrives with the SDK and
+ * the SDK is only loaded once a session actually starts. A module-scope
+ * `class ... extends AudioInterface` would need it at import time, which is
+ * what used to put 4,549 ElevenLabs modules into every consumer's graph.
+ */
+function createBridgeAudioInterface(
+  AudioInterfaceBase: ElevenLabsAudioInterfaceCtor,
+  hooks: BridgeAudioHooks,
+): ElevenLabsAudioInterface {
+  class BridgeAudioInterface extends AudioInterfaceBase {
+    start(inputCallback: (audio: Buffer) => void): void {
+      hooks.onStart(inputCallback);
+    }
 
-  override stop(): void {
-    this.hooks.onStop();
-  }
+    stop(): void {
+      hooks.onStop();
+    }
 
-  override output(audio: Buffer): void {
-    this.hooks.onOutput(audio);
-  }
+    output(audio: Buffer): void {
+      hooks.onOutput(audio);
+    }
 
-  override interrupt(): void {
-    this.hooks.onInterrupt();
+    interrupt(): void {
+      hooks.onInterrupt();
+    }
   }
+  return new BridgeAudioInterface();
 }
 
 /** A non-null, non-array object — the only value kind {@link deepMerge} recurses into. */
@@ -221,8 +287,32 @@ function deepMerge(
 export interface ElevenLabsAgentAdapterOptions {
   /** ID of the ElevenLabs Conversational AI agent (provisioned in the EL dashboard). */
   agentId: string;
-  /** ElevenLabs API key (`xi-api-key`). */
-  apiKey: string;
+  /**
+   * The key sent as `xi-api-key`. Falls back to `ELEVENLABS_CONVAI_API_KEY`,
+   * then `ELEVENLABS_API_KEY`.
+   *
+   * Against a gateway this carries a LangWatch virtual key rather than an
+   * ElevenLabs one, which is why it has its own variable. See
+   * {@link resolveElevenLabsConvAIApiKey}.
+   */
+  apiKey?: string;
+  /**
+   * Base URL for the ElevenLabs REST API, passed straight to the SDK client's
+   * own `baseUrl` option. Falls back to `ELEVENLABS_BASE_URL`.
+   *
+   * Points the signed-URL handshake at a LangWatch AI Gateway, which mirrors
+   * the vendor's own mint path: the gateway checks the virtual key's budget
+   * and session cap, mints the signed URL, and bills the call as one spend
+   * record. The websocket the URL names still belongs to ElevenLabs, so the
+   * media stream runs client to vendor and nothing about latency or the wire
+   * protocol changes.
+   *
+   * Unset here and in the environment, the SDK talks to ElevenLabs directly as
+   * it always has. The variable covers this adapter only; see
+   * {@link resolveElevenLabsBaseUrl} for why the speech-to-text and
+   * text-to-speech leaves take an explicit option instead.
+   */
+  baseUrl?: string;
   /**
    * Per-session system prompt override applied via the SDK's
    * `conversationConfigOverride.agent.prompt.prompt`. Lets demos use a different
@@ -277,26 +367,18 @@ export interface ElevenLabsAgentAdapterOptions {
    */
   overrides?: Record<string, unknown>;
   /**
-   * @deprecated No-op, retained only for back-compat of the options type. The
-   * adapter no longer appends a bounded silence tail to close a turn: the
-   * continuous mic pump (Strategy B′) streams silence on every idle tick, and EL's
-   * server VAD closes the turn off that continuous audio→silence transition. Any
-   * value passed here is accepted and ignored.
-   */
-  silenceTailBytes?: number;
-  /**
    * SDK WebSocket factory — injected for unit tests so the real `Conversation`
    * runs against an in-memory socket (no network). Production callers leave this
    * unset; the SDK's `DefaultWebSocketFactory` (the `ws` package) is used.
    */
-  webSocketFactory?: WebSocketFactory;
+  webSocketFactory?: ElevenLabsWebSocketFactory;
   /**
    * SDK conversation client used ONLY for the `requiresAuth` signed-URL handshake
    * — injected for unit tests so `startSession()` does not make a real
    * `getSignedUrl` HTTP call. Production callers leave this unset; the adapter's
-   * authenticated {@link ElevenLabsClient} is used.
+   * own authenticated `ElevenLabsClient` is used.
    */
-  conversationClient?: ConversationClient;
+  conversationClient?: ElevenLabsConversationClient;
 }
 
 /**
@@ -306,6 +388,7 @@ export interface ElevenLabsAgentAdapterOptions {
  * {@link AudioInterface} and start the session), stream PCM16 audio chunks at
  * real-mic cadence, and drain agent audio the SDK pushes via `output()`.
  */
+
 export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   override role = AgentRole.AGENT;
 
@@ -319,15 +402,16 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   readonly agentId: string;
   private readonly apiKey: string;
+  private readonly baseUrl?: string;
   private readonly systemPromptOverride?: string;
   private readonly firstMessageOverride?: string;
   private readonly dynamicVariables?: Record<string, string | number | boolean>;
   private readonly overrides?: Record<string, unknown>;
-  private readonly webSocketFactory?: WebSocketFactory;
-  private readonly conversationClient?: ConversationClient;
+  private readonly webSocketFactory?: ElevenLabsWebSocketFactory;
+  private readonly conversationClient?: ElevenLabsConversationClient;
 
   /** Live SDK session; null whenever disconnected (or before the first connect). */
-  private conversation: Conversation | null = null;
+  private conversation: ElevenLabsConversation | null = null;
   /**
    * The SDK's mic-input sink, captured when the SDK calls `AudioInterface.start`
    * on session open. The continuous mic pump feeds it one frame per tick; the SDK
@@ -355,6 +439,15 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly outboundFrames: Buffer[] = [];
   /** Interval handle for the continuous mic pump; null whenever the pump is stopped. */
   private pumpTimer: ReturnType<typeof setInterval> | null = null;
+  /** Continuous-mic-pump counters, surfaced on voice.adapter.disconnect. The
+   * 20 ms pump gets NO per-tick span (its OTel context is frozen at creation —
+   * H1); its activity is these counters instead. */
+  private pumpStats = {
+    ticksTotal: 0,
+    speechFramesSent: 0,
+    silenceFramesSent: 0,
+    unexpectedErrors: 0,
+  };
 
   /**
    * Post-response pause flag (#705). FALSE while the user's turn is in flight or
@@ -362,10 +455,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    * so EL's server VAD can measure end-of-turn. Flipped TRUE the moment the agent's
    * turn audio arrives ({@link onAgentAudio}) so {@link pumpTick} stops streaming
    * idle silence into the inter-turn gap, and cleared FALSE again when the next user
-   * turn starts ({@link enqueueSpeech}). Streaming silence straight through the gap
-   * made EL read the user as having LEFT and fire its "are you still there?" idle
-   * prompt on the slow/judged path (the #705 idle-prompt storm). Reset in {@link
-   * stopPump} so a reconnect starts clean.
+   * turn starts ({@link enqueueSpeech}). Reset in {@link stopPump} so a reconnect
+   * starts clean. (See the class header for why streaming idle silence into the
+   * inter-turn gap trips EL's idle prompt.)
    */
   private awaitingUserTurn = false;
 
@@ -399,24 +491,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   constructor(options: ElevenLabsAgentAdapterOptions) {
     super();
     this.agentId = options.agentId;
-    this.apiKey = options.apiKey;
+    this.apiKey = resolveElevenLabsConvAIApiKey(options.apiKey);
+    this.baseUrl = resolveElevenLabsBaseUrl(options.baseUrl);
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
     this.dynamicVariables = options.dynamicVariables;
     this.overrides = options.overrides;
-    // `silenceTailBytes` is a deprecated no-op (see the option's JSDoc): the
-    // continuous mic pump replaced the bounded silence tail, so the value is
-    // neither stored nor read.
     this.webSocketFactory = options.webSocketFactory;
     this.conversationClient = options.conversationClient;
-  }
-
-  /**
-   * Canonical base endpoint for this adapter's agent. Informational only — the SDK
-   * dials the (signed) socket itself; see {@link ELEVENLABS_CONVAI_URL_TEMPLATE}.
-   */
-  get url(): string {
-    return ELEVENLABS_CONVAI_URL_TEMPLATE.replace("{agent_id}", this.agentId);
   }
 
   /** Hides the API key. */
@@ -429,7 +511,20 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   // ---------------------------------------------------------------- lifecycle
   async connect(): Promise<void> {
-    const client = new ElevenLabsClient({ apiKey: this.apiKey });
+    // Stamp EL-specific attrs onto the active voice.adapter.connect span (opened
+    // by the executor connect loop). Base spans are name-owned; adapters add attrs.
+    setSpanAttributes(currentSpan(), {
+      "voice.elevenlabs.agent_id": this.agentId,
+    });
+    const { AudioInterface, Conversation, ElevenLabsClient } =
+      await loadElevenLabsConversationRuntime();
+    // `baseUrl` is the SDK's documented custom-URL option. Undefined leaves
+    // the SDK on its own default host, so an unconfigured adapter is
+    // byte-for-byte the request it sent before.
+    const client = new ElevenLabsClient({
+      apiKey: this.apiKey,
+      ...(this.baseUrl ? { baseUrl: this.baseUrl } : {}),
+    });
 
     // The adapter's NARROW prompt/first-message knobs build an `agent` override
     // that is always sent (an empty `agent` object is a no-op) so the handshake
@@ -452,7 +547,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       agent: agentOverride,
     });
 
-    const audioInterface = new BridgeAudioInterface({
+    const audioInterface = createBridgeAudioInterface(AudioInterface, {
       onStart: (inputCallback) => this.onAudioStart(inputCallback),
       onStop: () => this.onAudioStop(),
       onOutput: (audio) => this.onAgentAudio(audio),
@@ -480,10 +575,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // and to `client` for getSignedUrl. Set only by unit tests.
       webSocketFactory: this.webSocketFactory,
       conversationClient: this.conversationClient,
-      callbackUserTranscript: (transcript) => {
+      callbackUserTranscript: (transcript: string) => {
         this.lastUserTranscript = transcript;
       },
-      callbackAgentResponse: (response) => {
+      callbackAgentResponse: (response: string) => {
         // #734 (AC4) — measure how far this transcript event lags the audio it
         // describes. A lag exceeding `responseTailSilence` is a turn whose
         // transcript would have LOST the drain-close race pre-fix; the grace-wait
@@ -499,13 +594,13 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         });
         this.lastAgentTranscript = response;
       },
-      callbackAgentResponseCorrection: (_original, corrected) => {
+      callbackAgentResponseCorrection: (_original: string, corrected: string) => {
         // Post-barge-in correction replaces the agent transcript.
         this.lastAgentTranscript = corrected;
       },
       // Fires for EVERY inbound message (ping included) AFTER the SDK has routed it
       // — our universal liveness + terminal-turn hook. See onMessage.
-      callbackMessageReceived: (message) => this.onMessage(message),
+      callbackMessageReceived: (message: unknown) => this.onMessage(message),
     });
 
     // The SDK re-emits WS errors as an `error` event on the Conversation itself; an
@@ -598,6 +693,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // Stop the pump first so no frame is fed once teardown begins, even if
     // disconnect() races a close/error that already nulled the session.
     this.stopPump();
+    // Stamp pump counters onto the active voice.adapter.disconnect span (H1: no
+    // per-tick span). Read after stopPump so the counts are final.
+    setSpanAttributes(currentSpan(), {
+      "voice.elevenlabs.pump.ticks_total": this.pumpStats.ticksTotal,
+      "voice.elevenlabs.pump.speech_frames_sent": this.pumpStats.speechFramesSent,
+      "voice.elevenlabs.pump.silence_frames_sent": this.pumpStats.silenceFramesSent,
+      "voice.elevenlabs.pump.unexpected_errors": this.pumpStats.unexpectedErrors,
+    });
     const conversation = this.conversation;
     this.conversation = null;
     this.inputCallback = null;
@@ -623,6 +726,12 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    */
   private startPump(): void {
     if (this.pumpTimer === null) {
+      this.pumpStats = {
+        ticksTotal: 0,
+        speechFramesSent: 0,
+        silenceFramesSent: 0,
+        unexpectedErrors: 0,
+      };
       this.pumpTimer = setInterval(() => this.pumpTick(), PUMP_INTERVAL_MS);
     }
   }
@@ -655,15 +764,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    *    against (the agent's `turn_timeout` ≈7 s, provisioned on the agent, is the
    *    server-side bound).
    *
-   * POST-RESPONSE PAUSE (#705): the previous "continuous silence forever when idle"
-   * design left an accepted, un-engineered risk that the inter-turn gap (the
-   * user-sim/judge needs several seconds to produce the next turn) could exceed EL's
-   * `turn_timeout`. That risk MATERIALIZED in a live judged run: EL read the unbroken
-   * run of committed-nothing silence as the user having LEFT and fired its idle
-   * prompt ("I didn't quite catch that… are you still there?") repeatedly (14× in one
-   * failing run), desyncing the conversation. It is now MITIGATED — the {@link
-   * awaitingUserTurn} flag pauses the idle silence once the agent's turn audio has
-   * arrived and resumes the closing silence on the next user turn. The pause cannot
+   * POST-RESPONSE PAUSE (#705): the {@link awaitingUserTurn} flag pauses the idle
+   * silence once the agent's turn audio has arrived and resumes the closing silence
+   * on the next user turn (see the class header for why the idle silence is paused).
+   * The pause cannot
    * starve a {@link receiveAudio}: that call's idle deadline is re-armed only by
    * INBOUND EL frames (via {@link onMessage}), never by this OUTBOUND pump. WS
    * liveness across the silent gap is the SDK's ping/pong keepalive, not the audio
@@ -672,30 +776,36 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private pumpTick(): void {
     const callback = this.inputCallback;
     if (!callback || !this.isConnected()) return;
+    this.pumpStats.ticksTotal++;
 
     const speechFrame = this.outboundFrames.shift();
     let frame: Buffer;
     if (speechFrame) {
       // The user is speaking — always feed the queued speech frame.
       frame = speechFrame;
+      this.pumpStats.speechFramesSent++;
     } else if (this.awaitingUserTurn) {
-      // Agent has responded since the last user turn: PAUSE the idle mic. Streaming
-      // silence into the inter-turn gap makes EL read it as the user having left and
-      // fire its "are you still there?" idle prompt (#705). Feed nothing until the
-      // next enqueueSpeech (a new user turn) clears the flag.
+      // Agent has responded since the last user turn: PAUSE the idle mic (see the
+      // class header for why streaming idle silence into the gap trips EL's idle
+      // prompt). Feed nothing until the next enqueueSpeech (a new user turn) clears
+      // the flag.
       return;
     } else {
       // Closing silence after the user's speech, before the agent responds: EL's
       // server VAD measures end-of-turn off this audio→silence transition (also what
       // preserves the receiveAudio-timeout fix).
       frame = SILENCE_FRAME;
+      this.pumpStats.silenceFramesSent++;
     }
 
     try {
       callback(frame);
     } catch {
       // Raced a close between the active-check and the feed — drop the frame; the
-      // session close/error handler tears the pump down.
+      // session close/error handler tears the pump down. (TS cannot distinguish a
+      // raced close from a genuine bug here — Python's two-tier split has no TS
+      // analogue — so this counter conservatively counts both; ~always 0.)
+      this.pumpStats.unexpectedErrors++;
     }
   }
 
@@ -787,13 +897,19 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // and unwedges a pings-but-no-audio receive. Sized as max(timeout, 45s): never
       // below the caller's own idle budget (so it does not pre-empt a legitimately
       // slow-but-responding agent), but at least 45s even for sub-second tail-probe
-      // calls. In the real drain `timeout` is the 30s response budget or the 0.6s
-      // tail probe, so the ceiling is 45s.
+      // calls. In the real drain `timeout` is the 60s response budget or the 0.6s
+      // tail probe, so the ceiling is 60s on the first chunk and 45s on the probes.
       // Must stay `let`: the cleanup() closure below captures hardTimer before
       // it is assigned, so declaration and assignment cannot be merged (const).
       // eslint-disable-next-line prefer-const
       let hardTimer: ReturnType<typeof setTimeout>;
-      const hardCeilingMs = Math.max(timeout, KEEPALIVE_HARD_CEILING_S) * 1000;
+      const ceilingS = Math.max(timeout, KEEPALIVE_HARD_CEILING_S);
+      // Whether ANY inbound frame reached this parked receive. It is what tells the
+      // two rejections apart when both deadlines land on the same instant, which is
+      // the default case: idle 60s, ceiling max(60, 45) = 60s. Nothing received
+      // means the socket was silent throughout, so the idle diagnosis is the true
+      // one however the two timers happen to be ordered.
+      let sawInboundFrame = false;
 
       const cleanup = () => {
         clearTimeout(timer);
@@ -804,19 +920,18 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         if (waiterIdx >= 0) this.waiters.splice(waiterIdx, 1);
       };
 
-      const onTimeout = () => {
+      const onIdleTimeout = () => {
         cleanup();
-        reject(
-          new Error(
-            "ElevenLabsAgentAdapter: receiveAudio timed out (no agent audio " +
-              "within the deadline — the hosted agent produced no audio, whether " +
-              "fully silent or only keepalive-pinging). For a scripted multi-turn " +
-              "run this usually means the agent ended or transferred its turn " +
-              "(e.g. an escalation/handoff request), or the user turn did not " +
-              "commit. See " +
-              "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
-          ),
-        );
+        reject(new Error(idleTimeoutMessage(timeout)));
+      };
+
+      const onCeilingTimeout = () => {
+        if (!sawInboundFrame) {
+          onIdleTimeout();
+          return;
+        }
+        cleanup();
+        reject(new Error(ceilingTimeoutMessage(timeout, ceilingS)));
       };
 
       // Re-arm the IDLE deadline on every received message (pings included) so a
@@ -824,8 +939,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // the timer. Matches the Python recv_audio sliding-idle-deadline. The hard
       // ceiling is deliberately NOT reset here.
       const resetTimer = () => {
+        sawInboundFrame = true;
         clearTimeout(timer);
-        timer = setTimeout(onTimeout, timeout * 1000);
+        timer = setTimeout(onIdleTimeout, timeout * 1000);
       };
 
       const waiter = (chunk: AudioChunk) => {
@@ -833,8 +949,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         resolve(chunk);
       };
 
-      timer = setTimeout(onTimeout, timeout * 1000);
-      hardTimer = setTimeout(onTimeout, hardCeilingMs);
+      timer = setTimeout(onIdleTimeout, timeout * 1000);
+      hardTimer = setTimeout(onCeilingTimeout, ceilingS * 1000);
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
     });
@@ -901,6 +1017,38 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // close/error drain.
       const waiter = this.waiters.shift();
       if (waiter) waiter(new AudioChunk({ data: new Uint8Array(0) }));
+      return;
+    }
+
+    if (etype === "agent_tool_response") {
+      // The agent invoked one of its own (server-side) tools. When that tool is
+      // `end_call`, the agent has deliberately hung up and EL closes the socket
+      // right after this frame with a clean 1000 (#839).
+      //
+      // Wire shape (captured live):
+      //   {"type": "agent_tool_response",
+      //    "agent_tool_response": {"tool_name": "end_call", "tool_type": "system",
+      //      "is_error": false, "is_blocked": false, "is_called": true, ...}}
+      //
+      // Recording it as a deliberate hangup — rather than letting the ensuing
+      // close look like a dropped transport — is what lets a leftover scripted
+      // turn conclude gracefully instead of failing a run in which the agent
+      // behaved exactly as designed.
+      const tool = (event.agent_tool_response ?? {}) as Record<string, unknown>;
+      const name = tool.tool_name as string | undefined;
+      if (
+        name !== undefined &&
+        HANGUP_TOOL_NAMES.has(name) &&
+        tool.is_called === true &&
+        tool.is_error !== true &&
+        tool.is_blocked !== true
+      ) {
+        this.logger.info(
+          `ElevenLabsAgentAdapter: agent invoked ${name} — treating the ` +
+            `upcoming close as a deliberate hangup`,
+        );
+        this.agentHungUp = true;
+      }
       return;
     }
 

@@ -61,3 +61,24 @@ async def test_scripted_user_text_routes_to_realtime_send_text(monkeypatch):
     )
     assert result.success
     assert captured == ["hello from the test"]
+
+
+class TestApiKeyResolution:
+    """OPENAI_REALTIME_API_KEY outranks OPENAI_API_KEY for the direct ws."""
+
+    def test_realtime_key_preferred_over_openai_key(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "vk-lw-virtual")
+        monkeypatch.setenv("OPENAI_REALTIME_API_KEY", "sk-real-provider")
+        adapter = OpenAIRealtimeAgentAdapter()
+        assert adapter._api_key == "sk-real-provider"
+
+    def test_falls_back_to_openai_key(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-plain")
+        monkeypatch.delenv("OPENAI_REALTIME_API_KEY", raising=False)
+        adapter = OpenAIRealtimeAgentAdapter()
+        assert adapter._api_key == "sk-plain"
+
+    def test_explicit_param_wins(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_REALTIME_API_KEY", "sk-env")
+        adapter = OpenAIRealtimeAgentAdapter(api_key="sk-param")
+        assert adapter._api_key == "sk-param"

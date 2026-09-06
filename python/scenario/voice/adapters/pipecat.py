@@ -24,9 +24,12 @@ import logging
 import uuid
 from typing import Any, ClassVar, Literal, Optional
 
-from ..adapter import VoiceAgentAdapter
+from opentelemetry.context import Context
+
+from ..adapter import AgentStreamEndedError, VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from .._telemetry import voice_span
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
     build_clear_frame,
@@ -40,6 +43,22 @@ from ._twilio_shared import (
 
 
 logger = logging.getLogger("scenario.voice.pipecat")
+
+
+_RECV_LOOP_DONE = object()
+"""Sentinel pushed onto the inbound queue when _recv_loop terminates, so a
+waiting recv_audio wakes immediately and surfaces the terminal cause instead of
+blocking until its caller's timeout fires on a queue nothing will fill (#498)."""
+
+
+class PipecatRecvError(AgentStreamEndedError):
+    """recv_audio could get no audio because the background _recv_loop ended.
+
+    Names the real reason — a crash in the read loop (decode/transport error,
+    chained via __cause__) or a clean WebSocket close by the bot — so the #498
+    2nd-turn hang surfaces an attributable error instead of a blind
+    response_timeout with an empty body.
+    """
 
 
 class PipecatAgentAdapter(VoiceAgentAdapter):
@@ -103,7 +122,20 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
 
         self._ws: Any = None
         self._recv_task: Optional[asyncio.Task] = None
-        self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
+        # Carries AudioChunks plus the _RECV_LOOP_DONE sentinel (hence Any), so a
+        # waiting recv_audio learns the loop ended instead of blocking forever.
+        self._inbound_queue: Optional[asyncio.Queue[Any]] = None
+        # Set by _recv_loop when it crashes; recv_audio reads it to name the root
+        # cause (chained via __cause__) on the PipecatRecvError it raises (#498).
+        self._recv_loop_exc: Optional[BaseException] = None
+        # Set True when _recv_loop terminates (crash or clean close). Lets
+        # recv_audio fail fast on a drained queue without re-reading it (#498).
+        self._recv_loop_done: bool = False
+        # The turn context we last emitted a background ``voice.audio.receive``
+        # span for — so ``_deliver`` spans only the FIRST wire delivery of each
+        # turn (one span/turn, no per-100ms-chunk flood). Reset implicitly: the
+        # next turn publishes a distinct ``_voice_turn_context`` object (#774).
+        self._bg_span_turn_context: Optional[Context] = None
         # Serialises concurrent send_audio() calls — without it two paced
         # senders would interleave 20-ms mulaw frames on the wire and the
         # bot would receive corrupted audio. Used for the interruption case
@@ -135,6 +167,8 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
             self.url, ping_interval=None, ping_timeout=None
         )
         self._inbound_queue = asyncio.Queue()
+        self._recv_loop_exc = None  # reset per fresh connection
+        self._recv_loop_done = False
         self._send_lock = asyncio.Lock()
 
         # Send the synthetic `start` event that pipecat's TwilioFrameSerializer
@@ -162,6 +196,21 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                     },
                 }
             )
+        )
+
+        # Stamp Pipecat transport attrs onto the active ``voice.adapter.connect``
+        # span (opened by the executor connect loop). Base spans are name-owned;
+        # the adapter contributes attributes, never a parallel span name — mirror
+        # ElevenLabs' ``voice.elevenlabs.agent_id`` seam (``adapters/elevenlabs.py``).
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {
+                "voice.pipecat.transport": self.transport,
+                "voice.pipecat.transport_format": self.transport_format,
+            },
         )
 
         self._recv_task = asyncio.create_task(self._recv_loop())
@@ -232,7 +281,31 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
     async def recv_audio(self, timeout: float) -> AudioChunk:
         self._assert_connected()
         assert self._inbound_queue is not None
-        return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
+        # The loop already terminated and its queue is drained → fail fast with
+        # the terminal cause instead of blocking for `timeout` on a queue nothing
+        # will fill. The flag + drained-queue check is the terminal state for the
+        # rest of this connection (no await, no re-pushed sentinel to leak).
+        if self._recv_loop_done and self._inbound_queue.empty():
+            raise self._recv_loop_ended_error() from self._recv_loop_exc
+        item = await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
+        if item is _RECV_LOOP_DONE:
+            raise self._recv_loop_ended_error() from self._recv_loop_exc
+        return item
+
+    def _recv_loop_ended_error(self) -> PipecatRecvError:
+        # Chaining is done at the raise site (``raise ... from self._recv_loop_exc``)
+        # so ``__suppress_context__`` is set correctly and the clean-close branch
+        # (exc is None → ``from None``) gets a true empty cause.
+        exc = self._recv_loop_exc
+        if exc is not None:
+            return PipecatRecvError(
+                "pipecat recv loop crashed; no further audio will arrive: "
+                f"{type(exc).__name__}: {exc}"
+            )
+        return PipecatRecvError(
+            "pipecat bot closed the WebSocket; no further audio will arrive — the "
+            "bot hung up or its pipeline stopped without responding"
+        )
 
     async def interrupt(self) -> None:
         """Send a Twilio ``clear`` frame — the bot drops all buffered outbound
@@ -252,6 +325,7 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
     async def _recv_loop(self) -> None:
         """Read frames from pipecat, decode µ-law → PCM16 24k, enqueue."""
         assert self._ws is not None and self._inbound_queue is not None
+        queue = self._inbound_queue
         buffered_mulaw = bytearray()
         BATCH_MS = 100
 
@@ -262,9 +336,8 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                     # as raw µ-law payload if we see one.
                     buffered_mulaw.extend(raw)
                     if len(buffered_mulaw) >= (BATCH_MS * 8):
-                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        self._deliver(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await self._inbound_queue.put(AudioChunk(data=pcm))
                     continue
 
                 frame = parse_media_stream_frame(raw)
@@ -273,19 +346,88 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                 if frame.event == "media" and frame.payload_mulaw:
                     buffered_mulaw.extend(frame.payload_mulaw)
                     if len(buffered_mulaw) >= (BATCH_MS * 8):
-                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        self._deliver(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await self._inbound_queue.put(AudioChunk(data=pcm))
                 elif frame.event == "stop":
                     if buffered_mulaw:
-                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        self._deliver(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await self._inbound_queue.put(AudioChunk(data=pcm))
                     return
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.warning("PipecatAgentAdapter: recv loop exited with error", exc_info=True)
+        except Exception as exc:
+            # #498: do NOT swallow. A crash here (decode error, transport reset,
+            # bot pipeline failure) used to only log + fall through, leaving the
+            # inbound queue silent so recv_audio blocked the full response_timeout
+            # with no attributable cause. Record it; recv_audio raises
+            # PipecatRecvError naming this as the root cause (chained via __cause__).
+            self._recv_loop_exc = exc
+            logger.warning("PipecatAgentAdapter: recv loop crashed", exc_info=True)
+        finally:
+            # Mark terminal, then wake any pending recv_audio: no more audio will
+            # arrive on this connection. The flag lets later recv_audio calls fail
+            # fast on the drained queue; the sentinel unblocks a getter currently
+            # awaiting an empty queue. Together they turn an indefinite wait into
+            # an immediate, attributable PipecatRecvError. (No await between the
+            # two lines, so a waiter can't observe a half-set terminal state.)
+            self._recv_loop_done = True
+            queue.put_nowait(_RECV_LOOP_DONE)
+
+    def _deliver(self, mulaw: bytes) -> None:
+        """Decode a coalesced µ-law batch to PCM16/24k and enqueue it.
+
+        On the FIRST wire delivery of a turn — the base ``call()`` published its
+        OTel context via :attr:`VoiceAgentAdapter._voice_turn_context` — wrap the
+        decode+enqueue in a ``voice.audio.receive`` span parented to THAT turn
+        (#774), so the background ``_recv_loop`` task's receive work is attributed
+        to the turn instead of the task's frozen connect-time context (a
+        now-closed span).
+
+        This is a producer-side **delivery marker** (it carries the delivered
+        byte count); the consumer-side wait and the timeout/ERROR semantics (P3)
+        live on the base ``voice.audio.receive`` span that wraps ``recv_audio``.
+        The span is disambiguated from that base span by
+        ``voice.pipecat.recv.source=background_loop``.
+
+        Emitted at most ONCE per turn (only the first delivery under a given turn
+        context) — matching the base's one-receive-span-per-turn granularity and
+        the epic's no-per-tick-flood rule (the EL pump H1), so a multi-second turn
+        of 100 ms chunks is not exploded into dozens of sibling spans. Between
+        turns the context is ``None`` and we enqueue WITHOUT a span, so no
+        detached/closed-parent span can leak from the background task. The body is
+        synchronous (``put_nowait`` on the unbounded queue), so a ``disconnect()``
+        cancel can never land mid-span.
+
+        Coverage limits (by design — this is a marker, not exhaustive accounting):
+        - ``voice.audio.bytes`` is the DELIVERED coalesced-chunk size, which may
+          fold in a sub-100 ms µ-law tail carried over from the prior turn (the
+          recv-loop coalesces to 800-byte batches across the turn boundary — a
+          pre-existing property the base drain chunks share; not corrected here
+          because flushing a partial batch at the boundary would drop that audio).
+        - A turn whose agent audio was ALREADY buffered before ``call()`` published
+          the turn context (an opening greeting delivered during ``connect``) is
+          drained from the queue without a fresh wire delivery, so it gets no
+          background marker — the base ``voice.audio.receive`` span still covers
+          its consumption. The marker records in-turn wire deliveries, not every
+          turn that consumes audio (the deterministic turn-liveness gate).
+        """
+        assert self._inbound_queue is not None
+        parent = self._voice_turn_context
+        if parent is None or parent is self._bg_span_turn_context:
+            self._inbound_queue.put_nowait(AudioChunk(data=mulaw8k_to_pcm16_24k(mulaw)))
+            return
+        self._bg_span_turn_context = parent
+        with voice_span(
+            "voice.audio.receive",
+            {
+                "voice.adapter.class": type(self).__name__,
+                "voice.pipecat.recv.source": "background_loop",
+            },
+            parent=parent,
+        ) as span:
+            pcm = mulaw8k_to_pcm16_24k(mulaw)
+            span.set_attribute("voice.audio.bytes", len(pcm))
+            self._inbound_queue.put_nowait(AudioChunk(data=pcm))
 
     # ------------------------------------------------------------------ assertions
 

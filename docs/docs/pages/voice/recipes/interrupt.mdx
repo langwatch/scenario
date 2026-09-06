@@ -102,85 +102,61 @@ mode applies to your deployment.
 ## Random interruptions across a proceed loop
 
 The patterns above script a single deterministic barge-in. For multi-turn
-probabilistic interruptions — where any agent turn may be cut off with a given
-probability — use `voiceProceed` with an `InterruptionConfig`:
-
-:::code-group
-
-```typescript [typescript]
-import scenario, { voice } from "@langwatch/scenario";
-
-const { InterruptionConfig } = voice;
-
-script: [
-  scenario.agent(),                        // capture the opening greeting
-  scenario.user("I need help with my account"),
-  scenario.voiceProceed({
-    turns: 5,
-    interruptions: new InterruptionConfig({
-      probability: 0.5,          // interrupt ~50% of agent turns
-      delayRange: [0.5, 2.0],   // barge-in 0.5–2s after agent starts speaking
-      strategy: "random_phrase", // pick from the built-in canned-phrase pool
-    }),
-  }),
-  scenario.judge(),
-]
-```
-
-```python [python]
-from scenario import InterruptionConfig
-
-script=[
-    scenario.agent(),
-    scenario.user("I need help with my account"),
-    scenario.proceed(
-        turns=5,
-        interruptions=InterruptionConfig(
-            probability=0.5,
-            delay_range=(0.5, 2.0),
-            strategy="random_phrase",
-        ),
-    ),
-    scenario.judge(),
-]
-```
-
-:::
-
-`InterruptionConfig` options:
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `probability` | `number` | `0.3` | Fraction of agent turns to interrupt. |
-| `delayRange` | `[number, number]` | `[0.5, 3.0]` | Seconds to wait after agent starts speaking before firing the barge-in. |
-| `strategy` | `"random_phrase" \| "contextual"` | `"random_phrase"` | `"random_phrase"` picks from the canned phrase pool; `"contextual"` generates a realistic interjection via an LLM from the running conversation. |
-| `phrases` | `string[]` | built-in pool | Phrase pool for `"random_phrase"` (and few-shot examples for `"contextual"`). |
-
-### Per-simulator interrupt probability
-
-As an alternative to `voiceProceed({ interruptions })`, set `interruptProbability`
-directly on the user simulator. This drives barge-ins on any plain `scenario.proceed()`
-loop without needing an explicit `InterruptionConfig`:
+probabilistic interruptions (where any agent turn may be cut off with a given
+probability), set `interruptProbability` on the user simulator. This is the
+parity-clean knob shared by both SDKs: it drives barge-ins on any plain
+`scenario.proceed()` loop, and the SDK builds the interruption config
+internally.
 
 :::code-group
 
 ```typescript [typescript]
 scenario.userSimulatorAgent({
   voice: "openai/nova",
-  interruptProbability: 0.3,   // 30% of agent turns get a barge-in
+  interruptProbability: 0.5,   // interrupt ~50% of agent turns
 })
 ```
 
 ```python [python]
 scenario.UserSimulatorAgent(
     voice="openai/nova",
-    interrupt_probability=0.3,
+    interrupt_probability=0.5,
 )
 ```
 
 :::
 
-When both are configured, the `voiceProceed({ interruptions })` config wins.
+Then let the conversation run with a plain `proceed()`; barge-ins fire
+automatically per `interruptProbability`:
+
+:::code-group
+
+```typescript [typescript]
+script: [
+  scenario.agent(),                        // capture the opening greeting
+  scenario.user("I need help with my account"),
+  scenario.proceed(5),                     // barge-ins fire per interruptProbability
+  scenario.judge(),
+]
+```
+
+```python [python]
+script=[
+    scenario.agent(),
+    scenario.user("I need help with my account"),
+    scenario.proceed(turns=5),
+    scenario.judge(),
+]
+```
+
+:::
+
+`interruptProbability` controls how often a turn is interrupted. The
+interruption's timing (a short delay after the agent starts speaking) and its
+phrasing (a canned interjection) use built-in defaults; they are not
+separately configurable from the public API. `InterruptionConfig` remains
+exported under the `voice` namespace for inspection, but it is constructed
+internally.
 
 ## Worked example
 
@@ -199,7 +175,6 @@ Adapter-specific variants:
 **TypeScript:**
 
 - [`interruption-recovery.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/interruption-recovery.test.ts) — unrolled and sugar forms in a multi-turn Pipecat scenario, with a JudgeAgent verifying recovery
-- [`random-interruptions.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/random-interruptions.test.ts) — `voiceProceed({ interruptions: new InterruptionConfig({...}) })` across 5 turns; asserts barge-ins fired mid-utterance and canned-phrase strategy ran
 - [`gemini-live-interruption.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/gemini-live-interruption.test.ts) — Gemini Live adapter with server-side native barge-in
 - [`elevenlabs-interruption.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/elevenlabs-interruption.test.ts) — ElevenLabs adapter interrupt path
 
