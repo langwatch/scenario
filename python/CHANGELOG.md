@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/langwatch/scenario/compare/python/v1.4.0...python/v1.5.0) (2026-09-06)
+
+
+### Features
+
+* evaluators on scenario runs with mappings as functions of the state ([#966](https://github.com/langwatch/scenario/issues/966)) ([a2c8070](https://github.com/langwatch/scenario/commit/a2c8070f5120b59330d34b526c8ac37c8e2fc4f9))
+
+
+### Bug Fixes
+
+* **#922:** always report a scenario run as finished, and make event delivery retry ([#928](https://github.com/langwatch/scenario/issues/928)) ([7f5e220](https://github.com/langwatch/scenario/commit/7f5e220a4678345912e6842cc6f9fce4ea6aa42a))
+* evaluator client refuses redirects, saved evaluators declare their inputs, repeated tool calls stay distinct ([#971](https://github.com/langwatch/scenario/issues/971)) ([212728e](https://github.com/langwatch/scenario/commit/212728e3c34b65f87d9c7176245913c9a6e384ff))
+
 ## [1.4.0](https://github.com/langwatch/scenario/compare/python/v1.3.0...python/v1.4.0) (2026-09-01)
 
 
