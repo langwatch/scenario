@@ -144,6 +144,42 @@ if missing:
 EOF
   then pass "$name: path filters ($filter1, $filter2) present"; else fail "$name: path filters missing (expected $filter1 and $filter2)"; fi
 
+  # The two halves of the draft gate, which only work together. The heavy job
+  # skips a draft, and `ready_for_review` is what gives it its run once the
+  # draft is marked ready. Drop the trigger type and a release-please pull
+  # request merges on a run that skipped the suite; drop the condition and every
+  # merge to main runs the suite again on a pull request nobody is reviewing.
+  # See specs/release-pr-drafts.feature.
+  echo "--- $inner_job skips a draft pull request ---"
+  if python3 - "$wf" "$inner_job" <<'EOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+cond = str(d.get('jobs', {}).get(sys.argv[2], {}).get('if', ''))
+if 'github.event.pull_request.draft == false' not in cond:
+    print(f"if condition does not skip drafts: {cond!r}")
+    sys.exit(1)
+EOF
+  then pass "$name: $inner_job skips a draft"; else fail "$name: $inner_job runs on a draft"; fi
+
+  echo "--- pull_request types include ready_for_review ---"
+  if python3 - "$wf" <<'EOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+on = d.get('on', d.get(True, {}))
+pr = on.get('pull_request') if isinstance(on, dict) else None
+types = (pr or {}).get('types')
+if not isinstance(types, list):
+    print("pull_request declares no types, so ready_for_review never fires")
+    sys.exit(1)
+missing = [t for t in ('opened', 'synchronize', 'reopened', 'ready_for_review') if t not in types]
+if missing:
+    print(f"missing trigger types: {missing}; declared: {types}")
+    sys.exit(1)
+EOF
+  then pass "$name: pull_request types cover ready_for_review"; else fail "$name: pull_request types miss ready_for_review"; fi
+
   echo "--- $inner_job needs changes ---"
   if python3 - "$wf" "$inner_job" <<'EOF'
 import yaml, sys
@@ -353,6 +389,28 @@ then
 else
   fail "python-ci: could not extract the secrets resolver to run it"
 fi
+
+# ---------------------------------------------------------------------------
+# Release pull requests open as drafts (see specs/release-pr-drafts.feature)
+#
+# The draft gate above only saves anything if release-please actually opens its
+# pull requests as drafts. That setting lives in a strict-JSON config nobody
+# reads on the way past, and turning it off is a one-word edit that no test
+# would otherwise notice: the suite would simply start running on every merge
+# to main again.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Validating release-please opens drafts ==="
+if python3 - "$REPO_ROOT/.release-please-config.json" <<'EOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    config = json.load(f)
+if config.get("draft-pull-request") is not True:
+    print(f"draft-pull-request is {config.get('draft-pull-request')!r}, expected True")
+    sys.exit(1)
+EOF
+then pass "release-please: release pull requests open as drafts"
+else fail "release-please: release pull requests do not open as drafts"; fi
 
 # ---------------------------------------------------------------------------
 # Summary
