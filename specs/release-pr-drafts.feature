@@ -32,6 +32,8 @@ Feature: Release pull requests open as drafts
   Scenario: Every aggregator workflow skips its heavy job on a draft
     When each aggregator workflow's heavy job condition is read
     Then the condition requires the pull request not to be a draft
+    And it requires it as a conjunct, so nothing else in the condition can
+      run the heavy job on a draft anyway
 
   @unit
   Scenario: Every aggregator workflow runs when a draft is marked ready

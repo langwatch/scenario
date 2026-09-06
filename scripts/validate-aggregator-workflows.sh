@@ -8,6 +8,33 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; FAIL=1; }
 
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# Decides whether a job condition genuinely keeps the job off a draft pull
+# request. Searching the condition for the comparison is not enough:
+# `needs.changes.outputs.relevant == 'true' || github.event.pull_request.draft
+# == false` contains it and still runs the heavy job on a relevant draft. The
+# comparison has to be one of the top-level `&&` conjuncts, which is what makes
+# it hold whatever the rest of the expression decides. Exit 0 accepts.
+DRAFT_GATE_PY="$TMP_DIR/draft_gate.py"
+cat > "$DRAFT_GATE_PY" <<'EOF'
+import re, sys
+
+# The two spellings of "this pull request is not a draft". Both read as false
+# on a push, where `github.event.pull_request` does not exist.
+NOT_A_DRAFT = re.compile(
+    r"^(?:github\.event\.pull_request\.draft\s*==\s*false"
+    r"|!\s*github\.event\.pull_request\.draft)$"
+)
+
+condition = sys.argv[1] if len(sys.argv) > 1 else ""
+for conjunct in condition.split("&&"):
+    if NOT_A_DRAFT.match(conjunct.strip().strip("()").strip()):
+        sys.exit(0)
+sys.exit(1)
+EOF
+
 # check_workflow <file> <name> <inner_job> <aggregator> <filter1> <filter2>
 check_workflow() {
   local wf="$1"
@@ -151,16 +178,17 @@ EOF
   # merge to main runs the suite again on a pull request nobody is reviewing.
   # See specs/release-pr-drafts.feature.
   echo "--- $inner_job skips a draft pull request ---"
-  if python3 - "$wf" "$inner_job" <<'EOF'
+  local cond
+  cond="$(python3 - "$wf" "$inner_job" <<'EOF'
 import yaml, sys
 with open(sys.argv[1]) as f:
     d = yaml.safe_load(f)
-cond = str(d.get('jobs', {}).get(sys.argv[2], {}).get('if', ''))
-if 'github.event.pull_request.draft == false' not in cond:
-    print(f"if condition does not skip drafts: {cond!r}")
-    sys.exit(1)
+print(str(d.get('jobs', {}).get(sys.argv[2], {}).get('if', '')))
 EOF
-  then pass "$name: $inner_job skips a draft"; else fail "$name: $inner_job runs on a draft"; fi
+)"
+  if python3 "$DRAFT_GATE_PY" "$cond"
+  then pass "$name: $inner_job skips a draft"
+  else fail "$name: $inner_job does not gate on the pull request not being a draft: ${cond:-<no if condition>}"; fi
 
   echo "--- pull_request types include ready_for_review ---"
   if python3 - "$wf" <<'EOF'
@@ -346,8 +374,7 @@ else fail "python-ci: examples are not covered on runs without secrets"; fi
 # event shape, and GitHub takes the LAST write for a key, which is what makes
 # an unconditional pair of writes visible here.
 echo "--- the resolver's decision, over every event shape ---"
-RESOLVER_SH="$(mktemp)"
-trap 'rm -f "$RESOLVER_SH"' EXIT
+RESOLVER_SH="$TMP_DIR/resolver.sh"
 if python3 - "$REPO_ROOT/.github/workflows/python-ci.yml" > "$RESOLVER_SH" <<'EOF'
 import yaml, sys
 
@@ -399,6 +426,36 @@ fi
 # would otherwise notice: the suite would simply start running on every merge
 # to main again.
 # ---------------------------------------------------------------------------
+echo ""
+echo "=== Validating the draft-gate check itself ==="
+# The check above decides whether a condition keeps the heavy job off a draft.
+# Its own failure mode is accepting a condition that does not, which would let
+# the gate be removed in a rewrite while the validator kept reporting PASS.
+echo "--- the draft-gate check, over conditions that do and do not gate ---"
+DRAFT_GATE_BAD=0
+# <expected: accept|reject> <condition>
+check_draft_gate() {
+  local got
+  if python3 "$DRAFT_GATE_PY" "$2"; then got=accept; else got=reject; fi
+  if [ "$got" != "$1" ]; then
+    echo "    $got, expected $1, for: ${2:-<empty>}"
+    DRAFT_GATE_BAD=1
+  fi
+}
+check_draft_gate accept "needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false"
+check_draft_gate accept "github.event.pull_request.draft == false"
+check_draft_gate accept "needs.changes.outputs.relevant == 'true' && !github.event.pull_request.draft"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true' || github.event.pull_request.draft == false"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true' && (github.event.pull_request.draft == false || github.event_name == 'push')"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == true"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true'"
+check_draft_gate reject ""
+if [ "$DRAFT_GATE_BAD" -eq 0 ]; then
+  pass "the draft-gate check accepts only a condition that gates on the draft"
+else
+  fail "the draft-gate check misjudges some condition"
+fi
+
 echo ""
 echo "=== Validating release-please opens drafts ==="
 if python3 - "$REPO_ROOT/.release-please-config.json" <<'EOF'
