@@ -284,3 +284,33 @@ async def test_user_simulator_uses_per_run_tts_config():
         synthesize.assert_awaited_once_with("hello", "openai/nova")
     finally:
         ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+async def test_user_simulator_uses_the_per_run_tts_credential():
+    """A run-level TTS key is forwarded to synthesis rather than the environment."""
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4.1-mini")
+    simulator = UserSimulatorAgent()
+    scenario_state = MagicMock()
+    scenario_state.config = ScenarioConfig(
+        voice=VoiceConfig(tts=TtsConfig(voice="openai/nova", api_key="tts-key"))
+    )
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[],
+        new_messages=[],
+        scenario_state=scenario_state,
+    )
+    try:
+        with patch.object(
+            simulator,
+            "_generate_text",
+            new=AsyncMock(return_value={"role": "user", "content": "hello"}),
+        ), patch(
+            "scenario.voice.synthesize",
+            new=AsyncMock(return_value=AudioChunk(data=b"\x00\x00")),
+        ) as synthesize:
+            await simulator.call(agent_input)
+        synthesize.assert_awaited_once_with("hello", "openai/nova", api_key="tts-key")
+    finally:
+        ScenarioConfig.default_config = None

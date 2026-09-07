@@ -280,6 +280,13 @@ class ScenarioExecutor:
             voice=voice,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
+        from .voice.config import VoiceConfig
+        from .voice.stt import get_stt_provider
+
+        voice_config = VoiceConfig.model_validate(self.config.voice or {})
+        if voice_config.stt is None:
+            voice_config.stt = get_stt_provider()
+        self.config.voice = voice_config
 
         effective_max_turns = self.config.max_turns or 10
         if (
@@ -1257,7 +1264,11 @@ class ScenarioExecutor:
             # (OpenAIRealtime, ElevenLabs hosted, Pipecat, etc.) see no audio
             # when the scenario script emits `scenario.user("...")`.
             sim = self._find_user_sim()
-            if sim is not None and sim._effective_voice(self.config.voice):
+            if sim is not None:
+                resolved_voice, api_key = sim._effective_tts(self.config.voice)
+            else:
+                resolved_voice, api_key = None, None
+            if sim is not None and resolved_voice:
                 # Apply per-step overrides if supplied — without this, callers
                 # using scenario.user("text", voice_style=..., audio_effects=...)
                 # would silently have those dropped on the voice-sim branch.
@@ -1266,11 +1277,15 @@ class ScenarioExecutor:
                         voice_style=voice_style, audio_effects=audio_effects
                     ):
                         voiced = await sim._voiceify(
-                            {"role": "user", "content": content}
+                            {"role": "user", "content": content},
+                            voice=resolved_voice,
+                            api_key=api_key,
                         )
                 else:
                     voiced = await sim._voiceify(
-                        {"role": "user", "content": content}
+                        {"role": "user", "content": content},
+                        voice=resolved_voice,
+                        api_key=api_key,
                     )
                 self.add_message(voiced)  # type: ignore[arg-type]
                 # Interruption path: when a wait=False agent turn is in flight,

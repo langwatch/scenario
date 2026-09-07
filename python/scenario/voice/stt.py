@@ -50,8 +50,16 @@ class OpenAISTTProvider(STTProvider):
     transcribed independently and concatenated with single spaces.
     """
 
-    def __init__(self, model: str = OPENAI_STT_MODEL):
+    def __init__(
+        self,
+        model: str = OPENAI_STT_MODEL,
+        *,
+        api_key: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> None:
         self.model = model
+        self.api_key = api_key
+        self.language = language
 
     async def transcribe(self, audio: AudioChunk) -> str:
         if audio.duration_seconds <= OPENAI_TRANSCRIBE_LIMIT_SECONDS:
@@ -74,13 +82,16 @@ class OpenAISTTProvider(STTProvider):
         from .messages import _pcm16_to_wav_bytes
 
         wav_bytes = _pcm16_to_wav_bytes(audio.data)
-        client = AsyncOpenAI()
+        client = AsyncOpenAI(api_key=self.api_key) if self.api_key else AsyncOpenAI()
         buf = io.BytesIO(wav_bytes)
         buf.name = "audio.wav"
-        resp = await client.audio.transcriptions.create(
+        request = dict(
             model=self.model,
             file=buf,
         )
+        if self.language:
+            request["language"] = self.language
+        resp = await client.audio.transcriptions.create(**request)
         return getattr(resp, "text", "") or ""
 
 
@@ -104,7 +115,10 @@ class ElevenLabsSTTProvider(STTProvider):
     ``STTProvider`` interface boundary.
     """
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(
+        self, api_key: Optional[str] = None, *, model: Optional[str] = None
+    ) -> None:
+        self.model = model or ELEVENLABS_STT_MODEL
         self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "")
 
     def __repr__(self) -> str:  # redact credentials
@@ -123,7 +137,7 @@ class ElevenLabsSTTProvider(STTProvider):
                 ELEVENLABS_STT_ENDPOINT,
                 headers={"xi-api-key": self.api_key},
                 files={"file": ("audio.wav", wav_bytes, "audio/wav")},
-                data={"model_id": ELEVENLABS_STT_MODEL},
+                data={"model_id": self.model},
             )
             if response.status_code >= 400:
                 # Log detail at DEBUG; keep exception message minimal so response
