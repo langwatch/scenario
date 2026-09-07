@@ -157,6 +157,12 @@ class _ParkingReceiveStream:
     Modelling it on a plain object (rather than relying on a real generator)
     is what lets the teardown node PROVE it reached that line, via
     ``aclose_calls`` / ``aclose_raised``.
+
+    ``__anext__`` itself ALSO enforces the same reentrancy a real async
+    generator would (``RuntimeError('anext(): asynchronous generator is
+    already running')``) — needed by the #872 leaked-``anext_task``
+    regression test below, which proves a second call does NOT collide with
+    an orphaned first one still in flight.
     """
 
     def __init__(self) -> None:
@@ -169,6 +175,10 @@ class _ParkingReceiveStream:
         return self
 
     async def __anext__(self) -> Any:
+        if self._running:
+            raise RuntimeError(
+                "anext(): asynchronous generator is already running"
+            )
         self.entered.set()
         self._running = True
         try:
@@ -814,3 +824,58 @@ async def test_clean_turn_reports_terminal_chunk(monkeypatch, in_memory_spans):
         "else (notably 'stream_ended') means the #718 guard fired on a healthy "
         f"session. Got {attrs(recv).get('voice.audio.terminated_reason')!r}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# #872 — a plain timeout must not leak the parked anext_task                   #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_plain_timeout_does_not_leak_anext_task(monkeypatch):
+    """RED before the #872 fix.
+
+    ``_next_chunk()`` spawns ``anext_task = asyncio.ensure_future(self.
+    _recv_iter.__anext__())`` fresh each loop iteration. The "session died"
+    branch already cancels+awaits it before raising. But when the OUTER
+    ``asyncio.wait_for(_next_chunk(), timeout=timeout)`` times out instead —
+    on a perfectly HEALTHY session, no audio ever arrives before the
+    caller's own ``timeout`` — only ``_next_chunk()``'s own frame gets
+    cancelled; the separate ``anext_task`` is untouched and keeps running
+    against the shared ``self._recv_iter`` generator.
+
+    The NEXT ``recv_audio`` call issues a fresh ``__anext__()`` on that same
+    (shared, one-per-session) iterator while the orphaned one may still be
+    in flight. ``_ParkingReceiveStream.__anext__`` enforces the same
+    reentrancy a real async generator would, so the leak reproduces as
+    ``RuntimeError: anext(): asynchronous generator is already running`` —
+    the exact production symptom — instead of a silent hang.
+
+    Both calls here race only the caller's own short ``timeout`` against
+    silence, never ``_session_task`` dying, which isolates this leak from
+    the AC1-AC4 death-path nodes above.
+    """
+    session = _SilentSession()
+    _install_fake_client(monkeypatch, session)  # healthy session throughout
+
+    adapter = GeminiLiveAgentAdapter(api_key=_FAKE_KEY)
+    await adapter.connect()
+    try:
+        # First call: nothing ever arrives, so this must time out on its own
+        # short timeout, not hang and not raise GeminiLiveRecvError (the
+        # session stays alive the whole time).
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                adapter.recv_audio(timeout=0.05), timeout=_RECV_GUARD_SECONDS
+            )
+
+        # Second call, same adapter/session, same still-silent stream: with
+        # the leak, the first call's orphaned anext_task collides with this
+        # call's fresh __anext__() on the same iterator and raises
+        # RuntimeError instead of timing out cleanly again.
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                adapter.recv_audio(timeout=0.05), timeout=_RECV_GUARD_SECONDS
+            )
+    finally:
+        await _quiet_disconnect(adapter)

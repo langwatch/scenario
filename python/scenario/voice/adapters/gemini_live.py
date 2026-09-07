@@ -426,6 +426,19 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                 anext_task: "asyncio.Task[Any]" = asyncio.ensure_future(
                     self._recv_iter.__anext__()  # type: ignore[union-attr]
                 )
+                # Set True only once anext_task's result (or exception) has
+                # actually been consumed via `message = await anext_task`
+                # below. Anything that exits this iteration WITHOUT that —
+                # notably the outer asyncio.wait_for(...) timing out while
+                # we're parked in `await asyncio.wait(...)` or `await
+                # anext_task` — leaves anext_task running against the shared
+                # self._recv_iter generator. The `finally` cancels+awaits it
+                # in that case so a later __anext__() call on the same
+                # generator (this call's next iteration, or the NEXT
+                # recv_audio call) never collides with an orphaned one still
+                # in flight, which is what raises "anext(): asynchronous
+                # generator is already running" (#872).
+                consumed = False
                 try:
                     if session_task is not None:
                         # Race the parked __anext__() against the session task
@@ -443,21 +456,41 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                             anext_task.cancel()
                             with contextlib.suppress(BaseException):
                                 await anext_task
+                            consumed = True  # already cancelled+awaited above
                             raise GeminiLiveRecvError(
                                 "GeminiLiveAgentAdapter: session task ended; "
                                 "no further audio will arrive"
                             ) from self._session_error
                     message = await anext_task
+                    consumed = True
                 except StopAsyncIteration:
-                    # The previous turn ended (turn_complete already
-                    # consumed). Surface end-of-turn to the drain loop
+                    # anext_task itself raised this — it's already done, no
+                    # cleanup needed. The previous turn ended (turn_complete
+                    # already consumed). Surface end-of-turn to the drain loop
                     # and reset the iterator so the next user turn
                     # can re-enter session.receive() afresh.
+                    consumed = True
                     self._recv_iter = None
                     return AudioChunk(
                         data=b"",
                         transcript=pending_delta or None,
                     )
+                finally:
+                    # Covers a plain outer-timeout cancellation (and any other
+                    # exception we didn't already clean up above): if we're
+                    # leaving without having consumed anext_task's outcome,
+                    # it must be fully finished — cancelled and awaited —
+                    # before control returns to the caller, who may issue a
+                    # fresh __anext__() on the same generator either in the
+                    # next loop iteration or the next recv_audio() call.
+                    # This does not swallow the CancelledError propagating
+                    # through THIS frame from the outer wait_for — only the
+                    # cancellation of the now-orphaned anext_task is
+                    # suppressed.
+                    if not consumed:
+                        anext_task.cancel()
+                        with contextlib.suppress(BaseException):
+                            await anext_task
 
                 if message.go_away is not None:
                     raise RuntimeError(
