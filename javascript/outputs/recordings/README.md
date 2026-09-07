@@ -11,7 +11,7 @@ passing test cannot.
 
 | Directory | Recorded | What it proves |
 |---|---|---|
-| `issue533_voicestyle/` | 2026-07-31 | A `voiceStyle` threaded through the user simulator reaches the real ElevenLabs API and is honoured as a *delivery directive* rather than spoken aloud (issue #533). |
+| `issue533_voicestyle/` | 2026-07-31 | The ElevenLabs provider helper puts `voiceStyle` on the wire as an inline marker and the real `eleven_v3` API honours it as a *delivery directive* rather than speaking it aloud (issue #533). Simulator -> router forwarding is covered by unit tests, not by this recording. |
 
 ## What each directory contains
 

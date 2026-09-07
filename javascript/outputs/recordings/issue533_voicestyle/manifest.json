@@ -1,7 +1,7 @@
 {
   "issue": 533,
   "recorded": "2026-07-31",
-  "what_it_proves": "A voiceStyle threaded through the TypeScript simulator reaches the real ElevenLabs API and is honoured as a delivery directive, not spoken as text.",
+  "what_it_proves": "The ElevenLabs provider helper (elevenLabsSynthesizeBytes) puts voiceStyle on the wire as an inline marker and the real eleven_v3 API honours it as a delivery directive, not spoken as text. The simulator -> synthesize -> provider forwarding of voiceStyle is covered by unit tests, not by this recording.",
   "provider": "elevenlabs",
   "tts_model": "eleven_v3",
   "voice_id": "EXAVITQu4vr4xnSDxMaL",

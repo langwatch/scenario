@@ -14,7 +14,7 @@ carry that.
 
 | Directory | Recorded | What it proves |
 |---|---|---|
-| `issue533_voicestyle/` | 2026-07-31 | A `voiceStyle` threaded through the user simulator reaches the real ElevenLabs API and is honoured as a delivery directive rather than spoken aloud (issue #533). Play `bare.wav` against `angry.wav`; `manifest.json` carries the requests, hashes, and Scribe transcripts. |
+| `issue533_voicestyle/` | 2026-07-31 | The ElevenLabs provider helper (`elevenLabsSynthesizeBytes`) puts `voiceStyle` on the wire as an inline marker and the real `eleven_v3` API honours it as a delivery directive rather than speaking it aloud (issue #533). The simulator -> `synthesize` -> provider forwarding of `voiceStyle` is covered by unit tests, not by this recording. Play `bare.wav` against `angry.wav`; `manifest.json` carries the requests, hashes, and Scribe transcripts. |
 
 Regenerate with the harness named in each `manifest.json` — for
 `issue533_voicestyle/` that is:
