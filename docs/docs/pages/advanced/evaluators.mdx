@@ -169,4 +169,10 @@ Each result also carries `evaluator_id` (`evaluatorId`), `name`, `required`, `pa
 
 The run started event carries the fields, so the scenario in LangWatch shows the values it ran with. The run finished event carries the evaluations with the verdict, so the agent testing results show one row per evaluator under the criteria: its status, whether it was required, its verdict or score, its details and the resolved inputs. A failed required evaluator names itself in the verdict line. Each evaluation is also recorded on the trace of the last turn.
 
+![The run drawer of a scenario run from code: the user simulator message, two run_sql tool calls with their results and the agent answer on the left; on the right the verdict, the passed criterion and five evaluator rows, Exact Match required and passed, Exact Match failed, LLM-as-a-Judge Boolean passed, Exact Match skipped with the reason no reference_sql on this scenario, and Exact Match in error with the mapping message](/images/evaluators/run-drawer-evaluators-python.png "A scenario run from code with its evaluator rows in LangWatch")
+
+Each evaluator row opens on its inputs, so a failed row shows the values it compared and a skipped row shows the reason, without leaving the run.
+
+**Also check:** [Judge Criteria, Script Assertions and Evaluators](/testing-guides/judge-assertions-and-evaluators) for when a check belongs on the judge, in a script step or on an evaluator, and how the three combine into one verdict.
+
 Test suites defined on the platform carry their own fields and evaluators. When the platform runs a scenario, it runs those evaluators server-side with the same picker paths and inference rules. When a scenario run from code sends its own evaluations, the platform stores them as they are and does not run them again.
