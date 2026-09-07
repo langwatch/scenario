@@ -55,7 +55,7 @@ export function lintsWholePackage(command) {
     const token = tokens[i];
     if (token.startsWith("-")) {
       // A value-taking flag written as two tokens consumes the next one.
-      if (!token.includes("=") && /^--(ignore-pattern|format|config|rulesdir|ext|resolve-plugins-relative-to|suppressions-location)$/.test(token)) i++;
+      if (!token.includes("=") && /^--(ignore-pattern|format|config|rulesdir|ext|resolve-plugins-relative-to|suppressions-location|max-warnings|parser|parser-options|plugin|global|rule|cache-location|cache-strategy|cache-file|output-file|report-unused-disable-directives-severity|fix-type|stdin-filename|concurrency|flag)$/.test(token)) i++;
       continue;
     }
     positionals.push(token.replace(/^['"]|['"]$/g, ""));
