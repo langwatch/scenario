@@ -57,7 +57,10 @@
  *     {@link OpenCodeAgentAdapter.close}.
  */
 
-import { createOpencode } from "@opencode-ai/sdk";
+// `@opencode-ai/sdk` is ESM-only (its `exports` map has no `require` condition), so a
+// static value import here would break the CJS build's `require('./dist/index.js')`
+// smoke test (smoke:dist). `createOpencode` is loaded lazily via dynamic `import()`
+// in `ensureClient()` instead; type-only imports are erased and stay static.
 import type { OpencodeClient, Part } from "@opencode-ai/sdk";
 import type { ModelMessage } from "ai";
 
@@ -225,7 +228,9 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     }
     // Memoize the PROMISE, not the resolved value: two concurrent calls must
     // share one createOpencode() spawn rather than each spawning a server.
-    this.serverPromise ??= createOpencode();
+    this.serverPromise ??= import("@opencode-ai/sdk").then(({ createOpencode }) =>
+      createOpencode(),
+    );
     const { client } = await this.serverPromise;
     return client;
   }
