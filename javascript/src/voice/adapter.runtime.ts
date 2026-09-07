@@ -735,10 +735,16 @@ async function drainInner(
     "voice.audio.first_chunk_latency_ms",
     Math.round(performance.now() - receiveStart),
   );
-  if (first.data.length > 0) {
+  // The initial receive can be an empty prefix while the drain still yields
+  // audio. Publish speech on the first playable chunk wherever it appears.
+  let sawPlayableChunk = false;
+  const markFirstPlayableChunk = (chunk: AudioChunk): void => {
+    if (sawPlayableChunk || chunk.data.length === 0) return;
+    sawPlayableChunk = true;
     onFirstChunk();
-  }
-  speakingEvent.set();
+    speakingEvent.set();
+  };
+  markFirstPlayableChunk(first);
 
   const chunks: AudioChunk[] = [first];
   let accumulated = first.durationSeconds;
@@ -777,6 +783,7 @@ async function drainInner(
       terminatedReason = "terminal_chunk";
       break;
     }
+    markFirstPlayableChunk(next);
     chunks.push(next);
     accumulated += next.durationSeconds;
     maybeWarnSoftCap();
