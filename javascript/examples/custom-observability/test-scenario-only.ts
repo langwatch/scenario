@@ -11,6 +11,7 @@ import {
   agent,
   succeed,
   setupScenarioTracing,
+  scenarioOnly,
   type AgentInput,
 } from "@langwatch/scenario";
 import { trace } from "@opentelemetry/api";
@@ -29,7 +30,9 @@ const collectorProcessor = new SimpleSpanProcessor(memoryExporter);
 setupScenarioTracing({
   instrumentations: [], // disable auto-instrumentation
   spanProcessors: [collectorProcessor],
-  langwatch: "disabled", // don't send to LangWatch for this test
+  // "disabled" is a documented runtime shortcut not reflected in SetupObservabilityOptions' type
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  langwatch: "disabled" as any, // don't send to LangWatch for this test
 });
 
 // --- Step 3: Simulate "server noise" -- create spans that should be filtered out ---
