@@ -46,6 +46,8 @@ class ScenarioConfig(BaseModel):
             this budget once more, then the tool is withdrawn and the judge
             must decide. Defaults to the resolved ``trace_wait_timeout``.
         observability: OpenTelemetry tracing configuration (span_filter, instrumentors, etc.)
+        voice: Per-run STT and TTS settings that reach the judge and user
+            simulator through ``ScenarioState.config``.
 
     Example:
         ```
@@ -87,6 +89,9 @@ class ScenarioConfig(BaseModel):
         default=None, gt=0, allow_inf_nan=False
     )
     observability: Optional[Dict[str, Any]] = None
+    # Per-run carrier for voice providers. Kept out of configure(), whose
+    # process-wide defaults cannot safely select providers for concurrent runs.
+    voice: Optional[Any] = None
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None
 

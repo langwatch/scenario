@@ -7,14 +7,12 @@ We ship an abstract ``STTProvider`` base class plus a default OpenAI
 implementation (``gpt-4o-transcribe``, reuses the existing ``openai`` dep).
 
 Users who prefer Deepgram, Whisper, local inference, etc. implement
-``STTProvider`` and install it with ``scenario.set_stt_provider(MyProvider())``.
-That is the only entry point: ``scenario.configure()`` carries global execution
-settings and takes no ``stt`` argument (ADR-002, ADR-003).
+``STTProvider`` and pass it through ``scenario.run(..., voice=VoiceConfig(stt=...))``.
+That per-run carrier reaches the judge without process-wide mutable state.
 
-The provider is process-wide, so parallel runs share whichever one was
-installed last. ADR-002 records the target design, per-run voice config on the
-carrier that reaches ``call()``, which TypeScript already implements as
-``run({ voice: { stt } })``.
+``set_stt_provider()`` remains a deprecated compatibility helper for direct
+``transcribe()``/``transcribe_segments()`` utility calls. It is not used by the
+judge path and will be removed in the next major version.
 
 The OpenAI default chunks audio longer than 25 minutes per request (the API
 hard limit). Transcription happens per turn, so this is rarely triggered.
@@ -23,6 +21,7 @@ hard limit). Transcription happens per turn, so this is rarely triggered.
 from __future__ import annotations
 
 import os
+import warnings
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -51,8 +50,16 @@ class OpenAISTTProvider(STTProvider):
     transcribed independently and concatenated with single spaces.
     """
 
-    def __init__(self, model: str = OPENAI_STT_MODEL):
+    def __init__(
+        self,
+        model: str = OPENAI_STT_MODEL,
+        *,
+        api_key: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> None:
         self.model = model
+        self.api_key = api_key
+        self.language = language
 
     async def transcribe(self, audio: AudioChunk) -> str:
         if audio.duration_seconds <= OPENAI_TRANSCRIBE_LIMIT_SECONDS:
@@ -75,13 +82,16 @@ class OpenAISTTProvider(STTProvider):
         from .messages import _pcm16_to_wav_bytes
 
         wav_bytes = _pcm16_to_wav_bytes(audio.data)
-        client = AsyncOpenAI()
+        client = AsyncOpenAI(api_key=self.api_key) if self.api_key else AsyncOpenAI()
         buf = io.BytesIO(wav_bytes)
         buf.name = "audio.wav"
-        resp = await client.audio.transcriptions.create(
+        request = dict(
             model=self.model,
             file=buf,
         )
+        if self.language:
+            request["language"] = self.language
+        resp = await client.audio.transcriptions.create(**request)
         return getattr(resp, "text", "") or ""
 
 
@@ -105,7 +115,10 @@ class ElevenLabsSTTProvider(STTProvider):
     ``STTProvider`` interface boundary.
     """
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(
+        self, api_key: Optional[str] = None, *, model: Optional[str] = None
+    ) -> None:
+        self.model = model or ELEVENLABS_STT_MODEL
         self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "")
 
     def __repr__(self) -> str:  # redact credentials
@@ -124,7 +137,7 @@ class ElevenLabsSTTProvider(STTProvider):
                 ELEVENLABS_STT_ENDPOINT,
                 headers={"xi-api-key": self.api_key},
                 files={"file": ("audio.wav", wav_bytes, "audio/wav")},
-                data={"model_id": ELEVENLABS_STT_MODEL},
+                data={"model_id": self.model},
             )
             if response.status_code >= 400:
                 # Log detail at DEBUG; keep exception message minimal so response
@@ -141,17 +154,18 @@ class ElevenLabsSTTProvider(STTProvider):
             return response.json().get("text", "")
 
 
-# ---------------------------------------------------------------- global provider
+# ---------------------------------------------------------- legacy convenience
 
-_provider: STTProvider = OpenAISTTProvider()
+_legacy_provider: Optional[STTProvider] = None
+_default_legacy_provider: STTProvider = OpenAISTTProvider()
 
 
 def set_stt_provider(provider: STTProvider) -> None:
     """
-    Install the STT provider used by every voice run in this process.
+    Set the compatibility provider for direct transcription helpers.
 
-    Exported as ``scenario.set_stt_provider``. This is the public way to swap
-    speech-to-text; ``scenario.configure()`` does not take an ``stt`` argument.
+    Deprecated: pass ``voice=VoiceConfig(stt=provider)`` to ``scenario.run``
+    or ``scenario.arun``. This helper will be removed in the next major version.
 
     Acceptance is structural, matching ``isSttProvider`` in the TypeScript
     resolver: anything with a callable ``transcribe`` qualifies, whether or not
@@ -169,12 +183,18 @@ def set_stt_provider(provider: STTProvider) -> None:
             "or pass any object with "
             "'async def transcribe(self, audio: AudioChunk) -> str'."
         )
-    global _provider
-    _provider = provider
+    warnings.warn(
+        "set_stt_provider() is deprecated; pass voice=VoiceConfig(stt=...) "
+        "to scenario.run() instead. It will be removed in the next major version.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    global _legacy_provider
+    _legacy_provider = provider
 
 
 def get_stt_provider() -> STTProvider:
-    return _provider
+    return _legacy_provider or _default_legacy_provider
 
 
 async def transcribe(audio: AudioChunk) -> str:
