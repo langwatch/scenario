@@ -70,12 +70,16 @@ export type {
   VoiceRecording,
 } from "./recording.types";
 
+// The canonical location is the domain layer: these describe the shape of an
+// agent the executor calls into, not a capability the voice channel imposes.
+// Re-exported here rather than imported from `./agent-shapes`, which was a
+// deprecated shim pointing at the same place (#579).
 export {
   isRealtimeUserAgent,
   isVoiceUserSim,
   type RealtimeUserAgent,
   type VoiceUserSimulator,
-} from "./agent-shapes";
+} from "../domain/agents/agent-shapes";
 
 export {
   VoiceRecordingRuntime,
