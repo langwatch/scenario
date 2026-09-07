@@ -10,11 +10,13 @@ import scenario
 from scenario.voice import (
     AudioChunk,
     ElevenLabsSTTProvider,
+    OpenAISTTProvider,
     STTProvider,
     get_stt_provider,
     set_stt_provider,
     transcribe,
 )
+from scenario.voice.config import SttConfig, resolve_stt_provider
 
 
 class FakeSTT(STTProvider):
@@ -172,6 +174,12 @@ def test_elevenlabs_stt_provider_repr_redacts_key():
     assert "***" in repr(provider)
 
 
+def test_elevenlabs_stt_provider_keeps_its_positional_api_key() -> None:
+    """Adding descriptor models must not reinterpret existing positional keys."""
+    provider = ElevenLabsSTTProvider("positional-key")
+    assert provider.api_key == "positional-key"
+
+
 @pytest.mark.asyncio
 async def test_elevenlabs_stt_provider_transcribe():
     """POST to the ElevenLabs STT endpoint; return the ``text`` field."""
@@ -196,3 +204,43 @@ async def test_elevenlabs_stt_provider_reads_env_key(monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "env_key")
     provider = ElevenLabsSTTProvider()
     assert provider.api_key == "env_key"
+
+
+def test_stt_descriptor_preserves_provider_configuration() -> None:
+    """The descriptor keeps credentials, language, and model through resolution."""
+    openai = resolve_stt_provider(
+        SttConfig(
+            model="openai/gpt-4o-mini-transcribe", api_key="stt-key", language="fr"
+        )
+    )
+    elevenlabs = resolve_stt_provider(
+        SttConfig(model="elevenlabs/scribe_v2", api_key="eleven-key")
+    )
+
+    assert isinstance(openai, OpenAISTTProvider)
+    assert (openai.model, openai.api_key, openai.language) == (
+        "gpt-4o-mini-transcribe",
+        "stt-key",
+        "fr",
+    )
+    assert isinstance(elevenlabs, ElevenLabsSTTProvider)
+    assert (elevenlabs.model, elevenlabs.api_key) == ("scribe_v2", "eleven-key")
+
+
+@pytest.mark.asyncio
+async def test_openai_stt_provider_uses_its_descriptor_credentials(monkeypatch) -> None:
+    """A descriptor-only key reaches the STT client without an environment key."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    client = MagicMock()
+    client.audio.transcriptions.create = AsyncMock(
+        return_value=MagicMock(text="bonjour")
+    )
+    provider = OpenAISTTProvider(api_key="stt-key", language="fr")
+
+    with patch("openai.AsyncOpenAI", return_value=client) as client_factory:
+        assert (
+            await provider.transcribe(AudioChunk(data=b"\x00\x00" * 1200)) == "bonjour"
+        )
+
+    client_factory.assert_called_once_with(api_key="stt-key")
+    assert client.audio.transcriptions.create.await_args.kwargs["language"] == "fr"

@@ -22,10 +22,11 @@ class SttConfig(BaseModel):
 
 
 class TtsConfig(BaseModel):
-    """Per-run TTS routing for the user simulator."""
+    """Per-run TTS routing and credentials for the user simulator."""
+
+    model_config = ConfigDict(extra="forbid")
 
     voice: str
-    format: Optional[str] = None
     api_key: Optional[str] = None
 
 
@@ -52,9 +53,18 @@ def resolve_stt_provider(config: SttConfig) -> STTProvider:
     provider, _, model = config.model.partition("/")
     provider = provider.lower()
     if provider == "openai":
-        return OpenAISTTProvider(model or OPENAI_STT_MODEL)
+        return OpenAISTTProvider(
+            model or OPENAI_STT_MODEL,
+            api_key=config.api_key,
+            language=config.language,
+        )
     if provider == "elevenlabs":
-        return ElevenLabsSTTProvider(api_key=config.api_key)
+        if config.language:
+            raise ValueError("ElevenLabs STT does not support the language descriptor.")
+        return ElevenLabsSTTProvider(
+            api_key=config.api_key,
+            model=model or None,
+        )
     raise ValueError(
         f"Unknown STT provider {provider!r}. Pass an STTProvider instance or "
         "use an openai/... or elevenlabs/... descriptor."
