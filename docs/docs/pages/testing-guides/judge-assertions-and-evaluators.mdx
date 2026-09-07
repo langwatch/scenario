@@ -21,7 +21,7 @@ An evaluator is a LangWatch evaluator attached to the run: a built-in type such 
 
 The scenario below tests an analyst agent that answers with a `run_sql` tool call and a summary. One criterion checks the answer as the user reads it, one assertion checks the SQL at the step the agent ran it, and two evaluators run over the final state: `langevals/exact_match` between the last agent message and the `expected_answer` field, required, and `langevals/llm_boolean` over the SQL of the last `run_sql` call, as a report only.
 
-`langevals/exact_match` needs no mapping because its inputs are inferred from their names: `output` reads the last agent message and `expected_output` reads the one field named with `expected`. `langevals/llm_boolean` needs one, because a tool call is never inferred. The lambda and `scenario.trace.tool_calls("run_sql").last.input` are the same mapping.
+`langevals/exact_match` needs no mapping because its inputs are inferred from their names: `output` reads the last agent message and `expected_output` reads the one field whose name carries one of `expected`, `golden`, `reference`, `answer`, `sql`, `query`, `label` or `target`, so `expected_answer` matches and `table_schema` does not. `langevals/llm_boolean` needs one, because a tool call is never inferred. The lambda and `scenario.trace.tool_calls("run_sql").last.input` are the same mapping.
 
 The evaluators run through the LangWatch API, so the test needs `LANGWATCH_API_KEY` (and `LANGWATCH_ENDPOINT` for a self-hosted platform) next to `OPENAI_API_KEY` for the user simulator and the judge.
 

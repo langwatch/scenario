@@ -577,7 +577,7 @@ export default defineConfig({
           link: "/testing-guides/tool-calling",
         },
         {
-          text: "Judge Criteria, Assertions and Evaluators",
+          text: "Judge Criteria, Script Assertions and Evaluators",
           link: "/testing-guides/judge-assertions-and-evaluators",
         },
         {
