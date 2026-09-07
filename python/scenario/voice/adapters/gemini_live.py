@@ -33,6 +33,7 @@ Resampling uses numpy linear interpolation — scipy is not required.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from typing import Any, ClassVar, Optional
@@ -40,13 +41,23 @@ from typing import Any, ClassVar, Optional
 from opentelemetry import trace as _otel_trace
 
 from ...config.voice_models import GEMINI_LIVE_MODEL
-from ..adapter import VoiceAgentAdapter
+from ..adapter import AgentStreamEndedError, VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 from .._telemetry import set_span_attributes
 
 
 logger = logging.getLogger("scenario.voice.gemini_live")
+
+
+class GeminiLiveRecvError(AgentStreamEndedError):
+    """recv_audio could get no more audio because the background session task
+    ended — a crash in ``_session_lifetime`` (chained via ``__cause__``), a
+    clean return, or a cancellation. Named so a dead session surfaces an
+    attributable error (issue #718) instead of starving the consumer parked
+    on ``session.receive()``'s cached iterator — the ``PipecatRecvError``
+    (#498/#692) precedent for a different transport.
+    """
 
 # Gemini Live ingests PCM16 at 16kHz.
 GEMINI_INPUT_RATE = 16000
@@ -405,10 +416,38 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             # iterator) and a real mid-reply interrupt (audio arrived
             # earlier on this iterator).
             saw_interrupted = False
+            # Captured ONCE, before any parking: this is what lets a wake-up
+            # still work even after disconnect() nulls ``self._session_task``
+            # (:298) while we're mid-race — we hold the actual task object,
+            # not a re-readable attribute (#718 AC4b).
+            session_task = self._session_task
             while True:
+                assert self._recv_iter is not None
+                anext_task: "asyncio.Task[Any]" = asyncio.ensure_future(
+                    self._recv_iter.__anext__()  # type: ignore[union-attr]
+                )
                 try:
-                    assert self._recv_iter is not None
-                    message = await self._recv_iter.__anext__()  # type: ignore[union-attr]
+                    if session_task is not None:
+                        # Race the parked __anext__() against the session task
+                        # itself — task-done is the trigger (not
+                        # _session_error, which a cancellation or clean return
+                        # never sets; see module docstring point 3). This is
+                        # what wakes a consumer ALREADY SUSPENDED inside
+                        # __anext__() when the session dies underneath it,
+                        # not just one that checks on entry (#718 AC3).
+                        done, _pending = await asyncio.wait(
+                            {anext_task, session_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if anext_task not in done:
+                            anext_task.cancel()
+                            with contextlib.suppress(BaseException):
+                                await anext_task
+                            raise GeminiLiveRecvError(
+                                "GeminiLiveAgentAdapter: session task ended; "
+                                "no further audio will arrive"
+                            ) from self._session_error
+                    message = await anext_task
                 except StopAsyncIteration:
                     # The previous turn ended (turn_complete already
                     # consumed). Surface end-of-turn to the drain loop
