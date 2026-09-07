@@ -12,6 +12,7 @@ Public surface:
     - FirstChunkTimeoutError — attributable first-chunk recv timeout
     - AgentStreamEndedError — recv_audio's transport terminated (crash/clean close)
     - PipecatRecvError — Pipecat recv-loop ended (attributable; subclass of above)
+    - GeminiLiveRecvError — Gemini Live session task ended (attributable; subclass of above)
     - VoiceRecording / VoiceEvent / LatencyMetrics — result-side types
     - AudioSegment — per-speaker slice of the recording
     - synthesize / STTProvider / set_stt_provider / get_stt_provider —
@@ -30,6 +31,7 @@ from .adapters import (
     ElevenLabsAgentAdapter,
     ElevenLabsVoiceAgent,
     GeminiLiveAgentAdapter,
+    GeminiLiveRecvError,
     LiveKitAgentAdapter,
     OpenAIRealtimeAgentAdapter,
     PipecatAgentAdapter,
@@ -70,6 +72,7 @@ __all__ = [
     "ElevenLabsVoiceAgent",
     "FirstChunkTimeoutError",
     "GeminiLiveAgentAdapter",
+    "GeminiLiveRecvError",
     "InterruptionConfig",
     "LatencyMetrics",
     "LiveKitAgentAdapter",
