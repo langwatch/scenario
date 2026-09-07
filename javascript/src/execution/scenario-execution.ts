@@ -1875,10 +1875,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // agentSpeakingEvent fires (in fireUserInterrupt) — not before TTS.
     // Placing the sleep before TTS causes burst-TTS bots (pipecat stub) to
     // drain to entry.done=true and silently skip the barge-in window.
+    // Always write what this turn sampled. A conditional write would leave a
+    // previous turn's value in place whenever the fresh sample is zero, and
+    // the barge-in would then run on a delay it never sampled.
     const delaySeconds = config.sampleDelay(this.interruptRng);
-    if (delaySeconds > 0) {
-      this.interruptBargeInDelayMs = Math.floor(delaySeconds * 1000);
-    }
+    this.interruptBargeInDelayMs =
+      delaySeconds > 0 ? Math.floor(delaySeconds * 1000) : undefined;
 
     const phrase = config.pickRandomPhrase(this.interruptRng);
     let voicedMessage: ModelMessage | null = null;
@@ -1896,7 +1898,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     }
 
     if (entry.done) {
-      // Bot finished before TTS completed — nothing to interrupt.
+      // Bot finished before TTS completed, so there is nothing to interrupt.
+      // Clear the sampled delay for the same reason the TTS failure does: no
+      // barge-in fires here, so nothing downstream consumes it.
+      this.interruptBargeInDelayMs = undefined;
       return true;
     }
     await this.fireUserInterrupt(voicedMessage);

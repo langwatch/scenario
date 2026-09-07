@@ -335,21 +335,6 @@ describe("prepareAndFireBargeIn (substep 4)", () => {
     expect(fired).toEqual([voiced]);
   });
 
-  it("leaves the barge-in field unset when the sampled delay is zero", async () => {
-    const { exec, inner } = makeBargeInExec();
-    exec.interruptOverrides = { rng: () => 0 };
-    const config = new InterruptionConfig({
-      strategy: "random_phrase",
-      delayRange: [0, 0],
-    });
-
-    await inner.prepareAndFireBargeIn(config, simThat({ voiced }), liveEntry());
-
-    // Writing 0 would be indistinguishable from "no delay sampled" at the
-    // consumer, which reads the field with `??`.
-    expect(inner.interruptBargeInDelayMs).toBeUndefined();
-  });
-
   it("skips the barge-in and clears the sampled delay when TTS fails", async () => {
     const { exec, inner, fired } = makeBargeInExec();
     exec.interruptOverrides = { rng: () => 0 };
@@ -402,6 +387,57 @@ describe("prepareAndFireBargeIn (substep 4)", () => {
 
     await expect(pending).resolves.toBe(true);
     expect(fired).toEqual([]);
+  });
+
+  /**
+   * The delay is sampled before the TTS attempt, so every exit that does not
+   * fire a barge-in owns clearing it. `fireUserInterrupt` consumes it on the
+   * path that does fire. The two skip paths have to do it themselves, and a
+   * later call has to overwrite it even when the fresh sample is zero, or the
+   * next barge-in silently runs on a delay it never sampled.
+   *
+   * A fresh executor cannot show any of that: its field starts `undefined`, so
+   * "never set" and "cleared" look identical. These seed a real stale value
+   * through the production path first, then assert the second call.
+   */
+  describe("when a prior call left a sampled delay behind", () => {
+    /** Drives the entry-done bail so the field is set by production code. */
+    async function seedStaleDelay(inner: BargeInInternals) {
+      const doneEntry = { promise: Promise.resolve(), done: true, error: null };
+      await inner.prepareAndFireBargeIn(
+        new InterruptionConfig({ strategy: "random_phrase", delayRange: [2, 2] }),
+        simThat({ voiced }),
+        doneEntry,
+      );
+      return inner.interruptBargeInDelayMs;
+    }
+
+    it("clears the delay on the bot-finished bail, as the TTS bail does", async () => {
+      const { exec, inner } = makeBargeInExec();
+      exec.interruptOverrides = { rng: () => 0 };
+
+      const afterBail = await seedStaleDelay(inner);
+
+      // Nothing fired, so nothing consumed it. Leaving it set hands the next
+      // barge-in a delay belonging to a turn that never interrupted.
+      expect(afterBail).toBeUndefined();
+    });
+
+    it("overwrites a stale delay when the next sample is zero", async () => {
+      const { exec, inner } = makeBargeInExec();
+      exec.interruptOverrides = { rng: () => 0 };
+      inner.interruptBargeInDelayMs = 2000;
+
+      await inner.prepareAndFireBargeIn(
+        new InterruptionConfig({ strategy: "random_phrase", delayRange: [0, 0] }),
+        simThat({ voiced }),
+        liveEntry(),
+      );
+
+      // A zero sample means this turn wants no delay. Skipping the write keeps
+      // the previous turn's value instead, which is not what was sampled.
+      expect(inner.interruptBargeInDelayMs).toBeUndefined();
+    });
   });
 
   it("records the voiced turn on the conversation when the barge-in fires", async () => {
