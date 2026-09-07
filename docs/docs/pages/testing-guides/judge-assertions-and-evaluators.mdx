@@ -233,7 +233,7 @@ describe("evaluators on scenarios", () => {
 
 The three checks decide in script order, then the evaluators, and each one writes to the same result.
 
-The script assertions run first, at their position in the script. `check_sql_was_run` runs right after the agent turn, before the judge is asked, so a wrong SQL ends the run at that step: `result.success` is false, `result.reasoning` is `Scenario failed with error: <message>`, the assertion message joins `result.failed_criteria` (`result.unmetCriteria` in TypeScript), and the test receives the assertion error. The evaluators do not run, because the run has no verdict.
+The script assertions run first. `check_sql_was_run` runs after the agent turn, before the judge is asked, so a wrong SQL ends the run at that step and `scenario.run` raises the assertion error (rejects in TypeScript): the test fails with it and never gets a result object. LangWatch records the run with success false, the reasoning `Scenario failed with error: <message>` and the assertion message among the failed criteria. The evaluators do not run, because the run has no verdict.
 
 In TypeScript, `expect` throws an `AssertionError`, which is what ends the run this way; any other thrown error also stops the run and reaches the test as is.
 
