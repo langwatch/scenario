@@ -58,6 +58,7 @@
     "@ag-ui/core": "^0.0.58",
     "@ai-sdk/openai": "^3.0.26",
     "@openai/agents": "^0.16.0",
+    "@opencode-ai/sdk": "1.17.9",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/context-async-hooks": "2.10.0",
     "@opentelemetry/sdk-node": "0.221.0",
