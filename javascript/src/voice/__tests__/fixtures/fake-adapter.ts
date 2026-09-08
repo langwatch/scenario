@@ -16,12 +16,12 @@
  *   - `sentAudio` / `responses` — visible audio queues for assertions.
  */
 import { AgentRole } from "../../../domain/agents";
+import { VoiceAgentAdapter } from "../../adapter";
+import { AudioChunk, silentChunk } from "../../audio-chunk";
 import {
   AdapterCapabilities,
   type AdapterCapabilitiesInit,
 } from "../../capabilities";
-import { AudioChunk, silentChunk } from "../../audio-chunk";
-import { VoiceAgentAdapter } from "../../adapter";
 
 export interface FakeAdapterOptions {
   /** Override the default capability matrix (defaults to nativeVad=true). */

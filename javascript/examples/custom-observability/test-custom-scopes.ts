@@ -4,12 +4,6 @@
  * Demonstrates the advanced use case where a user wants to include their own
  * instrumented code (e.g., database calls) alongside scenario spans.
  */
-import { trace } from "@opentelemetry/api";
-import {
-  SimpleSpanProcessor,
-  InMemorySpanExporter,
-} from "@opentelemetry/sdk-trace-base";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import {
   run,
   AgentRole,
@@ -19,19 +13,13 @@ import {
   setupScenarioTracing,
   withCustomScopes,
 } from "@langwatch/scenario";
+import { trace } from "@opentelemetry/api";
+import {
+  SimpleSpanProcessor,
+  InMemorySpanExporter,
+} from "@opentelemetry/sdk-trace-base";
+import { getScopeName } from "./scope-name";
 
-/**
- * Returns the instrumentation scope name for a span, handling both
- * OTel SDK v1 (instrumentationLibrary) and v2 (instrumentationScope).
- */
-function getScopeName(span: ReadableSpan): string {
-  const s = span as any;
-  return (
-    s.instrumentationScope?.name ??
-    s.instrumentationLibrary?.name ??
-    "unknown"
-  );
-}
 
 // --- Step 1: Set up span collection ---
 const memoryExporter = new InMemorySpanExporter();
@@ -40,7 +28,7 @@ const collectorProcessor = new SimpleSpanProcessor(memoryExporter);
 setupScenarioTracing({
   instrumentations: [],
   spanProcessors: [collectorProcessor],
-  langwatch: "disabled" as any,
+  langwatch: "disabled",
 });
 
 // --- Step 2: Create a "database" tracer under a custom scope ---
@@ -50,7 +38,7 @@ const httpTracer = trace.getTracer("http-server");
 // Simulate a database-backed agent
 const dbAgent = {
   role: AgentRole.AGENT as const,
-  call: async (input: any) => {
+  call: async () => {
     // Simulate a database query (tagged with custom scope)
     return dbTracer.startActiveSpan(
       "db.query SELECT users",
@@ -123,7 +111,8 @@ for (const [scope, scopeSpans] of byScope) {
 // --- Step 6: Show what withCustomScopes would filter ---
 const filters = withCustomScopes("my-app/database");
 console.log("\n--- Filter config for LangWatchTraceExporter ---");
-console.log('withCustomScopes("my-app/database") would include:');
+console.log('withCustomScopes("my-app/database") returns:', filters);
+console.log("which would include:");
 console.log(
   `  @langwatch/scenario spans (${byScope.get("@langwatch/scenario")?.length ?? 0})`
 );

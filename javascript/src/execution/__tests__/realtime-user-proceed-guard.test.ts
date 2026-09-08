@@ -29,12 +29,12 @@ import {
   type AgentInput,
   type AgentReturnTypes,
 } from "../../domain";
-import { ScenarioExecution } from "../scenario-execution";
-import { user, agent, proceed } from "../../script";
 import { USER_TURN_NO_AUDIO_FOR_VOICE_AUT } from "../../domain/agents/agent-shapes";
+import { user, agent, proceed } from "../../script";
+import { FakeVoiceAdapter } from "../../voice/__tests__/fixtures/fake-adapter";
 import { AudioChunk } from "../../voice/audio-chunk";
 import { createAudioMessage, messageHasAudio } from "../../voice/messages";
-import { FakeVoiceAdapter } from "../../voice/__tests__/fixtures/fake-adapter";
+import { ScenarioExecution } from "../scenario-execution";
 
 /** Non-silent PCM16 audio user turn (200 bytes). */
 function audioUserTurn(transcript: string): AgentReturnTypes {

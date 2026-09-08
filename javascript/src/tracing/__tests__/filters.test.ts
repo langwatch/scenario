@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { LangWatchTraceExporter } from "langwatch/observability";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { LangWatchTraceExporter } from "langwatch/observability";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { scenarioOnly, withCustomScopes, type TraceFilter } from "../filters";
 
 /**

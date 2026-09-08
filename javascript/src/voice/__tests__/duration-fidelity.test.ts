@@ -35,8 +35,8 @@ import {
   type AgentReturnTypes,
   UserSimulatorAgentAdapter,
 } from "../../domain";
-import { agent, judge, user } from "../../script";
 import { ScenarioExecution } from "../../execution/scenario-execution";
+import { agent, judge, user } from "../../script";
 import { AudioChunk, PCM16_SAMPLE_RATE, PCM16_SAMPLE_WIDTH_BYTES } from "../audio-chunk";
 import { createAudioMessage } from "../messages";
 import { VoiceRecordingRuntime } from "../recording.runtime";

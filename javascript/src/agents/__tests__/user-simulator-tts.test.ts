@@ -13,6 +13,7 @@
 
 import { describe, it, expect, afterEach, vi } from "vitest";
 
+import type { AgentInput } from "../../domain";
 import { AudioChunk } from "../../voice/audio-chunk";
 import { extractAudio, messageHasAudio } from "../../voice/messages";
 import {
@@ -20,7 +21,6 @@ import {
   registerTtsProvider,
 } from "../../voice/tts";
 import { userSimulatorAgent, type UserSimulatorAgentConfig } from "../user-simulator-agent";
-import type { AgentInput } from "../../domain";
 
 vi.mock("../../config", () => ({
   getProjectConfig: vi.fn().mockResolvedValue({
