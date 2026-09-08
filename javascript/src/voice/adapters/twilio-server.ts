@@ -33,6 +33,7 @@ import {
   mulaw8kToPcm16_24k,
   parseMediaStreamFrame,
   redactE164,
+  streamWsUrl,
   verifyTwilioSignature,
 } from "./twilio-shared";
 
@@ -230,11 +231,7 @@ export class TwilioWebhookServer {
       res.end("publicBaseUrl is not set on the adapter");
       return;
     }
-    const wsUrl =
-      adapter.publicBaseUrl
-        .replace(/^https:/, "wss:")
-        .replace(/^http:/, "ws:")
-        .replace(/\/$/, "") + "/twilio/stream";
+    const wsUrl = streamWsUrl(adapter.publicBaseUrl);
     const twiml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<Response><Connect><Stream url="${escapeXmlAttr(wsUrl)}"/></Connect></Response>`;

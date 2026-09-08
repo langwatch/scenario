@@ -220,6 +220,21 @@ def build_mark_frame(stream_sid: str, name: str) -> str:
     )
 
 
+def stream_ws_url(public_base_url: str) -> str:
+    """Derive the Media Streams WebSocket URL from the adapter's public base URL.
+
+    ``https://`` → ``wss://`` (``http://`` → ``ws://``), trailing slash
+    stripped, ``/twilio/stream`` appended. Single source of truth for the
+    string-munging: both the inbound webhook (``_twilio_server.py``) and the
+    A-leg origination TwiML (``twilio.place_call``) route through here.
+    """
+    return (
+        public_base_url.replace("https://", "wss://").replace("http://", "ws://")
+        .rstrip("/")
+        + "/twilio/stream"
+    )
+
+
 # ---------------------------------------------------------------- REST helpers
 
 

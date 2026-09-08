@@ -31,9 +31,11 @@ import {
   TwilioRESTHelper,
   buildClearFrame,
   buildMediaFrame,
+  escapeXmlAttr,
   iterMulawFrames,
   pcm16_24kToMulaw8k,
   redactE164,
+  streamWsUrl,
   validateE164,
 } from "./twilio-shared";
 
@@ -48,6 +50,67 @@ export type TwilioStreamEndedReason = "stop" | "close" | "error" | "none";
 const PLACE_CALL_A_LEG_SAY_TEXT =
   "Thank you for calling. " +
   "I will hold the line while you complete your scenario.";
+
+/** Effective stream-attach mode resolved from `placeCall`'s two parameters. */
+type StreamAttachMode = "a-leg" | "b-leg" | "originator-only";
+
+/**
+ * Resolve the effective `placeCall` stream-attach mode.
+ *
+ * `attachStream` (typed) supersedes the legacy `attachStreamToSelf` bool. If
+ * `attachStream` is given, it wins; if the bool is ALSO explicitly given and
+ * disagrees ("a-leg" with `true`, or "b-leg" with `false`), that's a caller
+ * error. With `attachStream` unset: `false` selects the originator-only third
+ * mode (which `attachStream` cannot express), `true`/unset selects "b-leg".
+ */
+function resolveStreamMode(
+  attachStream: "a-leg" | "b-leg" | undefined,
+  attachStreamToSelf: boolean | undefined,
+): StreamAttachMode {
+  if (attachStream !== undefined) {
+    if (
+      attachStreamToSelf !== undefined &&
+      ((attachStream === "a-leg" && attachStreamToSelf === true) ||
+        (attachStream === "b-leg" && attachStreamToSelf === false))
+    ) {
+      throw new Error(
+        `placeCall: attachStream=${JSON.stringify(attachStream)} conflicts with ` +
+          `attachStreamToSelf=${JSON.stringify(attachStreamToSelf)}; pass only one.`,
+      );
+    }
+    return attachStream;
+  }
+  if (attachStreamToSelf === false) return "originator-only";
+  return "b-leg";
+}
+
+/**
+ * Build inline `<Connect><Stream>` origination TwiML for a-leg mode.
+ *
+ * `streamParameters` renders `<Parameter name=.. value=../>` children inside
+ * `<Stream>`; an empty record renders the self-closing `<Stream url=".."/>`
+ * form byte-identically to the inbound webhook's TwiML.
+ */
+function buildConnectStreamTwiml(
+  wsUrl: string,
+  streamParameters: Record<string, string>,
+): string {
+  const paramChildren = Object.entries(streamParameters)
+    .map(
+      ([name, value]) =>
+        `<Parameter name="${escapeXmlAttr(name)}" value="${escapeXmlAttr(value)}"/>`,
+    )
+    .join("");
+  const streamEl = paramChildren
+    ? `<Stream url="${escapeXmlAttr(wsUrl)}">${paramChildren}</Stream>`
+    : `<Stream url="${escapeXmlAttr(wsUrl)}"/>`;
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<Response>` +
+    `<Connect>${streamEl}</Connect>` +
+    `</Response>`
+  );
+}
 
 export interface TwilioAgentAdapterOptions {
   accountSid: string;
@@ -301,7 +364,18 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   async placeCall(args: {
     to: string;
     timeoutMs?: number;
+    /**
+     * Legacy stream-attach toggle. Superseded by `attachStream`: `true`/unset →
+     * "b-leg", `false` → originator-only. Passing both with disagreeing intent
+     * throws.
+     */
     attachStreamToSelf?: boolean;
+    /**
+     * Stream-attach mode. "b-leg" (default) rewrites the callee's voice_url —
+     * owned numbers only. "a-leg" originates with inline `<Connect><Stream>` so
+     * the stream rides our own leg and `to` can be any external number.
+     */
+    attachStream?: "a-leg" | "b-leg";
   }): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
@@ -312,7 +386,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._enterMode("call");
     validateE164(args.to);
 
-    const attachStreamToSelf = args.attachStreamToSelf ?? true;
+    // Resolve the effective stream-attach mode BEFORE any REST call so a
+    // conflicting-parameter caller error surfaces before we dial.
+    const mode = resolveStreamMode(args.attachStream, args.attachStreamToSelf);
     const timeoutMs = args.timeoutMs ?? 120_000;
 
     // NEW `voice.adapter.dial` span (#775 Tier 2a): self-instrumented, since
@@ -329,7 +405,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         "voice.twilio.from": redactE164(this.phoneNumber),
       },
       async (span) => {
-        if (attachStreamToSelf) {
+        if (mode === "b-leg") {
           this._calleePhoneNumberSid = await rest.resolvePhoneNumberSid(args.to);
           this._priorCalleeVoiceUrl =
             (await rest.readVoiceUrl(this._calleePhoneNumberSid)) ?? undefined;
@@ -337,20 +413,34 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           await rest.writeVoiceUrl(this._calleePhoneNumberSid, webhookUrl);
         }
 
-        const inlineALegTwiml =
-          `<?xml version="1.0" encoding="UTF-8"?>` +
-          `<Response>` +
-          `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
-          `<Pause length="120"/>` +
-          `</Response>`;
+        // a-leg: the Media Stream rides OUR own leg via inline
+        // <Connect><Stream>, so `to` can be any external number and we touch
+        // nothing on the callee. Same TwiML shape the inbound webhook returns
+        // (twilio-server.ts), now on origination.
+        // Seam (Slice 2): `streamParameters` renders <Parameter> children inside
+        // <Stream>; empty today, a per-call nonce lands here.
+        // Other modes: play a short deterministic <Say> anchor (Whisper
+        // hallucinates on bare <Pause> silence, #465), then hold the bridge open
+        // while B's webhook attaches the Media Stream.
+        const originationTwiml =
+          mode === "a-leg"
+            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl), {})
+            : `<?xml version="1.0" encoding="UTF-8"?>` +
+              `<Response>` +
+              `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
+              `<Pause length="120"/>` +
+              `</Response>`;
         this._callSid = await rest.placeCall({
           to: args.to,
           from: this.phoneNumber,
-          twiml: inlineALegTwiml,
+          twiml: originationTwiml,
         });
         setSpanAttributes(span, { "voice.twilio.call_sid": this._callSid });
 
-        if (attachStreamToSelf) {
+        if (mode !== "originator-only") {
+          // Wait for the media stream to reach us — via the callee's rewritten
+          // voice_url (b-leg) or our own <Connect><Stream> leg (a-leg). In
+          // originator-only mode no stream comes to us; the callee owns it.
           const dialWaitStarted = performance.now(); // monotonic
           try {
             await this._streamConnected.promiseWithTimeout(timeoutMs);

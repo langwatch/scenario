@@ -37,6 +37,7 @@ from ._twilio_shared import (
     _redact_e164,
     mulaw8k_to_pcm16_24k,
     parse_media_stream_frame,
+    stream_ws_url,
 )
 
 if TYPE_CHECKING:
@@ -184,11 +185,7 @@ class TwilioWebhookServer:
                 )
 
             assert adapter.public_base_url is not None
-            ws_url = (
-                adapter.public_base_url.replace("https://", "wss://").replace("http://", "ws://")
-                .rstrip("/")
-                + "/twilio/stream"
-            )
+            ws_url = stream_ws_url(adapter.public_base_url)
             twiml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
                 '<Response>'

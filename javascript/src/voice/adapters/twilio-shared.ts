@@ -490,6 +490,23 @@ export function redactE164(number: string | undefined | null): string {
 }
 
 /**
+ * Derive the Media Streams WebSocket URL from the adapter's public base URL.
+ *
+ * `https:` → `wss:` (`http:` → `ws:`), trailing slash stripped,
+ * `/twilio/stream` appended. Single source of truth for the string-munging:
+ * both the inbound webhook ({@link TwilioWebhookServer}) and the A-leg
+ * origination TwiML (`TwilioAgentAdapter.placeCall`) route through here.
+ */
+export function streamWsUrl(publicBaseUrl: string): string {
+  return (
+    publicBaseUrl
+      .replace(/^https:/, "wss:")
+      .replace(/^http:/, "ws:")
+      .replace(/\/$/, "") + "/twilio/stream"
+  );
+}
+
+/**
  * Escape a string for safe interpolation into XML attribute values / element
  * text. Used by the TwiML response builder so the stream URL never breaks out
  * of the `url="..."` attribute.

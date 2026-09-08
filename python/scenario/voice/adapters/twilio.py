@@ -49,6 +49,7 @@ from ._twilio_shared import (
     build_media_frame,
     iter_mulaw_frames,
     pcm16_24k_to_mulaw8k,
+    stream_ws_url,
     validate_e164,
 )
 
@@ -64,6 +65,65 @@ PLACE_CALL_A_LEG_SAY_TEXT = (
     "Thank you for calling. "
     "I will hold the line while you complete your scenario."
 )
+
+#: Effective stream-attach mode resolved from ``place_call``'s two parameters.
+StreamAttachMode = Literal["a-leg", "b-leg", "originator-only"]
+
+
+def _resolve_stream_mode(
+    attach_stream: Optional[Literal["a-leg", "b-leg"]],
+    attach_stream_to_self: Optional[bool],
+) -> StreamAttachMode:
+    """Resolve the effective ``place_call`` stream-attach mode.
+
+    ``attach_stream`` (typed) supersedes the legacy ``attach_stream_to_self``
+    bool. If ``attach_stream`` is given, it wins; if the bool is ALSO explicitly
+    given and disagrees ("a-leg" with ``True``, or "b-leg" with ``False``),
+    that's a caller error. With ``attach_stream`` unset: ``False`` selects the
+    originator-only third mode (which ``attach_stream`` cannot express),
+    ``True``/unset selects today's "b-leg".
+    """
+    if attach_stream is not None:
+        if attach_stream_to_self is not None and (
+            (attach_stream == "a-leg" and attach_stream_to_self is True)
+            or (attach_stream == "b-leg" and attach_stream_to_self is False)
+        ):
+            raise ValueError(
+                f"place_call: attach_stream={attach_stream!r} conflicts with "
+                f"attach_stream_to_self={attach_stream_to_self!r}; pass only one."
+            )
+        return attach_stream
+    if attach_stream_to_self is False:
+        return "originator-only"
+    return "b-leg"
+
+
+def _build_connect_stream_twiml(
+    ws_url: str,
+    *,
+    stream_parameters: dict[str, str],
+) -> str:
+    """Build inline ``<Connect><Stream>`` origination TwiML for a-leg mode.
+
+    ``stream_parameters`` renders ``<Parameter name=.. value=../>`` children
+    inside ``<Stream>``; an empty dict renders the self-closing
+    ``<Stream url=".."/>`` form byte-identically to the inbound webhook's TwiML.
+    """
+    param_children = "".join(
+        f'<Parameter name="{name}" value="{value}"/>'
+        for name, value in stream_parameters.items()
+    )
+    stream_el = (
+        f'<Stream url="{ws_url}">{param_children}</Stream>'
+        if param_children
+        else f'<Stream url="{ws_url}"/>'
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        f"<Connect>{stream_el}</Connect>"
+        "</Response>"
+    )
 
 
 class TwilioAgentAdapter(VoiceAgentAdapter):
@@ -376,7 +436,8 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         to: str,
         *,
         timeout: float = 120.0,
-        attach_stream_to_self: bool = True,
+        attach_stream_to_self: Optional[bool] = None,
+        attach_stream: Optional[Literal["a-leg", "b-leg"]] = None,
     ) -> None:
         """
         Originate an outbound call from this adapter's Twilio number to ``to``.
@@ -408,11 +469,24 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         reads inbound frames off the WS (whatever the bridge mixes from
         both legs).
 
-        Limitation: ``to`` MUST be a phone number on this same Twilio
-        account. Calling an external PSTN endpoint (a real cell phone)
-        requires a different topology (``<Start><Stream>`` + ``<Dial>``)
-        which we don't implement here because the inline TwiML route on
-        the A-leg can't capture B's audio when B is external.
+        Limitation of the default (**b-leg**) mode: ``to`` MUST be a phone
+        number on this same Twilio account. Calling an external PSTN endpoint
+        (a real cell phone) is instead served by **a-leg** mode.
+
+        Stream-attach mode is selected by ``attach_stream``:
+
+        - ``"b-leg"`` — today's default: rewrite the callee's ``voice_url``,
+          hold the A-leg open with ``<Say>…<Pause>``, restore on disconnect.
+          Only works for numbers this account owns.
+        - ``"a-leg"`` — originate with inline ``<Connect><Stream>`` so the
+          Media Stream rides OUR own leg. Touches nothing on the callee (no
+          ``resolve_phone_number_sid``/``read_voice_url``/``write_voice_url``),
+          so ``to`` can be any external number.
+
+        The legacy ``attach_stream_to_self`` bool is still honoured but
+        superseded by ``attach_stream``: ``True``/unset → ``"b-leg"``,
+        ``False`` → originator-only (a third mode ``attach_stream`` cannot
+        express). Passing both with disagreeing intent raises ``ValueError``.
 
         Default timeout 120s covers cloudflared cold-start latency.
 
@@ -427,6 +501,12 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._assert_connected()
         self._enter_mode("call")
         validate_e164(to)
+
+        # Resolve the effective stream-attach mode BEFORE any REST call so a
+        # conflicting-parameter caller error surfaces before we dial. `attach_stream`
+        # (typed) supersedes the legacy `attach_stream_to_self` bool; the bool's
+        # third mode (originator-only) is unreachable via `attach_stream` by design.
+        mode = _resolve_stream_mode(attach_stream, attach_stream_to_self)
 
         assert self.public_base_url is not None
         assert self._rest is not None
@@ -446,7 +526,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 "voice.twilio.from": _redact_e164(self.phone_number),
             },
         ) as _dial:
-            if attach_stream_to_self:
+            if mode == "b-leg":
                 # Resolve B-leg's number SID and snapshot+rewrite its voice_url so
                 # B's leg attaches its Media Stream to our harness webhook. We own
                 # this number (same Twilio account); disconnect() will restore.
@@ -462,25 +542,39 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     webhook_url,
                 )
 
-            # A-leg TwiML: play a short deterministic <Say> line, then hold
-            # the bridge open. Twilio runs this on the originator side while
-            # B's webhook attaches the Media Stream.
-            #
-            # The <Say> gives the recording a known-good utterance to
-            # transcribe. A bare <Pause> alone produces 120s of line silence
-            # that Whisper has been observed to hallucinate as non-English
-            # text (issue #465 in this PR). The Say is a one-time anchor at
-            # call setup; the Media Stream carries the real bidirectional
-            # conversation that follows.
-            inline_a_leg_twiml = (
-                '<?xml version="1.0" encoding="UTF-8"?>'
-                "<Response>"
-                f'<Say voice="Polly.Joanna">{PLACE_CALL_A_LEG_SAY_TEXT}</Say>'
-                '<Pause length="120"/>'
-                "</Response>"
-            )
+            if mode == "a-leg":
+                # A-leg mode: the Media Stream rides OUR own leg via inline
+                # <Connect><Stream>, so `to` can be any external number and we
+                # touch nothing on the callee. Same TwiML shape the inbound
+                # webhook returns (`_twilio_server.py`), now on origination.
+                #
+                # Seam (Slice 2): `stream_parameters` renders <Parameter> children
+                # inside <Stream>; empty today, a per-call nonce lands here.
+                origination_twiml = _build_connect_stream_twiml(
+                    stream_ws_url(self.public_base_url),
+                    stream_parameters={},
+                )
+            else:
+                # A-leg (originator-side) TwiML for b-leg / originator-only modes:
+                # play a short deterministic <Say> line, then hold the bridge
+                # open. Twilio runs this on the originator side while B's webhook
+                # attaches the Media Stream.
+                #
+                # The <Say> gives the recording a known-good utterance to
+                # transcribe. A bare <Pause> alone produces 120s of line silence
+                # that Whisper has been observed to hallucinate as non-English
+                # text (issue #465 in this PR). The Say is a one-time anchor at
+                # call setup; the Media Stream carries the real bidirectional
+                # conversation that follows.
+                origination_twiml = (
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    "<Response>"
+                    f'<Say voice="Polly.Joanna">{PLACE_CALL_A_LEG_SAY_TEXT}</Say>'
+                    '<Pause length="120"/>'
+                    "</Response>"
+                )
             self._call_sid = self._rest.place_call(
-                to=to, from_=self.phone_number, twiml=inline_a_leg_twiml
+                to=to, from_=self.phone_number, twiml=origination_twiml
             )
             logger.info(
                 "TwilioAgentAdapter: placed call %s from %s to %s",
@@ -490,11 +584,11 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             )
             set_span_attributes(_dial, {"voice.twilio.call_sid": self._call_sid})
 
-            if attach_stream_to_self:
-                # Wait for OUR webhook to fire — only meaningful when we rewrote
-                # the callee's voice_url to point at us. In originator-only mode
-                # (attach_stream_to_self=False), there's no stream coming to us;
-                # the callee has its own harness which owns the stream.
+            if mode != "originator-only":
+                # Wait for the media stream to reach us. In b-leg mode it arrives
+                # via the callee's rewritten voice_url; in a-leg mode it rides our
+                # own <Connect><Stream> leg. In originator-only mode there's no
+                # stream coming to us; the callee has its own harness which owns it.
                 _dial_wait_started = time.monotonic()
                 try:
                     await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
