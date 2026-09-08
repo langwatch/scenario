@@ -27,6 +27,7 @@ import type { ModelMessage } from "ai";
 import { AudioChunk } from "./audio-chunk";
 import { extractAudio } from "./messages";
 import type { STTProvider } from "./stt";
+import { voiceSpan } from "./telemetry";
 
 /** Judge audio knobs (PRD §4.3) — resolved upstream, passed in here. */
 export interface JudgeAudioOptions {
@@ -79,6 +80,8 @@ export interface TranscribeAudioMessagesArgs {
   transcriptCache?: Map<string, string>;
   /** Warning sink — defaults to {@link console.warn}. */
   logWarn?: (message: string) => void;
+  /** Internal telemetry scope. Set by the judge path, omitted by simulator fallback. */
+  telemetryScope?: "judge";
 }
 
 /**
@@ -101,11 +104,11 @@ export interface TranscribeAudioMessagesArgs {
 export async function transcribeAudioMessages(
   args: TranscribeAudioMessagesArgs,
 ): Promise<ModelMessage[]> {
-  const { messages, stt, includeAudio, transcriptCache } = args;
+  const { messages, stt, includeAudio, transcriptCache, telemetryScope } = args;
   const warn = args.logWarn ?? ((m: string) => console.warn(m));
   return Promise.all(
     messages.map((msg) =>
-      transcribeMessage(msg, stt, includeAudio, warn, transcriptCache),
+      transcribeMessage(msg, stt, includeAudio, warn, transcriptCache, telemetryScope),
     ),
   );
 }
@@ -157,6 +160,7 @@ export async function prepareJudgeInput(
     stt: args.stt,
     includeAudio: args.options?.includeAudio ?? false,
     logWarn: args.logWarn,
+    telemetryScope: "judge",
   });
   return { messages };
 }
@@ -190,6 +194,7 @@ async function transcribeMessage(
   includeAudio: boolean,
   warn: (message: string) => void,
   transcriptCache?: Map<string, string>,
+  telemetryScope?: "judge",
 ): Promise<ModelMessage> {
   const content = (msg as { content?: unknown }).content;
   if (!Array.isArray(content)) return msg;
@@ -211,7 +216,38 @@ async function transcribeMessage(
       const chunk = extractAudioChunk(msg);
       if (chunk) {
         try {
-          transcript = (await stt.transcribe(chunk)) || undefined;
+          const transcribe = async (): Promise<string> => stt.transcribe(chunk);
+          if (telemetryScope === "judge") {
+            transcript =
+              (await voiceSpan(
+                "voice.stt.transcribe",
+                {
+                  "voice.stt.scope": telemetryScope,
+                  "voice.stt.speaker": String(
+                    (msg as { role?: unknown }).role ?? "?",
+                  ),
+                  "voice.stt.audio_bytes": chunk.data.length,
+                },
+                async (span) => {
+                  let text: string;
+                  try {
+                    text = await transcribe();
+                  } catch (err) {
+                    // Sanitize BEFORE voiceSpan records the exception. Provider
+                    // SDK errors may include raw response bodies or key fragments.
+                    throw new Error(
+                      `STT provider failed: ${(err as Error)?.constructor?.name ?? "Error"}`,
+                    );
+                  }
+                  if (text) {
+                    span.setAttribute("voice.stt.transcript_chars", text.length);
+                  }
+                  return text;
+                },
+              )) || undefined;
+          } else {
+            transcript = (await transcribe()) || undefined;
+          }
           // Cache whenever STT actually RAN and RETURNED — including an empty
           // result. `""` is the negative sentinel: the reuse branch above turns
           // a cached `""` back into `undefined` (no text part), so remembering

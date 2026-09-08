@@ -764,7 +764,7 @@ class JudgeAgent(AgentAdapter):
         if conversation_has_audio and not self.effective_include_audio(conversation_has_audio):
             recording = self._extract_recording(input)
             if recording is not None:
-                await transcribe_segments(recording)
+                await transcribe_segments(recording, telemetry_scope="judge")
                 working_messages = _enrich_messages_with_transcripts(
                     input.messages, recording
                 )
