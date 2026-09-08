@@ -25,7 +25,7 @@ def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
         # a-leg destinations are deny-by-default (#762 guardrail (c)), so every
         # a-leg test needs the number it dials on the allowlist. Overridden by
         # the allowlist tests themselves.
-        allowed_callees=["+447911123456"],
+        allowed_callees=["+447700900123"],
     )
     kwargs.update(overrides)
     return TwilioAgentAdapter(**kwargs)
@@ -459,7 +459,7 @@ async def test_place_call_a_leg_emits_connect_stream_and_zero_callee_rest(monkey
     try:
         assert a._stream_connected is not None
         a._stream_connected.set()  # a-leg stream still comes to us
-        await a.place_call(to="+447911123456", attach_stream="a-leg")
+        await a.place_call(to="+447700900123", attach_stream="a-leg")
         # Origination carries the inline <Connect><Stream> TwiML.
         assert len(rest.place_call_kwargs) == 1
         twiml = rest.place_call_kwargs[0]["twiml"]
@@ -481,7 +481,7 @@ async def test_place_call_a_leg_twiml_snapshot(monkeypatch):
     try:
         assert a._stream_connected is not None
         a._stream_connected.set()
-        await a.place_call(to="+447911123456", attach_stream="a-leg")
+        await a.place_call(to="+447700900123", attach_stream="a-leg")
         assert a._stream_nonce is not None
         assert rest_instances[0].place_call_kwargs[0][
             "twiml"
@@ -533,7 +533,7 @@ async def test_place_call_a_leg_disconnect_is_noop_on_success(monkeypatch):
     try:
         assert a._stream_connected is not None
         a._stream_connected.set()
-        await a.place_call(to="+447911123456", attach_stream="a-leg")
+        await a.place_call(to="+447700900123", attach_stream="a-leg")
         assert a._callee_phone_number_sid is None
         assert a._prior_callee_voice_url is None
     finally:
@@ -553,7 +553,7 @@ async def test_place_call_a_leg_disconnect_is_noop_on_failure(monkeypatch):
     try:
         # Don't set _stream_connected — a-leg still waits, so this times out.
         with pytest.raises(asyncio.TimeoutError):
-            await a.place_call(to="+447911123456", attach_stream="a-leg", timeout=0.05)
+            await a.place_call(to="+447700900123", attach_stream="a-leg", timeout=0.05)
         assert a._callee_phone_number_sid is None
         assert a._prior_callee_voice_url is None
     finally:
@@ -566,8 +566,8 @@ async def test_place_call_a_leg_disconnect_is_noop_on_failure(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "attach_stream,attach_stream_to_self",
-    [("a-leg", True), ("b-leg", False)],
-    ids=["a-leg-vs-True", "b-leg-vs-False"],
+    [("a-leg", True), ("b-leg", False), ("a-leg", False)],
+    ids=["a-leg-vs-True", "b-leg-vs-False", "a-leg-vs-False"],
 )
 async def test_place_call_conflicting_stream_params_raises(
     monkeypatch, attach_stream, attach_stream_to_self

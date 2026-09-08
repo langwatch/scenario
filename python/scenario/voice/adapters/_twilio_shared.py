@@ -102,10 +102,16 @@ def nonce_matches(expected: str, received: Optional[str]) -> bool:
     A missing/empty ``received`` never matches: the caller enforces on adapter
     state (a-leg mode minted a nonce), not on the frame carrying one, so
     omitting the ``<Parameter>`` is a rejection rather than a bypass.
+
+    Compared as UTF-8 BYTES, not as ``str``: ``compare_digest`` raises
+    ``TypeError`` on a non-ASCII ``str``, so a socket sending ``{"nonce":"é"}``
+    would otherwise turn this auth primitive into an exception that unwinds
+    through the media loop instead of a rejection. Mirrors the JS twin, which
+    has always compared buffers.
     """
     if not received:
         return False
-    return secrets.compare_digest(expected, received)
+    return secrets.compare_digest(expected.encode("utf-8"), received.encode("utf-8"))
 
 
 def escape_xml_attr(value: str) -> str:
@@ -124,10 +130,16 @@ def escape_xml_attr(value: str) -> str:
 
 
 def validate_e164(phone_number: str) -> None:
-    """Raise ValueError if phone_number is not a valid E.164 number."""
+    """Raise ValueError if phone_number is not a valid E.164 number.
+
+    The message redacts the offending number: ``place_call`` validates BEFORE
+    the allowlist check, so a mistyped external destination would otherwise
+    reach logs in full while every other Twilio failure path redacts. The
+    format hint already tells the caller what shape was expected.
+    """
     if not E164_RE.match(phone_number):
         raise ValueError(
-            f"phone_number {phone_number!r} is not in E.164 format "
+            f"phone_number {_redact_e164(phone_number)} is not in E.164 format "
             f"(expected e.g. '+14155551234', pattern: leading '+' then 7–15 digits)."
         )
 

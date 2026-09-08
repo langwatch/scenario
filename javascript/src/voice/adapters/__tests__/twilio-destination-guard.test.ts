@@ -17,39 +17,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { TwilioAgentAdapter } from "../twilio";
-import { TunnelNotReadyError, TwilioRESTHelper } from "../twilio-shared";
+import { TunnelNotReadyError } from "../twilio-shared";
+// One shared REST spy and adapter factory across every a-leg suite — see
+// `a-leg-harness.ts`.
+import {
+  A_LEG_DESTINATION,
+  makeAdapter,
+  spyRest,
+  type SpyRest,
+} from "./a-leg-harness";
 
 /** The one number the a-leg tests are allowed to dial. */
-const ALLOWED = "+447911123456";
-
-type SpyRest = TwilioRESTHelper & {
-  /** Every callee-touching REST call in order, so tests can assert its absence. */
-  restCallLog: Array<[string, unknown[]]>;
-  placeCallArgs: Array<{ to: string; from: string; twiml: string }>;
-};
-
-function spyRest(): SpyRest {
-  const stub = new TwilioRESTHelper("ACtest", "secret") as SpyRest;
-  stub.restCallLog = [];
-  stub.placeCallArgs = [];
-  stub.resolvePhoneNumberSid = async (number: string) => {
-    stub.restCallLog.push(["resolvePhoneNumberSid", [number]]);
-    return "PN1234567890abcdef";
-  };
-  stub.readVoiceUrl = async (sid: string) => {
-    stub.restCallLog.push(["readVoiceUrl", [sid]]);
-    return null;
-  };
-  stub.writeVoiceUrl = async (sid: string, url: string) => {
-    stub.restCallLog.push(["writeVoiceUrl", [sid, url]]);
-  };
-  stub.placeCall = async (a: { to: string; from: string; twiml: string }) => {
-    stub.placeCallArgs.push(a);
-    return "CA" + "1".repeat(32);
-  };
-  stub.sendDtmfOnCall = async () => undefined;
-  return stub;
-}
+const ALLOWED = A_LEG_DESTINATION;
 
 /**
  * Readiness probe double, recording WHEN it was consulted.
@@ -73,22 +52,6 @@ class FakeTunnel {
     this.originationsAtProbe = this.rest.placeCallArgs.length;
     if (this.error) throw this.error;
   }
-}
-
-function makeAdapter(
-  rest: SpyRest,
-  opts: { allowedCallees?: readonly string[]; tunnel?: FakeTunnel },
-): TwilioAgentAdapter {
-  return new TwilioAgentAdapter({
-    accountSid: "ACtest",
-    authToken: "secret",
-    phoneNumber: "+14155551234",
-    publicBaseUrl: "https://example.test",
-    validateSignature: false,
-    allowedCallees: opts.allowedCallees,
-    tunnelReadiness: opts.tunnel,
-    rest,
-  });
 }
 
 describe("TwilioAgentAdapter a-leg destination guard", () => {
@@ -162,9 +125,9 @@ describe("TwilioAgentAdapter a-leg destination guard", () => {
   });
 
   it.each([
-    ["to-is-prefix", [ALLOWED], "+4479111234"],
-    ["to-is-suffix", [ALLOWED], "+7911123456"],
-    ["entry-is-prefix", ["+4479111234"], ALLOWED],
+    ["to-is-prefix", [ALLOWED], "+4477009001"],
+    ["to-is-suffix", [ALLOWED], "+7700900123"],
+    ["entry-is-prefix", ["+4477009001"], ALLOWED],
   ])(
     "refuses a near-miss destination (%s) — substring is not membership",
     async (_id, allowedCallees, to) => {
@@ -180,7 +143,7 @@ describe("TwilioAgentAdapter a-leg destination guard", () => {
 
   it("rejects a non-E.164 allowedCallees entry at construction", () => {
     expect(() =>
-      makeAdapter(spyRest(), { allowedCallees: ["447911123456"] }),
+      makeAdapter(spyRest(), { allowedCallees: ["447700900123"] }),
     ).toThrow(/E\.164/);
   });
 

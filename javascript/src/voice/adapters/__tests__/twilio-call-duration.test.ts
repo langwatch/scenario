@@ -17,64 +17,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TwilioAgentAdapter } from "../twilio";
-import type { MediaStreamWebSocket } from "../twilio-server";
 import {
   DEFAULT_MAX_CALL_DURATION_SECONDS,
   MAX_CALL_DURATION_CAP_SECONDS,
   TwilioRESTHelper,
 } from "../twilio-shared";
-
-/** The SID `spyRest.placeCall` returns — the call a-leg mode originated. */
-const ORIGINATED_CALL_SID = "CA" + "1".repeat(32);
-
-type SpyRest = TwilioRESTHelper & {
-  placeCallArgs: Array<{
-    to: string;
-    from: string;
-    twiml: string;
-    timeLimitSeconds?: number;
-  }>;
-  /** Call SIDs passed to endCall — the watchdog's REST teardown. */
-  endCalls: string[];
-};
-
-function spyRest(): SpyRest {
-  const stub = new TwilioRESTHelper("ACtest", "secret") as SpyRest;
-  stub.placeCallArgs = [];
-  stub.endCalls = [];
-  stub.resolvePhoneNumberSid = async () => "PN1234567890abcdef";
-  stub.readVoiceUrl = async () => null;
-  stub.writeVoiceUrl = async () => undefined;
-  stub.placeCall = async (a: {
-    to: string;
-    from: string;
-    twiml: string;
-    timeLimitSeconds?: number;
-  }) => {
-    stub.placeCallArgs.push(a);
-    return ORIGINATED_CALL_SID;
-  };
-  stub.endCall = async (callSid: string) => {
-    stub.endCalls.push(callSid);
-  };
-  stub.sendDtmfOnCall = async () => undefined;
-  return stub;
-}
-
-function makeAdapter(rest: SpyRest): TwilioAgentAdapter {
-  return new TwilioAgentAdapter({
-    accountSid: "ACtest",
-    authToken: "secret",
-    phoneNumber: "+14155551234",
-    publicBaseUrl: "https://example.test",
-    validateSignature: false,
-    // a-leg destinations are deny-by-default (#762 guardrail (c)), so every
-    // a-leg test needs the number it dials on the allowlist. The allowlist
-    // tests build their own adapters instead.
-    allowedCallees: ["+447911123456"],
-    rest,
-  });
-}
+// One shared REST spy, adapter factory and socket double across every a-leg
+// suite — see `a-leg-harness.ts`.
+import {
+  A_LEG_DESTINATION,
+  drive,
+  makeAdapter,
+  ORIGINATED_CALL_SID,
+  scriptedSocket,
+  spyRest,
+  startFrame,
+  type SpyRest,
+} from "./a-leg-harness";
 
 /**
  * Stand-in for the adapter's `_awaitMaxDuration` seam: the test decides when
@@ -142,24 +101,6 @@ function endedReason(adapter: TwilioAgentAdapter): string {
   return (adapter as unknown as { _streamEndedReason: string })._streamEndedReason;
 }
 
-/** Media-stream socket double: records that it was closed. */
-function fakeSocket(): MediaStreamWebSocket & { closed: boolean } {
-  return {
-    closed: false,
-    send() {
-      /* no outbound audio in these tests */
-    },
-    receiveText(): Promise<string | null> {
-      return new Promise<string | null>(() => {
-        /* parked: the socket stays open */
-      });
-    },
-    close() {
-      this.closed = true;
-    },
-  };
-}
-
 describe("TwilioAgentAdapter a-leg max call duration", () => {
   let openAdapter: TwilioAgentAdapter | null = null;
 
@@ -184,7 +125,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const rest = spyRest();
     const adapter = await connected(rest);
     await adapter.placeCall({
-      to: "+447911123456",
+      to: A_LEG_DESTINATION,
       attachStream: "a-leg",
       maxCallDurationSeconds: 120,
     });
@@ -194,7 +135,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
   it("defaults the time limit when the caller names none", async () => {
     const rest = spyRest();
     const adapter = await connected(rest);
-    await adapter.placeCall({ to: "+447911123456", attachStream: "a-leg" });
+    await adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" });
     expect(rest.placeCallArgs[0].timeLimitSeconds).toBe(DEFAULT_MAX_CALL_DURATION_SECONDS);
   });
 
@@ -203,7 +144,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const adapter = await connected(rest);
     await expect(
       adapter.placeCall({
-        to: "+447911123456",
+        to: A_LEG_DESTINATION,
         attachStream: "a-leg",
         maxCallDurationSeconds: MAX_CALL_DURATION_CAP_SECONDS + 1,
       }),
@@ -216,7 +157,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const adapter = await connected(rest);
     await expect(
       adapter.placeCall({
-        to: "+447911123456",
+        to: A_LEG_DESTINATION,
         attachStream: "a-leg",
         maxCallDurationSeconds: 0,
       }),
@@ -242,12 +183,12 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     installExpiry(adapter, expiry);
 
     await adapter.placeCall({
-      to: "+447911123456",
+      to: A_LEG_DESTINATION,
       attachStream: "a-leg",
       timeoutMs: 120_000,
       maxCallDurationSeconds: 42,
     });
-    const ws = fakeSocket();
+    const ws = scriptedSocket([]);
     adapter._setStreamWs(ws);
 
     await armed(expiry);
@@ -268,7 +209,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     installExpiry(adapter, expiry);
 
     await adapter.placeCall({
-      to: "+447911123456",
+      to: A_LEG_DESTINATION,
       attachStream: "a-leg",
       maxCallDurationSeconds: 42,
     });
@@ -293,34 +234,57 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     installExpiry(adapter, expiry);
 
     await adapter.placeCall({
-      to: "+447911123456",
+      to: A_LEG_DESTINATION,
       attachStream: "a-leg",
       maxCallDurationSeconds: 42,
     });
     await armed(expiry);
 
     const nonce = adapter._streamNonceForServer;
-    const frames = [
-      JSON.stringify({
-        event: "start",
-        start: {
-          streamSid: "MZ762",
-          callSid: ORIGINATED_CALL_SID,
-          customParameters: { nonce },
-        },
-      }),
-      JSON.stringify({ event: "stop" }),
-    ];
-    await adapter._driveMediaStream({
-      send() {},
-      receiveText: () => Promise.resolve(frames.shift() ?? null),
-      close() {},
-    });
+    await drive(
+      adapter,
+      scriptedSocket([startFrame({ nonce }), JSON.stringify({ event: "stop" })]),
+    );
 
     expiry.release();
     await flush();
     expect(rest.endCalls).toEqual([]);
     expect(endedReason(adapter)).toBe("stop");
+  });
+
+  // --------------------------------------------- stream-connect timeout
+
+  it("an a-leg stream-connect timeout hangs the originated call up", async () => {
+    // The ordinary a-leg failure path must not bill for the whole cap: when the
+    // media stream never connects, the call is ALREADY originated and the
+    // watchdog armed — so without an explicit hangup the caller gets their
+    // timeout while Twilio keeps the PSTN call alive to maxCallDurationSeconds.
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    // Never signal stream-connected — nothing will drive a socket.
+    await expect(
+      adapter.placeCall({
+        to: A_LEG_DESTINATION,
+        attachStream: "a-leg",
+        timeoutMs: 20,
+      }),
+    ).rejects.toThrow();
+    expect(rest.endCalls).toEqual([ORIGINATED_CALL_SID]);
+  });
+
+  it("a b-leg stream-connect timeout hangs nothing up", async () => {
+    // b-leg holds the originator leg with <Pause>, which bounds it already — the
+    // hangup stays a-leg-only so b-leg's failure path is byte-for-byte unchanged.
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    await expect(
+      adapter.placeCall({ to: "+14155557777", timeoutMs: 20 }),
+    ).rejects.toThrow();
+    expect(rest.endCalls).toEqual([]);
   });
 
   it("a second placeCall replaces the first call's timer", async () => {
@@ -329,7 +293,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const first = controlledExpiry();
     installExpiry(adapter, first);
     await adapter.placeCall({
-      to: "+447911123456",
+      to: A_LEG_DESTINATION,
       attachStream: "a-leg",
       maxCallDurationSeconds: 42,
     });
@@ -338,7 +302,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const second = controlledExpiry();
     installExpiry(adapter, second);
     await adapter.placeCall({
-      to: "+447911123456",
+      to: A_LEG_DESTINATION,
       attachStream: "a-leg",
       maxCallDurationSeconds: 42,
     });
@@ -374,7 +338,7 @@ describe("TwilioRESTHelper call-duration wire body", () => {
   it("AC12: placeCall puts the configured TimeLimit in the Calls.create body", async () => {
     const { calls, impl } = recordingFetch();
     await new TwilioRESTHelper("ACtest", "secret", impl).placeCall({
-      to: "+447911123456",
+      to: A_LEG_DESTINATION,
       from: "+14155551234",
       twiml: "<Response/>",
       timeLimitSeconds: 300,

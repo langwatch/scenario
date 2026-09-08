@@ -97,25 +97,21 @@ def _resolve_stream_mode(
     """Resolve the effective ``place_call`` stream-attach mode.
 
     ``attach_stream`` (typed) supersedes the legacy ``attach_stream_to_self``
-    bool. If ``attach_stream`` is given, it wins; if the bool is ALSO explicitly
-    given and disagrees ("a-leg" with ``True``, or "b-leg" with ``False``),
-    that's a caller error. With ``attach_stream`` unset: ``False`` selects the
-    originator-only third mode (which ``attach_stream`` cannot express),
-    ``True``/unset selects today's "b-leg".
+    bool, which names the same choice in a narrower vocabulary: ``True`` is
+    "b-leg", ``False`` is the originator-only third mode ``attach_stream``
+    cannot express. Passing both is only allowed when they AGREE — every other
+    combination is a genuine disagreement about where the stream attaches, so
+    it raises rather than silently discarding the bool.
     """
-    if attach_stream is not None:
-        if attach_stream_to_self is not None and (
-            (attach_stream == "a-leg" and attach_stream_to_self is True)
-            or (attach_stream == "b-leg" and attach_stream_to_self is False)
-        ):
-            raise ValueError(
-                f"place_call: attach_stream={attach_stream!r} conflicts with "
-                f"attach_stream_to_self={attach_stream_to_self!r}; pass only one."
-            )
-        return attach_stream
-    if attach_stream_to_self is False:
-        return "originator-only"
-    return "b-leg"
+    if attach_stream_to_self is None:
+        return attach_stream or "b-leg"
+    implied: StreamAttachMode = "b-leg" if attach_stream_to_self else "originator-only"
+    if attach_stream is not None and attach_stream != implied:
+        raise ValueError(
+            f"place_call: attach_stream={attach_stream!r} conflicts with "
+            f"attach_stream_to_self={attach_stream_to_self!r}; pass only one."
+        )
+    return implied
 
 
 def _build_connect_stream_twiml(
@@ -477,7 +473,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_connected = None
         self._stream_ws = None
         self._stream_nonce = None
-        self._max_duration_task = None
+        self._cancel_max_duration_timer()
         if self._inbound_queue is not None:
             # A recv_audio() task may already be blocked in get() on this queue.
             # Wake that in-flight consumer before dropping our reference; setting
@@ -654,21 +650,28 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     webhook_url,
                 )
 
-            if mode == "a-leg":
-                # A-leg mode: the Media Stream rides OUR own leg via inline
-                # <Connect><Stream>, so `to` can be any external number and we
-                # touch nothing on the callee. Same TwiML shape the inbound
-                # webhook returns (`_twilio_server.py`), now on origination.
-                #
-                # Guardrail (a): the socket is the only inbound signal on this
-                # path, so it must authenticate itself. Mint a per-call CSPRNG
-                # nonce and ship it as a <Parameter> child; Twilio echoes it back
-                # in the `start` frame's customParameters, and the media loop
-                # (`_twilio_server.py`) closes any socket that cannot present it.
-                self._stream_nonce = mint_stream_nonce()
+            # a-leg: the Media Stream rides OUR own leg via inline
+            # <Connect><Stream>, so `to` can be any external number and we
+            # touch nothing on the callee. Same TwiML shape the inbound webhook
+            # returns (`_twilio_server.py`), now on origination.
+            #
+            # Guardrail (a): the socket is the only inbound signal on this path,
+            # so it must authenticate itself. Mint a per-call CSPRNG nonce and
+            # ship it as a <Parameter> child; Twilio echoes it back in the
+            # `start` frame's customParameters, and the media loop
+            # (`_twilio_server.py`) closes any socket that cannot present it.
+            #
+            # Assigned UNCONDITIONALLY (mirrors the JS twin): the field also
+            # ARMS nonce enforcement and the a-leg send_dtmf refusal, so a b-leg
+            # dial that left an earlier a-leg call's nonce standing would gate a
+            # socket whose `start` frame carries no <Parameter> at all — the
+            # b-leg call would never connect.
+            nonce = mint_stream_nonce() if mode == "a-leg" else None
+            self._stream_nonce = nonce
+            if nonce is not None:
                 origination_twiml = _build_connect_stream_twiml(
                     stream_ws_url(self.public_base_url),
-                    stream_parameters={"nonce": self._stream_nonce},
+                    stream_parameters={"nonce": nonce},
                 )
             else:
                 # A-leg (originator-side) TwiML for b-leg / originator-only modes:
@@ -722,6 +725,13 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     _dial.set_attribute(
                         "voice.twilio.dial_outcome", "stream_connect_timeout"
                     )
+                    if mode == "a-leg" and self._call_sid is not None:
+                        # The call is already originated and, under a-leg's
+                        # <Connect>, lives to the duration cap even though
+                        # nothing will ever stream on it. Hang it up before
+                        # handing the caller their TimeoutError — otherwise the
+                        # ordinary connect-failure path bills for the cap.
+                        await self._abandon_originated_call(self._call_sid)
                     raise
                 set_span_attributes(
                     _dial,
@@ -897,6 +907,20 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._max_duration_task = asyncio.create_task(
             self._run_max_duration_timer(seconds, call_sid, to)
         )
+
+    async def _abandon_originated_call(self, call_sid: str) -> None:
+        """Disarm the watchdog and hang up a call nothing will ever stream on.
+
+        Best-effort on the REST hangup: the caller is already raising, and
+        Twilio's own ``TimeLimit`` remains the backstop if this leg of the
+        teardown fails.
+        """
+        self._cancel_max_duration_timer()
+        rest = self._rest
+        if rest is not None:
+            # Blocking REST call off-thread, as send_dtmf does.
+            with suppress(Exception):
+                await asyncio.to_thread(rest.end_call, call_sid)
 
     def _cancel_max_duration_timer(self) -> None:
         """Disarm the watchdog. Idempotent; safe when none was ever armed."""

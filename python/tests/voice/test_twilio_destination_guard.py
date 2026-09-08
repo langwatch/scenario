@@ -23,7 +23,7 @@ from .test_twilio_adapter import _install_fake_rest, _make_adapter
 
 
 #: The one number the a-leg tests are allowed to dial.
-ALLOWED = "+447911123456"
+ALLOWED = "+447700900123"
 
 
 class _FakeTunnel:
@@ -114,9 +114,9 @@ async def test_a_leg_allows_destination_on_allowed_callees(monkeypatch):
 @pytest.mark.parametrize(
     "allowed,to",
     [
-        ([ALLOWED], "+4479111234"),        # `to` is a PREFIX of an allowed entry
-        ([ALLOWED], "+7911123456"),        # `to` is a SUFFIX of an allowed entry
-        (["+4479111234"], ALLOWED),        # an allowed entry is a PREFIX of `to`
+        ([ALLOWED], "+4477009001"),        # `to` is a PREFIX of an allowed entry
+        ([ALLOWED], "+7700900123"),        # `to` is a SUFFIX of an allowed entry
+        (["+4477009001"], ALLOWED),        # an allowed entry is a PREFIX of `to`
     ],
     ids=["to-is-prefix", "to-is-suffix", "entry-is-prefix"],
 )
@@ -134,7 +134,7 @@ async def test_a_leg_refuses_near_miss_destinations(monkeypatch, allowed, to):
 def test_constructor_rejects_non_e164_allowed_callee():
     """A typo in the allowlist fails at setup, not at dial time."""
     with pytest.raises(ValueError, match="E.164"):
-        _make_adapter(allowed_callees=["447911123456"])
+        _make_adapter(allowed_callees=["447700900123"])
 
 
 @pytest.mark.asyncio

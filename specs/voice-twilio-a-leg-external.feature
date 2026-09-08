@@ -101,10 +101,12 @@ Feature: TwilioAgentAdapter A-leg external-number dialing
   @unit @ts-twilio-server
   Scenario: AC14 - Ungated tripwire proves the a-leg bidirectional frame loop, unconditionally in CI
     Given a-leg mode with a mock socket presenting a correct nonce and a matching callSid
-    When an inbound media frame arrives
+    When inbound media frames carrying every mu-law code point arrive
     Then a decoded frame reaches receiveAudio
+    And each decoded sample equals, in position, what an independent reference decoder says
     When sendAudio is called
     Then exactly one outbound Twilio media frame is emitted for it
+    And each emitted mu-law byte equals, in position, the reference encoding of the input
 
   @unit @ts-twilio-proto
   Scenario: AC13 - Minted nonce is unique per call and drawn from a CSPRNG
@@ -112,6 +114,7 @@ Feature: TwilioAgentAdapter A-leg external-number dialing
     When each mints its nonce
     Then the two minted nonce values differ
     And each nonce matches the chosen byte length and charset of a CSPRNG-drawn value
+    And minting draws its bytes from the platform CSPRNG rather than a general-purpose RNG
 
   @unit @ts-twilio-proto
   Scenario: AC12 - Calls.create carries the configured TimeLimit as the Twilio-side duration backstop

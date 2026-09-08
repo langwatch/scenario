@@ -43,14 +43,14 @@ describe("TwilioAgentAdapter sendDtmf a-leg guard", () => {
     const ws = scriptedSocket([startFrame({ nonce })]);
     await drive(adapter, ws);
     await call;
-    expect(adapter._streamWsForTest, "precondition: the a-leg socket is live").toBe(ws);
+    expect(adapter._streamWsForServer, "precondition: the a-leg socket is live").toBe(ws);
 
     await expect(adapter.sendDtmf("123")).rejects.toThrow(A_LEG_SEND_DTMF_UNSUPPORTED);
     // The refusal must say WHY, not merely that it is unsupported.
     expect(A_LEG_SEND_DTMF_UNSUPPORTED).toContain("<Connect><Stream>");
     expect(rest.dtmfCalls).toEqual([]);
     expect(ws.closed).toBe(false);
-    expect(adapter._streamWsForTest).toBe(ws);
+    expect(adapter._streamWsForServer).toBe(ws);
   });
 
   it("b-leg sendDtmf still reaches the REST helper unchanged", async () => {

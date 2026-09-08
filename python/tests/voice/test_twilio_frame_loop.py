@@ -9,15 +9,18 @@ the BYTES that come out of the real codec in both directions.
 
 Nothing here is mocked below the socket: the µ-law decode, the 8k→24k resample,
 the 20ms framing and the base64 wire encoding are all the shipped ones. The
-expected sample values are computed by an independent G.711 µ-law decoder
-implemented in this file, so a broken codec cannot agree with the assertion by
-construction.
+expected sample values come from an independent G.711 µ-law decoder implemented
+in this file, and are compared POSITIONALLY against a waveform that visits all
+256 µ-law code points. That combination is what makes the reference decoder able
+to disagree: a set-membership assertion over a constant tone is invariant under
+any permutation, duplication or drop of the samples — reversing the shipped
+decoder's output passed it — and it exercises 1 of 256 codes, leaving the
+negative half of the table, the segment shift and the bias term unchecked.
 
 Binds AC14 of ``specs/voice-twilio-a-leg-external.feature``. Mirrors
 ``javascript/src/voice/adapters/__tests__/twilio-frame-loop.test.ts``.
 """
 
-import asyncio
 import base64
 import json
 import struct
@@ -25,19 +28,17 @@ import struct
 import pytest
 
 from scenario.voice import AudioChunk
-from scenario.voice.adapters._twilio_server import TwilioWebhookServer
 from scenario.voice.adapters._twilio_shared import TWILIO_FRAME_BYTES
 
+from .a_leg_harness import _driving, _place_a_leg_call, _ScriptedWS, _start_frame
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
-from .test_twilio_stream_auth import _ScriptedWS, _place_a_leg_call, _start_frame
 
 #: One 100ms batch — what the loop coalesces before it enqueues a chunk.
 FRAMES_PER_BATCH = 5
-#: Arbitrary non-silent µ-law code. Constant across the batch so the resampler's
-#: interpolation is the identity on it and every decoded sample is comparable.
-TONE_MULAW_BYTE = 0xD5
-#: Constant PCM16-at-24kHz level for the outbound direction, well inside int16.
-TONE_PCM16_LEVEL = 1000
+#: µ-law bytes in one 100ms batch.
+BATCH_MULAW_BYTES = FRAMES_PER_BATCH * TWILIO_FRAME_BYTES  # 800
+#: Both rates are fixed by the transports, so the 8k→24k factor is a constant.
+UPSAMPLE_FACTOR = 3
 
 
 def _mulaw_decode(byte: int) -> int:
@@ -49,6 +50,14 @@ def _mulaw_decode(byte: int) -> int:
     inverted = ~byte & 0xFF
     magnitude = ((((inverted & 0x0F) << 3) | 0x84) << ((inverted >> 4) & 0x07)) - 0x84
     return -magnitude if inverted & 0x80 else magnitude
+
+
+#: One batch of µ-law that visits every code point, so no assertion below can
+#: be satisfied by a codec that only handles the positive half of the table, or
+#: by one that reorders, drops or duplicates samples.
+RAMP_MULAW = bytes((i % 256) for i in range(BATCH_MULAW_BYTES))
+#: What the reference decoder says each of those bytes is worth.
+RAMP_PCM16_8K = [_mulaw_decode(byte) for byte in RAMP_MULAW]
 
 
 def _media_frame(payload: bytes, stream_sid: str = "MZ762") -> str:
@@ -82,54 +91,50 @@ async def test_a_leg_loop_carries_audio_in_both_directions(monkeypatch):
     try:
         nonce = await _place_a_leg_call(a, rest)
 
-        inbound_mulaw = bytes([TONE_MULAW_BYTE]) * TWILIO_FRAME_BYTES
+        frames = [
+            RAMP_MULAW[i : i + TWILIO_FRAME_BYTES]
+            for i in range(0, BATCH_MULAW_BYTES, TWILIO_FRAME_BYTES)
+        ]
         ws = _ScriptedWS(
-            [_start_frame(nonce=nonce)]
-            + [_media_frame(inbound_mulaw) for _ in range(FRAMES_PER_BATCH)]
+            [_start_frame(nonce=nonce)] + [_media_frame(f) for f in frames]
         )
-        # Run the loop for the whole test rather than driving it to completion:
-        # send_audio needs the socket still adopted and the stream still live,
-        # which only holds while the loop is parked on its next read.
-        loop_task = asyncio.create_task(TwilioWebhookServer(a).media_stream_loop(ws))
-        try:
+        # Hold the loop open for the whole test: send_audio needs the socket
+        # still adopted and the stream still live, which only holds while the
+        # loop is parked on its next read.
+        async with _driving(a, ws):
             # ---------------------------------------------------- inbound
-            chunk = await asyncio.wait_for(a.recv_audio(timeout=1.0), timeout=2.0)
+            chunk = await a.recv_audio(timeout=1.0)
             decoded = _samples(chunk.data)
-            expected_level = _mulaw_decode(TONE_MULAW_BYTE)
 
-            assert set(decoded) == {expected_level}, (
-                "inbound µ-law must reach the queue decoded to PCM16 by the real "
-                f"codec (expected every sample == {expected_level})"
-            )
-            # 8k → 24k on 5×160 µ-law samples: 3× the samples, ± the resampler's
-            # end-of-buffer rounding.
-            assert abs(len(decoded) - 3 * FRAMES_PER_BATCH * TWILIO_FRAME_BYTES) <= 2
+            # 8k → 24k with linear interpolation puts input sample i exactly on
+            # output index 3i, so the reference decoder can be checked sample by
+            # sample — the whole point of driving a VARYING waveform.
+            assert [decoded[UPSAMPLE_FACTOR * i] for i in range(BATCH_MULAW_BYTES - 1)] == (
+                RAMP_PCM16_8K[:-1]
+            ), "inbound µ-law reached the queue mis-decoded, reordered or resampled wrong"
+            # ± the resampler's end-of-buffer rounding.
+            assert abs(len(decoded) - UPSAMPLE_FACTOR * BATCH_MULAW_BYTES) <= 2
             assert a._frames_received == FRAMES_PER_BATCH
 
             # ---------------------------------------------------- outbound
-            outbound_samples = 2400  # 100ms at 24kHz
+            # Hold each 8kHz level for 3 samples at 24kHz so the downsample is
+            # the exact inverse of the upsample above; every value is already a
+            # µ-law quantisation level, so the encode round-trips exactly and a
+            # positional assertion needs no tolerance.
+            outbound = [level for level in RAMP_PCM16_8K for _ in range(UPSAMPLE_FACTOR)]
             await a.send_audio(
-                AudioChunk(
-                    data=struct.pack(
-                        f"<{outbound_samples}h", *([TONE_PCM16_LEVEL] * outbound_samples)
-                    )
-                )
+                AudioChunk(data=struct.pack(f"<{len(outbound)}h", *outbound))
             )
 
-            frames = [json.loads(text) for text in ws.sent]
-            assert [f["event"] for f in frames] == ["media"] * FRAMES_PER_BATCH
-            assert {f["streamSid"] for f in frames} == {"MZ762"}
+            sent = [json.loads(text) for text in ws.sent]
+            assert [f["event"] for f in sent] == ["media"] * FRAMES_PER_BATCH
+            assert {f["streamSid"] for f in sent} == {"MZ762"}
 
-            payloads = [base64.b64decode(f["media"]["payload"]) for f in frames]
+            payloads = [base64.b64decode(f["media"]["payload"]) for f in sent]
             assert [len(p) for p in payloads] == [TWILIO_FRAME_BYTES] * FRAMES_PER_BATCH
             emitted = b"".join(payloads)
-            levels = {_mulaw_decode(byte) for byte in emitted}
-            assert len(levels) == 1, "a constant input must encode to a constant code"
-            # µ-law is logarithmic: at this level its quantum is ~30, so the
-            # round-trip lands near the input rather than on it.
-            assert abs(levels.pop() - TONE_PCM16_LEVEL) <= 32
-        finally:
-            loop_task.cancel()
-            await asyncio.gather(loop_task, return_exceptions=True)
+            assert [_mulaw_decode(byte) for byte in emitted] == RAMP_PCM16_8K, (
+                "outbound PCM16 left the socket mis-encoded, reordered or resampled wrong"
+            )
     finally:
         await a.disconnect()

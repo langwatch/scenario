@@ -25,11 +25,8 @@ from scenario.voice.adapters._twilio_shared import (
     MAX_CALL_DURATION_CAP_SECONDS,
 )
 
+from .a_leg_harness import A_LEG_DESTINATION, ORIGINATED_CALL_SID, _ScriptedWS
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
-
-
-#: The SID ``FakeREST.place_call`` returns — the call a-leg mode originated.
-ORIGINATED_CALL_SID = "CA" + "1" * 32
 
 
 class _ControlledExpiry:
@@ -59,16 +56,6 @@ async def _armed(expiry: _ControlledExpiry) -> None:
     await asyncio.wait_for(expiry.armed.wait(), timeout=2.0)
 
 
-class _FakeWS:
-    """Minimal media-stream socket double: records that it was closed."""
-
-    def __init__(self) -> None:
-        self.closed = False
-
-    async def close(self) -> None:
-        self.closed = True
-
-
 async def _connected_adapter(monkeypatch: Any) -> tuple[TwilioAgentAdapter, Any]:
     rest_instances = _install_fake_rest(monkeypatch)
     a = _make_adapter(http_port=0)
@@ -87,7 +74,7 @@ async def test_a_leg_place_call_sends_configured_time_limit(monkeypatch):
     a, rest = await _connected_adapter(monkeypatch)
     try:
         await a.place_call(
-            to="+447911123456", attach_stream="a-leg", max_call_duration_seconds=120
+            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=120
         )
         assert rest.place_call_kwargs[0]["time_limit"] == 120
     finally:
@@ -99,7 +86,7 @@ async def test_a_leg_place_call_defaults_time_limit_when_unset(monkeypatch):
     """A caller who names no duration still gets a bounded call."""
     a, rest = await _connected_adapter(monkeypatch)
     try:
-        await a.place_call(to="+447911123456", attach_stream="a-leg")
+        await a.place_call(to="+447700900123", attach_stream="a-leg")
         assert (
             rest.place_call_kwargs[0]["time_limit"]
             == DEFAULT_MAX_CALL_DURATION_SECONDS
@@ -116,7 +103,7 @@ async def test_a_leg_place_call_above_cap_raises_before_origination(monkeypatch)
     try:
         with pytest.raises(ValueError, match=f"{MAX_CALL_DURATION_CAP_SECONDS}s cap"):
             await a.place_call(
-                to="+447911123456",
+                to="+447700900123",
                 attach_stream="a-leg",
                 max_call_duration_seconds=MAX_CALL_DURATION_CAP_SECONDS + 1,
             )
@@ -131,7 +118,7 @@ async def test_a_leg_place_call_non_positive_duration_raises(monkeypatch):
     try:
         with pytest.raises(ValueError, match="positive number of seconds"):
             await a.place_call(
-                to="+447911123456", attach_stream="a-leg", max_call_duration_seconds=0
+                to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=0
             )
         assert rest.place_call_kwargs == []
     finally:
@@ -162,12 +149,12 @@ async def test_max_duration_timer_ends_the_originated_call_and_closes_ws(monkeyp
     a._await_max_duration = expiry  # type: ignore[method-assign]
     try:
         await a.place_call(
-            to="+447911123456",
+            to="+447700900123",
             attach_stream="a-leg",
             timeout=120.0,
             max_call_duration_seconds=42,
         )
-        ws = _FakeWS()
+        ws = _ScriptedWS([])
         a._stream_ws = ws
 
         await _armed(expiry)
@@ -193,7 +180,7 @@ async def test_timer_is_cancelled_by_disconnect_and_never_calls_rest(monkeypatch
     expiry = _ControlledExpiry()
     a._await_max_duration = expiry  # type: ignore[method-assign]
     await a.place_call(
-        to="+447911123456", attach_stream="a-leg", max_call_duration_seconds=42
+        to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
     )
     task = a._max_duration_task
     assert task is not None
@@ -219,7 +206,7 @@ async def test_timer_is_cancelled_when_the_stream_ends(monkeypatch):
     a._await_max_duration = expiry  # type: ignore[method-assign]
     try:
         await a.place_call(
-            to="+447911123456", attach_stream="a-leg", max_call_duration_seconds=42
+            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
         )
         task = a._max_duration_task
         assert task is not None
@@ -274,7 +261,7 @@ async def test_second_place_call_replaces_the_first_timer(monkeypatch):
     a._await_max_duration = expiry_one  # type: ignore[method-assign]
     try:
         await a.place_call(
-            to="+447911123456", attach_stream="a-leg", max_call_duration_seconds=42
+            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
         )
         first = a._max_duration_task
         assert first is not None
@@ -283,7 +270,7 @@ async def test_second_place_call_replaces_the_first_timer(monkeypatch):
         expiry_two = _ControlledExpiry()
         a._await_max_duration = expiry_two  # type: ignore[method-assign]
         await a.place_call(
-            to="+447911123456", attach_stream="a-leg", max_call_duration_seconds=42
+            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
         )
         await _armed(expiry_two)
         assert a._max_duration_task is not first
@@ -340,11 +327,11 @@ def test_rest_place_call_passes_time_limit_to_calls_create():
     not just the adapter's call to this method."""
     client = _RecordingTwilioClient()
     _rest_helper_with(client).place_call(
-        to="+447911123456", from_="+14155551234", twiml="<Response/>", time_limit=300
+        to="+447700900123", from_="+14155551234", twiml="<Response/>", time_limit=300
     )
     assert client.create_kwargs == [
         {
-            "to": "+447911123456",
+            "to": "+447700900123",
             "from_": "+14155551234",
             "twiml": "<Response/>",
             "time_limit": 300,
@@ -365,3 +352,42 @@ def test_rest_end_call_completes_the_call():
     client = _RecordingTwilioClient()
     _rest_helper_with(client).end_call(ORIGINATED_CALL_SID)
     assert client.updates == [(ORIGINATED_CALL_SID, {"status": "completed"})]
+
+
+# ------------------------------------------------- stream-connect timeout
+
+
+@pytest.mark.asyncio
+async def test_a_leg_stream_connect_timeout_hangs_the_call_up(monkeypatch):
+    """The ordinary a-leg failure path must not bill for the whole cap.
+
+    When the media stream never connects, the call is ALREADY originated and the
+    watchdog armed — so without an explicit hangup the caller gets their
+    TimeoutError while Twilio keeps the PSTN call alive to
+    ``max_call_duration_seconds``.
+    """
+    a, rest = await _connected_adapter(monkeypatch)
+    a._stream_connected.clear()  # nothing will drive a socket
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await a.place_call(
+                to=A_LEG_DESTINATION, attach_stream="a-leg", timeout=0.05
+            )
+        assert rest.end_calls == [ORIGINATED_CALL_SID]
+        assert a._max_duration_task is None, "the watchdog outlived the call it capped"
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_b_leg_stream_connect_timeout_hangs_nothing_up(monkeypatch):
+    """b-leg holds the originator leg with <Pause>, which bounds it already — the
+    hangup stays a-leg-only so b-leg's failure path is byte-for-byte unchanged."""
+    a, rest = await _connected_adapter(monkeypatch)
+    a._stream_connected.clear()
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await a.place_call(to="+14155557777", timeout=0.05)
+        assert rest.end_calls == []
+    finally:
+        await a.disconnect()

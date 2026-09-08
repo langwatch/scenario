@@ -36,6 +36,7 @@ from .._telemetry import voice_span
 from ._twilio_shared import (
     MediaStreamEvent,
     _redact_e164,
+    escape_xml_attr,
     mulaw8k_to_pcm16_24k,
     nonce_matches,
     parse_media_stream_frame,
@@ -195,7 +196,7 @@ class TwilioWebhookServer:
             twiml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
                 '<Response>'
-                f'<Connect><Stream url="{ws_url}"/></Connect>'
+                f'<Connect><Stream url="{escape_xml_attr(ws_url)}"/></Connect>'
                 '</Response>'
             )
             return Response(content=twiml, media_type="application/xml")
@@ -243,8 +244,15 @@ class TwilioWebhookServer:
         except WebSocketDisconnect:
             logger.debug("TwilioAgentAdapter: WS disconnected")
         finally:
-            adapter._stream_ws = None
-            adapter._stream_sid = None
+            # Only the socket that IS the live transport may clear it. The
+            # route is publicly reachable, so without this identity check any
+            # stranger who opens and closes ``/twilio/stream`` nulls the
+            # GENUINE call's transport — no nonce needed — and every
+            # subsequent send_audio/interrupt/recv_audio raises "no live media
+            # stream" while the PSTN call keeps billing to the cap.
+            if adapter._stream_ws is ws:
+                adapter._stream_ws = None
+                adapter._stream_sid = None
 
     async def media_stream_loop(self, ws: Any) -> None:
         """Per-call Media Streams loop: parse frames, enqueue audio, fire DTMF."""
@@ -265,10 +273,13 @@ class TwilioWebhookServer:
         def _adopt() -> None:
             """Make ``ws`` the adapter's live transport and re-arm per-call state.
 
-            ``_stream_ended`` AND the inbound queue are per-CALL state: re-armed
-            and purged alongside ``_stream_ws`` so a second media-stream session
-            on the same connected adapter (Twilio reconnect, back-to-back call)
-            starts clean.
+            ``_stream_ended``, ``_stream_ended_reason`` AND the inbound queue
+            are per-CALL state: re-armed and purged alongside ``_stream_ws`` so
+            a second media-stream session on the same connected adapter (Twilio
+            reconnect, back-to-back call) starts clean. The reason matters as
+            much as the flag: ``"max_duration"`` wins every tie by design, so
+            left standing it would report a later, cleanly-stopped session as
+            having hit the cap.
 
             The flag alone is not enough. The previous call's ``finally``
             ENQUEUED a terminal sentinel; if that call ended while no drain was
@@ -290,6 +301,7 @@ class TwilioWebhookServer:
             adopted = True
             adapter._stream_ws = ws
             adapter._stream_ended = False
+            adapter._stream_ended_reason = "none"
             while not adapter._inbound_queue.empty():
                 adapter._inbound_queue.get_nowait()
 
@@ -390,7 +402,11 @@ class TwilioWebhookServer:
                         # that connects.
                         verdict = _authenticate(frame)
                         if verdict == "reject":
-                            adapter._set_stream_ended_reason("close")
+                            # No ``_set_stream_ended_reason`` here: a socket
+                            # that failed to authenticate never became this
+                            # adapter's transport, so it must not stamp a
+                            # verdict onto the call it failed to reach — same
+                            # rule the terminal sentinel below already follows.
                             with suppress(Exception):
                                 await ws.close()
                             return
@@ -437,20 +453,23 @@ class TwilioWebhookServer:
                         pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
                         await _enqueue(pcm)
-                    adapter._set_stream_ended_reason("stop")
+                    if adopted:
+                        adapter._set_stream_ended_reason("stop")
                     return
         except WebSocketDisconnect:
             # Socket closed mid-stream. ``run_stream_session`` swallows this
             # type specifically (see its docstring) — tag the outcome BEFORE
             # re-raising so that swallow's caller-visible behavior is
             # unchanged.
-            adapter._set_stream_ended_reason("close")
+            if adopted:
+                adapter._set_stream_ended_reason("close")
             raise
         except Exception:
             # Any OTHER transport error (not a clean disconnect) propagates to
             # ``run_stream_session``'s caller unchanged — tag the outcome
             # before re-raising.
-            adapter._set_stream_ended_reason("error")
+            if adopted:
+                adapter._set_stream_ended_reason("error")
             raise
         finally:
             # Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the

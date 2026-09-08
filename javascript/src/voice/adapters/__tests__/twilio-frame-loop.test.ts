@@ -9,9 +9,14 @@
  *
  * Nothing here is mocked below the socket: the µ-law decode, the 8k→24k
  * resample, the 20ms framing and the base64 wire encoding are all the shipped
- * ones. The expected sample values are computed by an independent G.711 µ-law
- * decoder implemented in this file, so a broken codec cannot agree with the
- * assertion by construction.
+ * ones. The expected sample values come from an independent G.711 µ-law decoder
+ * implemented in this file, and are compared POSITIONALLY against a waveform
+ * that visits all 256 µ-law code points. That combination is what makes the
+ * reference decoder able to disagree: a set-membership assertion over a constant
+ * tone is invariant under any permutation, duplication or drop of the samples —
+ * reversing the shipped decoder's output passed it — and it exercises 1 of 256
+ * codes, leaving the negative half of the table, the segment shift and the bias
+ * term unchecked.
  *
  * Binds AC14 of `specs/voice-twilio-a-leg-external.feature`. Mirrors
  * `python/tests/voice/test_twilio_frame_loop.py`.
@@ -35,13 +40,10 @@ import {
 
 /** One 100ms batch — what the loop coalesces before it enqueues a chunk. */
 const FRAMES_PER_BATCH = 5;
-/**
- * Arbitrary non-silent µ-law code. Constant across the batch so the resampler's
- * interpolation is the identity on it and every decoded sample is comparable.
- */
-const TONE_MULAW_BYTE = 0xd5;
-/** Constant PCM16-at-24kHz level for the outbound direction, well inside int16. */
-const TONE_PCM16_LEVEL = 1000;
+/** µ-law bytes in one 100ms batch. */
+const BATCH_MULAW_BYTES = FRAMES_PER_BATCH * TWILIO_FRAME_BYTES; // 800
+/** Both rates are fixed by the transports, so the 8k→24k factor is a constant. */
+const UPSAMPLE_FACTOR = 3;
 
 /**
  * Independent G.711 µ-law decode of one byte to a signed 16-bit sample.
@@ -53,8 +55,21 @@ function mulawDecode(byte: number): number {
   const inverted = ~byte & 0xff;
   const magnitude =
     ((((inverted & 0x0f) << 3) | 0x84) << ((inverted >> 4) & 0x07)) - 0x84;
-  return inverted & 0x80 ? -magnitude : magnitude;
+  const sample = inverted & 0x80 ? -magnitude : magnitude;
+  // JS has a signed zero; PCM16 does not. Normalise, or the negative half of
+  // the table's zero code decodes to `-0` and compares unequal to the shipped
+  // decoder's `0`.
+  return sample === 0 ? 0 : sample;
 }
+
+/**
+ * One batch of µ-law that visits every code point, so no assertion below can be
+ * satisfied by a codec that only handles the positive half of the table, or by
+ * one that reorders, drops or duplicates samples.
+ */
+const RAMP_MULAW = Uint8Array.from({ length: BATCH_MULAW_BYTES }, (_, i) => i % 256);
+/** What the reference decoder says each of those bytes is worth. */
+const RAMP_PCM16_8K = Array.from(RAMP_MULAW, mulawDecode);
 
 /**
  * An inbound Twilio `media` frame, built here rather than by the adapter.
@@ -94,11 +109,11 @@ describe("TwilioAgentAdapter a-leg frame loop", () => {
     openAdapter = adapter;
     const { nonce, call } = await startALegCall(adapter, rest);
 
-    const inboundMulaw = new Uint8Array(TWILIO_FRAME_BYTES).fill(TONE_MULAW_BYTE);
-    const ws = scriptedSocket([
-      startFrame({ nonce }),
-      ...Array.from({ length: FRAMES_PER_BATCH }, () => mediaFrame(inboundMulaw)),
-    ]);
+    const frames: string[] = [];
+    for (let i = 0; i < BATCH_MULAW_BYTES; i += TWILIO_FRAME_BYTES) {
+      frames.push(mediaFrame(RAMP_MULAW.slice(i, i + TWILIO_FRAME_BYTES)));
+    }
+    const ws = scriptedSocket([startFrame({ nonce }), ...frames]);
     // `drive` returns once the socket parks; the loop itself keeps running, which
     // is what keeps the stream live for the outbound half below.
     await drive(adapter, ws);
@@ -107,44 +122,47 @@ describe("TwilioAgentAdapter a-leg frame loop", () => {
     // ------------------------------------------------------------- inbound
     const chunk = await adapter.receiveAudio(1);
     const decoded = samples(chunk.data);
-    const expectedLevel = mulawDecode(TONE_MULAW_BYTE);
 
+    // 8k → 24k with linear interpolation puts input sample i exactly on output
+    // index 3i, so the reference decoder can be checked sample by sample — the
+    // whole point of driving a VARYING waveform.
     expect(
-      new Set(decoded),
-      "inbound µ-law must reach the queue decoded to PCM16 by the real codec",
-    ).toEqual(new Set([expectedLevel]));
-    // 8k → 24k on 5×160 µ-law samples: 3× the samples, ± the resampler's
-    // end-of-buffer rounding.
+      RAMP_PCM16_8K.slice(0, -1).map((_, i) => decoded[UPSAMPLE_FACTOR * i]),
+      "inbound µ-law reached the queue mis-decoded, reordered or resampled wrong",
+    ).toEqual(RAMP_PCM16_8K.slice(0, -1));
+    // ± the resampler's end-of-buffer rounding.
     expect(
-      Math.abs(decoded.length - 3 * FRAMES_PER_BATCH * TWILIO_FRAME_BYTES),
+      Math.abs(decoded.length - UPSAMPLE_FACTOR * BATCH_MULAW_BYTES),
     ).toBeLessThanOrEqual(2);
     expect(adapter._framesReceivedForTest).toBe(FRAMES_PER_BATCH);
 
     // ------------------------------------------------------------ outbound
-    const outboundSamples = 2400; // 100ms at 24kHz
+    // Hold each 8kHz level for 3 samples at 24kHz so the downsample is the exact
+    // inverse of the upsample above; every value is already a µ-law
+    // quantisation level, so the encode round-trips exactly and a positional
+    // assertion needs no tolerance.
+    const outboundSamples = RAMP_PCM16_8K.length * UPSAMPLE_FACTOR;
     const pcm = new Uint8Array(outboundSamples * 2);
     const pcmView = new DataView(pcm.buffer);
     for (let i = 0; i < outboundSamples; i++) {
-      pcmView.setInt16(i * 2, TONE_PCM16_LEVEL, true);
+      pcmView.setInt16(i * 2, RAMP_PCM16_8K[Math.floor(i / UPSAMPLE_FACTOR)], true);
     }
     await adapter.sendAudio(new AudioChunk({ data: pcm }));
 
-    const frames = ws.sent.map((text) => JSON.parse(text));
-    expect(frames.map((f) => f.event)).toEqual(Array(FRAMES_PER_BATCH).fill("media"));
-    expect(new Set(frames.map((f) => f.streamSid))).toEqual(new Set(["MZ762"]));
+    const sent = ws.sent.map((text) => JSON.parse(text));
+    expect(sent.map((f) => f.event)).toEqual(Array(FRAMES_PER_BATCH).fill("media"));
+    expect(new Set(sent.map((f) => f.streamSid))).toEqual(new Set(["MZ762"]));
 
-    const payloads = frames.map((f) =>
+    const payloads = sent.map((f) =>
       new Uint8Array(Buffer.from(f.media.payload as string, "base64")),
     );
     expect(payloads.map((p) => p.length)).toEqual(
       Array(FRAMES_PER_BATCH).fill(TWILIO_FRAME_BYTES),
     );
-    const levels = new Set(
-      payloads.flatMap((p) => Array.from(p, (byte) => mulawDecode(byte))),
-    );
-    expect(levels.size, "a constant input must encode to a constant code").toBe(1);
-    // µ-law is logarithmic: at this level its quantum is ~30, so the round-trip
-    // lands near the input rather than on it.
-    expect(Math.abs([...levels][0] - TONE_PCM16_LEVEL)).toBeLessThanOrEqual(32);
+    const emitted = payloads.flatMap((p) => Array.from(p, mulawDecode));
+    expect(
+      emitted,
+      "outbound PCM16 left the socket mis-encoded, reordered or resampled wrong",
+    ).toEqual(RAMP_PCM16_8K);
   });
 });

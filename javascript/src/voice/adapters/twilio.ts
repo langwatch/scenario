@@ -79,31 +79,26 @@ type StreamAttachMode = "a-leg" | "b-leg" | "originator-only";
 /**
  * Resolve the effective `placeCall` stream-attach mode.
  *
- * `attachStream` (typed) supersedes the legacy `attachStreamToSelf` bool. If
- * `attachStream` is given, it wins; if the bool is ALSO explicitly given and
- * disagrees ("a-leg" with `true`, or "b-leg" with `false`), that's a caller
- * error. With `attachStream` unset: `false` selects the originator-only third
- * mode (which `attachStream` cannot express), `true`/unset selects "b-leg".
+ * `attachStream` (typed) supersedes the legacy `attachStreamToSelf` bool, which
+ * names the same choice in a narrower vocabulary: `true` is "b-leg", `false` is
+ * the originator-only third mode `attachStream` cannot express. Passing both is
+ * only allowed when they AGREE — every other combination is a genuine
+ * disagreement about where the stream attaches, so it throws rather than
+ * silently discarding the bool.
  */
 function resolveStreamMode(
   attachStream: "a-leg" | "b-leg" | undefined,
   attachStreamToSelf: boolean | undefined,
 ): StreamAttachMode {
-  if (attachStream !== undefined) {
-    if (
-      attachStreamToSelf !== undefined &&
-      ((attachStream === "a-leg" && attachStreamToSelf === true) ||
-        (attachStream === "b-leg" && attachStreamToSelf === false))
-    ) {
-      throw new Error(
-        `placeCall: attachStream=${JSON.stringify(attachStream)} conflicts with ` +
-          `attachStreamToSelf=${JSON.stringify(attachStreamToSelf)}; pass only one.`,
-      );
-    }
-    return attachStream;
+  if (attachStreamToSelf === undefined) return attachStream ?? "b-leg";
+  const implied: StreamAttachMode = attachStreamToSelf ? "b-leg" : "originator-only";
+  if (attachStream !== undefined && attachStream !== implied) {
+    throw new Error(
+      `placeCall: attachStream=${JSON.stringify(attachStream)} conflicts with ` +
+        `attachStreamToSelf=${JSON.stringify(attachStreamToSelf)}; pass only one.`,
+    );
   }
-  if (attachStreamToSelf === false) return "originator-only";
-  return "b-leg";
+  return implied;
 }
 
 /**
@@ -585,6 +580,14 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
             // (voiceSpan's own exception handling).
             if (err instanceof DeferredTimeoutError) {
               span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+              if (mode === "a-leg" && this._callSid !== undefined) {
+                // The call is already originated and, under a-leg's
+                // <Connect>, lives to the duration cap even though nothing
+                // will ever stream on it. Hang it up before handing the caller
+                // their timeout — otherwise the ordinary connect-failure path
+                // bills for the cap.
+                await this._abandonOriginatedCall(this._callSid);
+              }
             }
             throw err;
           }
@@ -748,6 +751,22 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       if (generation !== this._maxDurationGeneration) return; // cancelled or superseded
       await this._onMaxDurationExpired(seconds, callSid, to);
     })();
+  }
+
+  /**
+   * Disarm the watchdog and hang up a call nothing will ever stream on.
+   *
+   * Best-effort on the REST hangup: the caller is already throwing, and
+   * Twilio's own `TimeLimit` remains the backstop if this leg of the teardown
+   * fails.
+   */
+  private async _abandonOriginatedCall(callSid: string): Promise<void> {
+    this._cancelMaxDurationTimer();
+    try {
+      await this._rest?.endCall(callSid);
+    } catch {
+      // Best-effort: Twilio's own TimeLimit is the backstop for this backstop.
+    }
   }
 
   /** Disarm the watchdog. Idempotent; safe when none was ever armed. */
@@ -959,9 +978,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamEnded = true;
   }
   /**
-   * @internal Re-arm per-CALL state at media-stream-loop entry. Both halves are
-   * per-call, not per-connection, so a second session on the same connected
-   * adapter must not inherit either of them.
+   * @internal Re-arm per-CALL state at media-stream-loop entry. All three parts
+   * are per-call, not per-connection, so a second session on the same connected
+   * adapter must not inherit any of them. The ended-reason matters as much as
+   * the flag: `"max_duration"` wins every tie by design, so left standing it
+   * would report a later, cleanly-stopped session as having hit the cap.
    *
    * The flag alone is not enough: the previous call's `finally` ENQUEUED a
    * terminal sentinel, and if that call ended while no drain was running (the
@@ -977,10 +998,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    */
   _resetCallState(): void {
     this._streamEnded = false;
+    this._streamEndedReason = "none";
     this._inboundQueue.clearBuffered();
   }
-  /** @internal Test-only view of the transport state the server nulls on teardown. */
-  get _streamWsForTest(): MediaStreamWebSocket | null {
+  /**
+   * @internal The socket that IS this adapter's live transport, or `null`.
+   *
+   * `runStreamSession` compares against it so only the owning socket may null
+   * the transport on teardown; tests read it as their view of that same state.
+   */
+  get _streamWsForServer(): MediaStreamWebSocket | null {
     return this._streamWs;
   }
   /** @internal Test-only view of the transport state the server nulls on teardown. */

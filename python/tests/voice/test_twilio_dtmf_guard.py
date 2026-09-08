@@ -15,8 +15,8 @@ import pytest
 
 from scenario.voice.adapters.twilio import A_LEG_SEND_DTMF_UNSUPPORTED
 
+from .a_leg_harness import _driving, _place_a_leg_call, _ScriptedWS, _start_frame
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
-from .test_twilio_stream_auth import _ScriptedWS, _drive, _place_a_leg_call, _start_frame
 
 
 @pytest.mark.asyncio
@@ -30,19 +30,19 @@ async def test_send_dtmf_in_a_leg_mode_raises_and_leaves_the_stream_alone(monkey
     try:
         nonce = await _place_a_leg_call(a, rest)
         ws = _ScriptedWS([_start_frame(nonce=nonce)])
-        await _drive(a, ws)
-        assert a._stream_ws is ws, "precondition: the a-leg socket is live"
+        async with _driving(a, ws):
+            assert a._stream_ws is ws, "precondition: the a-leg socket is live"
 
-        with pytest.raises(RuntimeError) as excinfo:
-            await a.send_dtmf("123")
+            with pytest.raises(RuntimeError) as excinfo:
+                await a.send_dtmf("123")
 
-        assert str(excinfo.value) == A_LEG_SEND_DTMF_UNSUPPORTED
-        assert "<Connect><Stream>" in str(excinfo.value), (
-            "the refusal must say WHY, not merely that it is unsupported"
-        )
-        assert rest.dtmf_calls == [], "a-leg must issue zero TwiML-replace POSTs"
-        assert ws.closed is False
-        assert a._stream_ws is ws
+            assert str(excinfo.value) == A_LEG_SEND_DTMF_UNSUPPORTED
+            assert "<Connect><Stream>" in str(excinfo.value), (
+                "the refusal must say WHY, not merely that it is unsupported"
+            )
+            assert rest.dtmf_calls == [], "a-leg must issue zero TwiML-replace POSTs"
+            assert ws.closed is False
+            assert a._stream_ws is ws
     finally:
         await a.disconnect()
 

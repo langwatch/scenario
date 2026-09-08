@@ -12,96 +12,26 @@ of ``specs/voice-twilio-a-leg-external.feature``. Mirrors
 ``javascript/src/voice/adapters/__tests__/twilio-stream-auth.test.ts``.
 """
 
-import asyncio
-import json
 import re
-from contextlib import suppress
-from typing import Any, Optional
 
 import pytest
 
-from scenario.voice import TwilioAgentAdapter
-from scenario.voice.adapters._twilio_shared import STREAM_NONCE_HEX_LEN
-from scenario.voice.adapters._twilio_server import TwilioWebhookServer
+from scenario.voice.adapters import _twilio_shared
+from scenario.voice.adapters._twilio_shared import (
+    STREAM_NONCE_BYTES,
+    STREAM_NONCE_HEX_LEN,
+    mint_stream_nonce,
+)
 
+from .a_leg_harness import (
+    A_LEG_DESTINATION,
+    ORIGINATED_CALL_SID,
+    _driving,
+    _place_a_leg_call,
+    _ScriptedWS,
+    _start_frame,
+)
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
-
-
-#: The SID ``FakeREST.place_call`` returns — the call a-leg mode originated.
-ORIGINATED_CALL_SID = "CA" + "1" * 32
-NONCE_RE = re.compile(r'<Parameter name="nonce" value="([^"]+)"/>')
-
-
-def _start_frame(
-    *,
-    nonce: Optional[str],
-    call_sid: str = ORIGINATED_CALL_SID,
-    stream_sid: str = "MZ762",
-) -> str:
-    """A Twilio ``start`` frame, optionally carrying a ``nonce`` custom parameter."""
-    start: dict[str, Any] = {"streamSid": stream_sid, "callSid": call_sid}
-    if nonce is not None:
-        start["customParameters"] = {"nonce": nonce}
-    return json.dumps({"event": "start", "start": start})
-
-
-class _ScriptedWS:
-    """Media-stream socket double: serves ``frames`` in order, then blocks.
-
-    Blocking (rather than raising) at exhaustion models a socket Twilio holds
-    open, so a test can assert that a rejected socket is CLOSED by the loop
-    rather than merely running out of frames.
-    """
-
-    def __init__(self, frames: list[str]) -> None:
-        self._frames = list(frames)
-        self._idx = 0
-        self.closed = False
-        self.sent: list[str] = []
-
-    async def accept(self) -> None:
-        return None
-
-    async def receive_text(self) -> str:
-        if self._idx < len(self._frames):
-            msg = self._frames[self._idx]
-            self._idx += 1
-            return msg
-        await asyncio.Event().wait()  # held open; never resolves
-        raise AssertionError("unreachable")  # pragma: no cover
-
-    async def send_text(self, text: str) -> None:
-        self.sent.append(text)
-
-    async def close(self) -> None:
-        self.closed = True
-
-
-async def _place_a_leg_call(a: TwilioAgentAdapter, rest: Any) -> str:
-    """Run an a-leg ``place_call`` and return the nonce it put in the TwiML."""
-    assert a._stream_connected is not None
-    # place_call waits for the stream; this test drives the socket afterwards,
-    # so pre-set the event and clear it once the TwiML has been captured.
-    a._stream_connected.set()
-    await a.place_call(to="+447911123456", attach_stream="a-leg")
-    a._stream_connected.clear()
-    match = NONCE_RE.search(rest.place_call_kwargs[-1]["twiml"])
-    assert match is not None, "a-leg origination TwiML carries no nonce Parameter"
-    return match.group(1)
-
-
-async def _drive(a: TwilioAgentAdapter, ws: _ScriptedWS, timeout: float = 0.2) -> None:
-    """Run the media loop over ``ws`` until it returns or parks on the socket.
-
-    A rejected socket makes the loop return on its own; an accepted one parks in
-    ``receive_text`` waiting for the next frame, which the timeout cancels. Both
-    are expected terminals here — the assertions are on adapter state, not on
-    how the loop exited.
-    """
-    server = TwilioWebhookServer(a)
-    task = asyncio.create_task(server.media_stream_loop(ws))
-    with suppress(asyncio.TimeoutError):
-        await asyncio.wait_for(task, timeout=timeout)
 
 
 @pytest.mark.asyncio
@@ -115,17 +45,17 @@ async def test_a_leg_socket_with_wrong_nonce_is_closed_and_never_connects(monkey
         nonce = await _place_a_leg_call(a, rest_instances[0])
 
         attacker = _ScriptedWS([_start_frame(nonce="not-the-nonce")])
-        await _drive(a, attacker)
-        assert attacker.closed is True
-        assert a._stream_connected is not None
-        assert not a._stream_connected.is_set()
-        assert a._stream_ws is None  # never adopted as our transport
+        async with _driving(a, attacker):
+            assert attacker.closed is True
+            assert a._stream_connected is not None
+            assert not a._stream_connected.is_set()
+            assert a._stream_ws is None  # never adopted as our transport
 
         genuine = _ScriptedWS([_start_frame(nonce=nonce)])
-        await _drive(a, genuine)
-        assert genuine.closed is False
-        assert a._stream_connected.is_set()
-        assert a._stream_ws is genuine
+        async with _driving(a, genuine):
+            assert genuine.closed is False
+            assert a._stream_connected.is_set()
+            assert a._stream_ws is genuine
     finally:
         await a.disconnect()
 
@@ -140,10 +70,43 @@ async def test_a_leg_socket_with_no_nonce_parameter_is_closed(monkeypatch):
     try:
         await _place_a_leg_call(a, rest_instances[0])
         ws = _ScriptedWS([_start_frame(nonce=None)])
-        await _drive(a, ws)
-        assert ws.closed is True
-        assert a._stream_connected is not None
-        assert not a._stream_connected.is_set()
+        async with _driving(a, ws):
+            assert ws.closed is True
+            assert a._stream_connected is not None
+            assert not a._stream_connected.is_set()
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.parametrize(
+    "bad_nonce",
+    [
+        pytest.param("é" * STREAM_NONCE_HEX_LEN, id="non-ascii"),
+        pytest.param("0" * (STREAM_NONCE_HEX_LEN * 4), id="over-long"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_leg_socket_with_malformed_nonce_is_rejected(monkeypatch, bad_nonce):
+    """AC5: a nonce the comparison primitive cannot even ingest is a REJECTION.
+
+    ``secrets.compare_digest`` raises ``TypeError`` on a non-ASCII ``str``, so
+    before the byte-comparison fix a socket sending ``{"nonce":"é"}`` made the
+    auth check fail open into an exception that unwound through the media loop
+    — stamping the LIVE call's ended-reason on the way out — instead of closing
+    the attacker's socket.
+    """
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        await _place_a_leg_call(a, rest_instances[0])
+        ws = _ScriptedWS([_start_frame(nonce=bad_nonce)])
+        async with _driving(a, ws):
+            assert ws.closed is True
+            assert a._stream_connected is not None
+            assert not a._stream_connected.is_set()
+            assert a._stream_ws is None
+            assert a._stream_ended_reason == "none"
     finally:
         await a.disconnect()
 
@@ -160,15 +123,15 @@ async def test_a_leg_start_frame_with_other_call_sid_is_ignored(monkeypatch):
         assert a._call_sid == ORIGINATED_CALL_SID
 
         stale = _ScriptedWS([_start_frame(nonce=nonce, call_sid="CA" + "9" * 32)])
-        await _drive(a, stale)
-        assert a._stream_connected is not None
-        assert not a._stream_connected.is_set()
-        assert a._stream_ws is None
+        async with _driving(a, stale):
+            assert a._stream_connected is not None
+            assert not a._stream_connected.is_set()
+            assert a._stream_ws is None
 
         genuine = _ScriptedWS([_start_frame(nonce=nonce)])
-        await _drive(a, genuine)
-        assert a._stream_connected.is_set()
-        assert a._stream_sid == "MZ762"
+        async with _driving(a, genuine):
+            assert a._stream_connected.is_set()
+            assert a._stream_sid == "MZ762"
     finally:
         await a.disconnect()
 
@@ -182,7 +145,6 @@ async def test_a_leg_mints_a_fresh_nonce_per_call(monkeypatch):
     await a.connect()
     try:
         first = await _place_a_leg_call(a, rest_instances[0])
-        a._mode = "idle"  # place_call is once-per-mode; re-arm for a second dial
         second = await _place_a_leg_call(a, rest_instances[0])
     finally:
         await a.disconnect()
@@ -191,6 +153,26 @@ async def test_a_leg_mints_a_fresh_nonce_per_call(monkeypatch):
     for nonce in (first, second):
         assert len(nonce) == STREAM_NONCE_HEX_LEN
         assert re.fullmatch(r"[0-9a-f]+", nonce)
+
+
+def test_nonce_comes_from_the_os_csprng(monkeypatch):
+    """AC13: the nonce's PROVENANCE, not merely its shape.
+
+    Differentness, length and hex charset all survive a regression from
+    ``secrets.token_hex`` to ``random.getrandbits`` — so none of them is
+    evidence the value is cryptographically random. Assert the CSPRNG call
+    itself.
+    """
+    calls: list[int] = []
+
+    def _spy(nbytes: int) -> str:
+        calls.append(nbytes)
+        return "ab" * nbytes
+
+    monkeypatch.setattr(_twilio_shared.secrets, "token_hex", _spy)
+
+    assert mint_stream_nonce() == "ab" * STREAM_NONCE_BYTES
+    assert calls == [STREAM_NONCE_BYTES]
 
 
 @pytest.mark.asyncio
@@ -209,9 +191,79 @@ async def test_b_leg_emits_no_parameter_and_still_connects(monkeypatch):
         assert a._stream_nonce is None
 
         ws = _ScriptedWS([_start_frame(nonce=None, call_sid="CA" + "9" * 32)])
-        await _drive(a, ws)
-        assert ws.closed is False
-        assert a._stream_connected.is_set()
-        assert a._stream_ws is ws
+        async with _driving(a, ws):
+            assert ws.closed is False
+            assert a._stream_connected.is_set()
+            assert a._stream_ws is ws
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_a_leg_then_b_leg_on_the_same_adapter_still_connects(monkeypatch):
+    """A b-leg dial after an a-leg dial must not inherit the a-leg nonce.
+
+    ``_stream_nonce`` arms BOTH media-stream nonce enforcement and the a-leg
+    ``send_dtmf`` refusal. A b-leg ``start`` frame carries no ``<Parameter>`` at
+    all, so a leaked nonce closes the b-leg socket and the call never connects —
+    while ``send_dtmf`` refuses a call it has no reason to refuse. Repeat
+    ``place_call`` is explicitly supported (``_enter_mode``'s idempotent
+    re-entry).
+    """
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    rest = rest_instances[0]
+    try:
+        await _place_a_leg_call(a, rest)
+        assert a._stream_nonce is not None
+
+        assert a._stream_connected is not None
+        a._stream_connected.set()
+        await a.place_call(to="+14155557777")  # b-leg on the same adapter
+        a._stream_connected.clear()
+        assert a._stream_nonce is None, "the a-leg nonce outlived its call"
+
+        ws = _ScriptedWS([_start_frame(nonce=None, call_sid="CA" + "9" * 32)])
+        async with _driving(a, ws):
+            assert ws.closed is False, "the b-leg socket was gated on a stale nonce"
+            assert a._stream_connected.is_set()
+
+            await a.send_dtmf("123")
+            assert rest.dtmf_calls == [(a._call_sid, "123")]
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_socket_cannot_clear_the_live_transport(monkeypatch):
+    """Anyone who knows the public URL can open ``/twilio/stream`` and close it.
+
+    The production wrapper's ``finally`` nulls ``_stream_ws``/``_stream_sid``,
+    so without an identity guard that stranger's socket tears the transport out
+    from under the GENUINE call — no nonce required, repeatable at will — and
+    every later ``send_audio``/``interrupt``/``recv_audio`` raises while the
+    PSTN call keeps billing. Driven through ``run_stream_session``, because the
+    bare loop never touches the transport and so cannot show the bug.
+    """
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        nonce = await _place_a_leg_call(a, rest_instances[0])
+
+        genuine = _ScriptedWS([_start_frame(nonce=nonce)])
+        async with _driving(a, genuine, production=True):
+            assert a._stream_ws is genuine
+            assert a._stream_sid == "MZ762"
+
+            attacker = _ScriptedWS([], disconnect_at_end=True)
+            async with _driving(a, attacker, production=True):
+                pass
+
+            assert a._stream_ws is genuine, "an attacker socket cleared the transport"
+            assert a._stream_sid == "MZ762"
+            assert a._stream_ended_reason == "none"
+            a._assert_stream_live()  # send_audio/interrupt still work
     finally:
         await a.disconnect()

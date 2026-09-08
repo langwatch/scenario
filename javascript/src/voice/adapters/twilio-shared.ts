@@ -49,11 +49,18 @@ const E164_RE = /^\+[1-9]\d{6,14}$/;
 // Guards against TwiML XML injection in sendDtmfOnCall.
 const DTMF_RE = /^[0-9*#wW]+$/;
 
-/** Throw unless `phoneNumber` is a valid E.164 string (`+` then 7–15 digits). */
+/**
+ * Throw unless `phoneNumber` is a valid E.164 string (`+` then 7–15 digits).
+ *
+ * The message redacts the offending number: `placeCall` validates BEFORE the
+ * allowlist check, so a mistyped external destination would otherwise reach
+ * logs in full while every other Twilio failure path redacts. The format hint
+ * already tells the caller what shape was expected.
+ */
 export function validateE164(phoneNumber: string): void {
   if (!E164_RE.test(phoneNumber)) {
     throw new Error(
-      `phone_number ${JSON.stringify(phoneNumber)} is not in E.164 format ` +
+      `phone_number ${redactE164(phoneNumber)} is not in E.164 format ` +
         `(expected e.g. '+14155551234', pattern: leading '+' then 7–15 digits).`,
     );
   }

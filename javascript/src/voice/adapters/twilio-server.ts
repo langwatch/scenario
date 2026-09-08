@@ -271,8 +271,16 @@ export class TwilioWebhookServer {
     try {
       await this.mediaStreamLoop(ws);
     } finally {
-      this._adapter._setStreamWs(null);
-      this._adapter._setStreamSid(undefined);
+      // Only the socket that IS the live transport may clear it. The route is
+      // publicly reachable, so without this identity check any stranger who
+      // opens and closes `/twilio/stream` nulls the GENUINE call's transport —
+      // no nonce needed — and every subsequent sendAudio/interrupt/receiveAudio
+      // throws "no live media stream" while the PSTN call keeps billing to the
+      // cap.
+      if (this._adapter._streamWsForServer === ws) {
+        this._adapter._setStreamWs(null);
+        this._adapter._setStreamSid(undefined);
+      }
     }
   }
 
@@ -393,7 +401,7 @@ export class TwilioWebhookServer {
       while (true) {
         const text = await ws.receiveText();
         if (text == null) {
-          adapter._setStreamEndedReason("close");
+          if (adopted) adapter._setStreamEndedReason("close");
           return; // socket closed
         }
         const frame = parseMediaStreamFrame(text);
@@ -407,7 +415,10 @@ export class TwilioWebhookServer {
             // arriving later is the one that connects.
             const verdict = authenticate(frame, expectedNonce);
             if (verdict === "reject") {
-              adapter._setStreamEndedReason("close");
+              // No `_setStreamEndedReason` here: a socket that failed to
+              // authenticate never became this adapter's transport, so it must
+              // not stamp a verdict onto the call it failed to reach — the same
+              // rule the terminal sentinel below already follows.
               ws.close();
               return;
             }
@@ -437,7 +448,7 @@ export class TwilioWebhookServer {
           }
         } else if (frame.event === "stop") {
           flush();
-          adapter._setStreamEndedReason("stop");
+          if (adopted) adapter._setStreamEndedReason("stop");
           return;
         }
       }
@@ -445,7 +456,7 @@ export class TwilioWebhookServer {
       // Any transport error that is not a clean socket close (`text == null`
       // above) propagates to `runStreamSession`'s caller unchanged — tag the
       // outcome before re-throwing.
-      adapter._setStreamEndedReason("error");
+      if (adopted) adapter._setStreamEndedReason("error");
       throw err;
     } finally {
       // Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the loop

@@ -353,7 +353,7 @@ describe("twilio-shared codec round-trip", () => {
 describe("validateE164 / validateDtmf", () => {
   it("validateE164 accepts canonical numbers and rejects junk", () => {
     expect(() => validateE164("+14155551234")).not.toThrow();
-    expect(() => validateE164("+447911123456")).not.toThrow();
+    expect(() => validateE164("+447700900123")).not.toThrow();
     expect(() => validateE164("14155551234")).toThrow(/E.164/); // missing +
     expect(() => validateE164("+0155551234")).toThrow(/E.164/); // leading 0
     expect(() => validateE164("+1234")).toThrow(/E.164/); // too short
@@ -534,7 +534,7 @@ function makeAdapterWithRest(rest: SpyRest): TwilioAgentAdapter {
     // a-leg destinations are deny-by-default (#762 guardrail (c)), so every
     // a-leg test needs the number it dials on the allowlist. The allowlist
     // tests build their own adapters instead.
-    allowedCallees: ["+447911123456"],
+    allowedCallees: ["+447700900123"],
     rest,
   });
 }
@@ -558,7 +558,7 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     const baseLog = rest.restCallLog.length;
     const baseWrites = rest.writeCalls.length;
     adapter._signalStreamConnected(); // a-leg stream still comes to us
-    await adapter.placeCall({ to: "+447911123456", attachStream: "a-leg" });
+    await adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" });
 
     expect(rest.placeCallArgs).toHaveLength(1);
     const twiml = rest.placeCallArgs[0].twiml;
@@ -575,7 +575,7 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     await adapter.connect();
     openAdapter = adapter;
     adapter._signalStreamConnected();
-    await adapter.placeCall({ to: "+447911123456", attachStream: "a-leg" });
+    await adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" });
     const nonce = adapter._streamNonceForServer;
     expect(nonce).toBeDefined();
     expect(rest.placeCallArgs[0].twiml).toBe(aLegTwiml(nonce as string));
@@ -609,7 +609,7 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     await adapter.connect();
     const baseWrites = rest.writeCalls.length;
     adapter._signalStreamConnected();
-    await adapter.placeCall({ to: "+447911123456", attachStream: "a-leg" });
+    await adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" });
     expect(calleeState(adapter)).toEqual({ sid: undefined, prior: undefined });
     await adapter.disconnect();
     expect(rest.writeCalls.slice(baseWrites)).toEqual([]);
@@ -623,7 +623,7 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     const baseWrites = rest.writeCalls.length;
     // Never signal — a-leg still waits, so this times out.
     await expect(
-      adapter.placeCall({ to: "+447911123456", attachStream: "a-leg", timeoutMs: 20 }),
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg", timeoutMs: 20 }),
     ).rejects.toThrow();
     expect(calleeState(adapter)).toEqual({ sid: undefined, prior: undefined });
     await adapter.disconnect();
@@ -634,6 +634,7 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
   it.each([
     ["a-leg-vs-true", "a-leg" as const, true],
     ["b-leg-vs-false", "b-leg" as const, false],
+    ["a-leg-vs-false", "a-leg" as const, false],
   ])(
     "throws when attachStream (%s) disagrees with an explicit attachStreamToSelf",
     async (_id, attachStream, attachStreamToSelf) => {
