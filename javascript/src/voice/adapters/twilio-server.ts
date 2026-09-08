@@ -31,10 +31,12 @@ import { twilioLogger } from "./twilio-logger";
 import {
   escapeXmlAttr,
   mulaw8kToPcm16_24k,
+  nonceMatches,
   parseMediaStreamFrame,
   redactE164,
   streamWsUrl,
   verifyTwilioSignature,
+  type MediaStreamEvent,
 } from "./twilio-shared";
 
 /**
@@ -55,6 +57,12 @@ export interface MediaStreamWebSocket {
   receiveText(): Promise<string | null>;
   close(): void;
 }
+
+/**
+ * Outcome of the a-leg `start`-frame auth check: adopt the socket, drop this
+ * frame but keep listening, or close the socket.
+ */
+type StartFrameVerdict = "accept" | "ignore" | "reject";
 
 const BATCH_MS = 100;
 const TWILIO_FRAME_MS = 20;
@@ -276,14 +284,63 @@ export class TwilioWebhookServer {
    */
   async mediaStreamLoop(ws: MediaStreamWebSocket): Promise<void> {
     const adapter = this._adapter;
-    adapter._setStreamWs(ws);
-    // The terminal flag AND the inbound queue are per-CALL state: re-arm both
-    // alongside `_streamWs` so a second media-stream session on the same
-    // connected adapter (Twilio reconnect, back-to-back call) starts clean —
-    // neither inheriting the previous call's terminal flag nor draining its
-    // leftover terminal sentinel as this call's first chunk. See
-    // `_resetCallState`.
-    adapter._resetCallState();
+
+    // A-leg WS auth (#762 guardrail (a)): `_streamNonceForServer` is set ONLY by
+    // an "a-leg" placeCall, so its presence is what arms enforcement — b-leg and
+    // inbound sockets keep today's un-gated behaviour byte for byte. Until an
+    // armed socket has authenticated, it gets NO adapter state: not `_streamWs`
+    // (which `sendAudio` writes to — adopting an unauthenticated socket would
+    // hand the attacker our outbound audio) and not the per-call queue purge
+    // (which would drop the live call's audio).
+    const expectedNonce = adapter._streamNonceForServer;
+    let adopted = false;
+
+    /**
+     * Make `ws` the adapter's live transport and re-arm per-call state.
+     *
+     * The terminal flag AND the inbound queue are per-CALL state: re-armed
+     * alongside `_streamWs` so a second media-stream session on the same
+     * connected adapter (Twilio reconnect, back-to-back call) starts clean —
+     * neither inheriting the previous call's terminal flag nor draining its
+     * leftover terminal sentinel as this call's first chunk. See
+     * `_resetCallState`.
+     */
+    const adopt = (): void => {
+      adopted = true;
+      adapter._setStreamWs(ws);
+      adapter._resetCallState();
+    };
+
+    /**
+     * Does this `start` frame belong to the call we originated?
+     *
+     * Nonce first (timing-safe, and a missing `<Parameter>` is a rejection, not
+     * a bypass), then the originated call SID so a stale or probe socket cannot
+     * win the race to `_signalStreamConnected`. Never logs the nonce itself — it
+     * is a live credential for the rest of the call.
+     */
+    const authenticate = (
+      frame: MediaStreamEvent,
+      expected: string,
+    ): StartFrameVerdict => {
+      if (!nonceMatches(expected, frame.customParameters?.nonce)) {
+        twilioLogger.warn("media stream rejected — a-leg nonce missing or mismatched", {
+          callSid: frame.callSid,
+        });
+        return "reject";
+      }
+      const originatedCallSid = adapter._callSidForServer;
+      if (originatedCallSid === undefined || frame.callSid !== originatedCallSid) {
+        twilioLogger.warn("start frame ignored — callSid is not the originated call", {
+          callSid: frame.callSid,
+          originatedCallSid,
+        });
+        return "ignore";
+      }
+      return "accept";
+    };
+
+    if (expectedNonce === undefined) adopt();
 
     const buffered: number[] = [];
     const flushThresholdBytes = (BATCH_MS / TWILIO_FRAME_MS) * 160; // 100ms = 800 bytes µ-law
@@ -343,6 +400,20 @@ export class TwilioWebhookServer {
         if (!frame) continue;
 
         if (frame.event === "start") {
+          if (expectedNonce !== undefined) {
+            // A bad nonce closes the socket outright; a good nonce on the wrong
+            // call is merely ignored (AC5/AC6). Either way the socket gets no
+            // adapter state and no connected signal, so a correct socket
+            // arriving later is the one that connects.
+            const verdict = authenticate(frame, expectedNonce);
+            if (verdict === "reject") {
+              adapter._setStreamEndedReason("close");
+              ws.close();
+              return;
+            }
+            if (verdict === "ignore") continue;
+            adopt();
+          }
           if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
           if (frame.callSid) adapter._setCallSid(frame.callSid);
           adapter._signalStreamConnected();
@@ -392,8 +463,14 @@ export class TwilioWebhookServer {
       // keep draining post-teardown rather than assert liveness. Unlike the
       // Python twin, no null-guard is needed on the queue: it's never nulled —
       // `disconnect()` only `reset()`s it.
-      adapter._markStreamEnded();
-      adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
+      //
+      // A socket rejected before adoption never became this adapter's transport,
+      // so it must not end the call it failed to authenticate into either: skip
+      // the terminal sentinel entirely.
+      if (adopted) {
+        adapter._markStreamEnded();
+        adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
+      }
     }
   }
 }

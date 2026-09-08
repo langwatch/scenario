@@ -17,7 +17,8 @@ import base64
 import json
 import logging
 import re
-from dataclasses import dataclass
+import secrets
+from dataclasses import dataclass, field
 from typing import Iterator, Optional
 
 
@@ -40,6 +41,46 @@ E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 # DTMF tones: digits 0–9, star, pound, wait-1sec (w, W). No other chars.
 # Guards against TwiML XML injection in send_dtmf_on_call.
 DTMF_RE = re.compile(r"^[0-9*#wW]+$")
+
+#: Byte length of the per-call media-stream nonce (a-leg WS auth, #762).
+#: 16 bytes = 128 bits — UUIDv4-grade entropy, far beyond guessing for a value
+#: that lives only for one call. Rendered as lowercase hex because hex survives
+#: Twilio's <Parameter> round-trip with no alphabet, padding, or case ambiguity.
+STREAM_NONCE_BYTES = 16
+#: Length of the hex rendering of a minted nonce.
+STREAM_NONCE_HEX_LEN = STREAM_NONCE_BYTES * 2
+
+
+def mint_stream_nonce() -> str:
+    """Mint a fresh per-call media-stream nonce from the OS CSPRNG."""
+    return secrets.token_hex(STREAM_NONCE_BYTES)
+
+
+def nonce_matches(expected: str, received: Optional[str]) -> bool:
+    """Timing-safe compare of a received nonce against the minted one.
+
+    A missing/empty ``received`` never matches: the caller enforces on adapter
+    state (a-leg mode minted a nonce), not on the frame carrying one, so
+    omitting the ``<Parameter>`` is a rejection rather than a bypass.
+    """
+    if not received:
+        return False
+    return secrets.compare_digest(expected, received)
+
+
+def escape_xml_attr(value: str) -> str:
+    """Escape a string for interpolation into an XML attribute value.
+
+    Twin of the JS ``escapeXmlAttr`` (``twilio-shared.ts``) — the two SDKs must
+    emit byte-identical TwiML, so the escaping table is shared as well.
+    """
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
 
 
 def validate_e164(phone_number: str) -> None:
@@ -119,6 +160,9 @@ class MediaStreamEvent:
     payload_mulaw: Optional[bytes] = None  # decoded from media/base64
     dtmf_digit: Optional[str] = None
     mark_name: Optional[str] = None
+    #: ``start.customParameters`` — the <Parameter> children of <Stream>. Carries
+    #: the a-leg per-call nonce; empty for every other event and for b-leg.
+    custom_parameters: dict[str, str] = field(default_factory=dict)
 
 
 def parse_media_stream_frame(text: str) -> Optional[MediaStreamEvent]:
@@ -177,7 +221,25 @@ def parse_media_stream_frame(text: str) -> Optional[MediaStreamEvent]:
             mark_name=mark.get("name"),
         )
 
-    if event in {"connected", "start", "stop"}:
+    if event == "start":
+        raw_params = start.get("customParameters")
+        custom = (
+            {
+                name: value
+                for name, value in raw_params.items()
+                if isinstance(name, str) and isinstance(value, str)
+            }
+            if isinstance(raw_params, dict)
+            else {}
+        )
+        return MediaStreamEvent(
+            event="start",
+            stream_sid=stream_sid,
+            call_sid=call_sid,
+            custom_parameters=custom,
+        )
+
+    if event in {"connected", "stop"}:
         return MediaStreamEvent(event=event, stream_sid=stream_sid, call_sid=call_sid)
 
     return None
@@ -354,8 +416,13 @@ __all__ = [
     "TWILIO_FRAME_BYTES",
     "E164_RE",
     "DTMF_RE",
+    "STREAM_NONCE_BYTES",
+    "STREAM_NONCE_HEX_LEN",
     "validate_e164",
     "validate_dtmf",
+    "mint_stream_nonce",
+    "nonce_matches",
+    "escape_xml_attr",
     "mulaw8k_to_pcm16_24k",
     "pcm16_24k_to_mulaw8k",
     "iter_mulaw_frames",

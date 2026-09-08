@@ -503,13 +503,15 @@ describe("TwilioAgentAdapter integration paths", () => {
 // callee. Mirrors python/tests/voice/test_twilio_adapter.py.
 // ----------------------------------------------------------------------------
 
-/** The exact origination TwiML a-leg mode emits with empty stream parameters.
- * Pinned literally so Slice 2's nonce <Parameter> addition is a visible diff.
- * makeAdapter's publicBaseUrl is https://example.test. */
-const A_LEG_TWIML_SNAPSHOT =
+/** The exact origination TwiML a-leg mode emits, as a template over the per-call
+ * nonce (Slice 2). Pinned literally so any further TwiML change is a visible
+ * diff. makeAdapter's publicBaseUrl is https://example.test. */
+const aLegTwiml = (nonce: string): string =>
   `<?xml version="1.0" encoding="UTF-8"?>` +
   `<Response>` +
-  `<Connect><Stream url="wss://example.test/twilio/stream"/></Connect>` +
+  `<Connect><Stream url="wss://example.test/twilio/stream">` +
+  `<Parameter name="nonce" value="${nonce}"/>` +
+  `</Stream></Connect>` +
   `</Response>`;
 
 function makeAdapterWithRest(rest: SpyRest): TwilioAgentAdapter {
@@ -553,14 +555,16 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     expect(rest.writeCalls.slice(baseWrites)).toEqual([]);
   });
 
-  it("pins the exact empty-streamParameters a-leg TwiML string", async () => {
+  it("pins the exact a-leg TwiML string, nonce <Parameter> included", async () => {
     const rest = spyRest("PN1234567890abcdef");
     const adapter = makeAdapterWithRest(rest);
     await adapter.connect();
     openAdapter = adapter;
     adapter._signalStreamConnected();
     await adapter.placeCall({ to: "+447911123456", attachStream: "a-leg" });
-    expect(rest.placeCallArgs[0].twiml).toBe(A_LEG_TWIML_SNAPSHOT);
+    const nonce = adapter._streamNonceForServer;
+    expect(nonce).toBeDefined();
+    expect(rest.placeCallArgs[0].twiml).toBe(aLegTwiml(nonce as string));
   });
 
   it.each([

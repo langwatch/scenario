@@ -33,6 +33,7 @@
  */
 
 import { Buffer } from "node:buffer";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import { PCM16_SAMPLE_RATE } from "../audio-chunk";
 
@@ -262,6 +263,11 @@ export interface MediaStreamEvent {
   dtmfDigit?: string;
   /** Mark name (present for `mark` frames). */
   markName?: string;
+  /**
+   * `start.customParameters` — the `<Parameter>` children of `<Stream>`. Carries
+   * the a-leg per-call nonce; absent for every other event and for b-leg.
+   */
+  customParameters?: Record<string, string>;
 }
 
 const KNOWN_EVENTS = new Set<MediaStreamEventName>([
@@ -331,7 +337,18 @@ export function parseMediaStreamFrame(text: string): MediaStreamEvent | null {
     return { event: "mark", streamSid, markName: name };
   }
 
-  // connected, start, stop — no payload-specific fields.
+  if (event === "start") {
+    const raw = start.customParameters;
+    const customParameters: Record<string, string> = {};
+    if (raw && typeof raw === "object") {
+      for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof value === "string") customParameters[name] = value;
+      }
+    }
+    return { event: "start", streamSid, callSid, customParameters };
+  }
+
+  // connected, stop — no payload-specific fields.
   return { event: event as MediaStreamEventName, streamSid, callSid };
 }
 
@@ -518,6 +535,40 @@ export function escapeXmlAttr(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+/**
+ * Byte length of the per-call media-stream nonce (a-leg WS auth, #762).
+ * 16 bytes = 128 bits — UUIDv4-grade entropy, far beyond guessing for a value
+ * that lives only for one call. Rendered as lowercase hex because hex survives
+ * Twilio's `<Parameter>` round-trip with no alphabet, padding, or case
+ * ambiguity. Mirrors Python's `STREAM_NONCE_BYTES`.
+ */
+export const STREAM_NONCE_BYTES = 16;
+
+/** Length of the hex rendering of a minted nonce. */
+export const STREAM_NONCE_HEX_LEN = STREAM_NONCE_BYTES * 2;
+
+/** Mint a fresh per-call media-stream nonce from the OS CSPRNG. */
+export function mintStreamNonce(): string {
+  return randomBytes(STREAM_NONCE_BYTES).toString("hex");
+}
+
+/**
+ * Timing-safe compare of a received nonce against the minted one.
+ *
+ * A missing/empty `received` never matches: the caller enforces on adapter
+ * state (a-leg mode minted a nonce), not on the frame carrying one, so omitting
+ * the `<Parameter>` is a rejection rather than a bypass. Unequal lengths short-
+ * circuit because `timingSafeEqual` throws on them; the nonce length is fixed
+ * and public, so that leaks nothing.
+ */
+export function nonceMatches(expected: string, received: string | undefined): boolean {
+  if (!received) return false;
+  const a = Buffer.from(expected, "utf-8");
+  const b = Buffer.from(received, "utf-8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 /**

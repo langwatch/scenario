@@ -27,15 +27,17 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from opentelemetry.context import Context
 
 from ..audio_chunk import AudioChunk
 from .._telemetry import voice_span
 from ._twilio_shared import (
+    MediaStreamEvent,
     _redact_e164,
     mulaw8k_to_pcm16_24k,
+    nonce_matches,
     parse_media_stream_frame,
     stream_ws_url,
 )
@@ -45,6 +47,10 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("scenario.voice.twilio")
+
+#: Outcome of the a-leg ``start``-frame auth check: adopt the socket, drop this
+#: frame but keep listening, or close the socket.
+StartFrameVerdict = Literal["accept", "ignore", "reject"]
 
 
 class TwilioWebhookServer:
@@ -246,27 +252,77 @@ class TwilioWebhookServer:
         assert adapter._inbound_queue is not None
         assert adapter._stream_connected is not None
 
-        adapter._stream_ws = ws
-        # ``_stream_ended`` AND the inbound queue are per-CALL state: re-arm and
-        # purge both alongside ``_stream_ws`` so a second media-stream session on
-        # the same connected adapter (Twilio reconnect, back-to-back call) starts
-        # clean.
-        #
-        # The flag alone is not enough. The previous call's ``finally`` ENQUEUED a
-        # terminal sentinel; if that call ended while no drain was running (the
-        # caller hung up between turns), the sentinel is still sitting in the
-        # queue. ``recv_audio`` drains a non-empty queue without checking
-        # liveness, so the new call's first ``recv_audio`` would hand that stale
-        # empty chunk to ``_drain_agent_response`` as its first chunk — and the
-        # drain breaks on an empty chunk, truncating the new call's first agent
-        # turn to silence and stranding its real audio for the turn after.
-        #
-        # No frame of THIS call has been enqueued yet, so anything present is the
-        # previous session's residue and is safe to drop. Waiters are untouched:
-        # a consumer already parked in ``get()`` stays parked for real audio.
-        adapter._stream_ended = False
-        while not adapter._inbound_queue.empty():
-            adapter._inbound_queue.get_nowait()
+        # A-leg WS auth (#762 guardrail (a)): ``_stream_nonce`` is set ONLY by an
+        # "a-leg" ``place_call``, so its presence is what arms enforcement — b-leg
+        # and inbound sockets keep today's un-gated behaviour byte for byte.
+        # Until an armed socket has authenticated, it gets NO adapter state: not
+        # ``_stream_ws`` (which ``send_audio`` writes to — adopting an
+        # unauthenticated socket would hand the attacker our outbound audio) and
+        # not the per-call queue purge (which would drop the live call's audio).
+        enforce_auth = adapter._stream_nonce is not None
+        adopted = False
+
+        def _adopt() -> None:
+            """Make ``ws`` the adapter's live transport and re-arm per-call state.
+
+            ``_stream_ended`` AND the inbound queue are per-CALL state: re-armed
+            and purged alongside ``_stream_ws`` so a second media-stream session
+            on the same connected adapter (Twilio reconnect, back-to-back call)
+            starts clean.
+
+            The flag alone is not enough. The previous call's ``finally``
+            ENQUEUED a terminal sentinel; if that call ended while no drain was
+            running (the caller hung up between turns), the sentinel is still
+            sitting in the queue. ``recv_audio`` drains a non-empty queue without
+            checking liveness, so the new call's first ``recv_audio`` would hand
+            that stale empty chunk to ``_drain_agent_response`` as its first
+            chunk — and the drain breaks on an empty chunk, truncating the new
+            call's first agent turn to silence and stranding its real audio for
+            the turn after.
+
+            No frame of THIS call has been enqueued yet, so anything present is
+            the previous session's residue and is safe to drop. Waiters are
+            untouched: a consumer already parked in ``get()`` stays parked for
+            real audio.
+            """
+            nonlocal adopted
+            assert adapter._inbound_queue is not None
+            adopted = True
+            adapter._stream_ws = ws
+            adapter._stream_ended = False
+            while not adapter._inbound_queue.empty():
+                adapter._inbound_queue.get_nowait()
+
+        def _authenticate(frame: MediaStreamEvent) -> StartFrameVerdict:
+            """Does this ``start`` frame belong to the call we originated?
+
+            Nonce first (timing-safe, and a missing ``<Parameter>`` is a
+            rejection, not a bypass), then the originated call SID so a stale or
+            probe socket cannot win the race to ``_stream_connected``. Never logs
+            the nonce itself — it is a live credential for the rest of the call.
+            """
+            assert adapter._stream_nonce is not None
+            if not nonce_matches(
+                adapter._stream_nonce, frame.custom_parameters.get("nonce")
+            ):
+                logger.warning(
+                    "TwilioAgentAdapter: media stream rejected — a-leg nonce "
+                    "missing or mismatched (call_sid=%s)",
+                    frame.call_sid,
+                )
+                return "reject"
+            if adapter._call_sid is None or frame.call_sid != adapter._call_sid:
+                logger.warning(
+                    "TwilioAgentAdapter: start frame ignored — call_sid=%s is "
+                    "not the originated call %s",
+                    frame.call_sid,
+                    adapter._call_sid,
+                )
+                return "ignore"
+            return "accept"
+
+        if not enforce_auth:
+            _adopt()
         # Buffer µ-law for batched decoding — send_audio/recv_audio operate at
         # the AudioChunk level, so we coalesce ~100ms of incoming µ-law per
         # chunk to avoid thousands of tiny AudioChunk objects.
@@ -326,6 +382,21 @@ class TwilioWebhookServer:
                     continue
 
                 if frame.event == "start":
+                    if enforce_auth:
+                        # A bad nonce closes the socket outright; a good nonce on
+                        # the wrong call is merely ignored (AC5/AC6). Either way
+                        # the socket gets no adapter state and no connected
+                        # signal, so a correct socket arriving later is the one
+                        # that connects.
+                        verdict = _authenticate(frame)
+                        if verdict == "reject":
+                            adapter._stream_ended_reason = "close"
+                            with suppress(Exception):
+                                await ws.close()
+                            return
+                        if verdict == "ignore":
+                            continue
+                        _adopt()
                     adapter._stream_sid = frame.stream_sid
                     if frame.call_sid and adapter._call_sid is None:
                         adapter._call_sid = frame.call_sid
@@ -398,6 +469,10 @@ class TwilioWebhookServer:
             # flag tells ``recv_audio`` to keep draining post-teardown rather
             # than assert liveness. Guard the disconnect race where
             # ``disconnect()`` already nulled the queue.
-            adapter._stream_ended = True
-            if adapter._inbound_queue is not None:
-                await adapter._inbound_queue.put(AudioChunk(data=b""))
+            # A socket rejected before adoption never became this adapter's
+            # transport, so it must not end the call it failed to authenticate
+            # into either: skip the terminal sentinel entirely.
+            if adopted:
+                adapter._stream_ended = True
+                if adapter._inbound_queue is not None:
+                    await adapter._inbound_queue.put(AudioChunk(data=b""))

@@ -33,6 +33,7 @@ import {
   buildMediaFrame,
   escapeXmlAttr,
   iterMulawFrames,
+  mintStreamNonce,
   pcm16_24kToMulaw8k,
   redactE164,
   streamWsUrl,
@@ -179,6 +180,15 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   private _streamSid?: string;
   private _callSid?: string;
   private _streamWs: MediaStreamWebSocket | null = null;
+  /**
+   * A-leg WS auth (#762 guardrail (a)). Set by `placeCall` in "a-leg" mode only;
+   * its non-undefined-ness is what ARMS media-stream nonce enforcement. In b-leg
+   * mode the signed `POST /twilio/voice` precedes the socket, so the socket
+   * inherits that trust and this stays undefined — enforcement is keyed on the
+   * mode we originated in, never on whether the inbound frame happens to carry a
+   * nonce (which an attacker could simply omit).
+   */
+  private _streamNonce?: string;
   private _streamConnected = makeDeferred<void>();
   private _inboundQueue: InboundQueue = new InboundQueue();
   private _connected = false;
@@ -255,6 +265,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     });
 
     this._mode = "idle";
+    this._streamNonce = undefined;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
@@ -345,6 +356,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamSid = undefined;
     this._callSid = undefined;
     this._streamWs = null;
+    this._streamNonce = undefined;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
@@ -417,14 +429,21 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         // <Connect><Stream>, so `to` can be any external number and we touch
         // nothing on the callee. Same TwiML shape the inbound webhook returns
         // (twilio-server.ts), now on origination.
-        // Seam (Slice 2): `streamParameters` renders <Parameter> children inside
-        // <Stream>; empty today, a per-call nonce lands here.
+        //
+        // Guardrail (a): the socket is the only inbound signal on this path, so
+        // it must authenticate itself. Mint a per-call CSPRNG nonce and ship it
+        // as a <Parameter> child; Twilio echoes it back in the `start` frame's
+        // customParameters, and the media loop (twilio-server.ts) closes any
+        // socket that cannot present it.
+        //
         // Other modes: play a short deterministic <Say> anchor (Whisper
         // hallucinates on bare <Pause> silence, #465), then hold the bridge open
         // while B's webhook attaches the Media Stream.
+        const nonce = mode === "a-leg" ? mintStreamNonce() : undefined;
+        this._streamNonce = nonce;
         const originationTwiml =
-          mode === "a-leg"
-            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl), {})
+          nonce !== undefined
+            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl), { nonce })
             : `<?xml version="1.0" encoding="UTF-8"?>` +
               `<Response>` +
               `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
@@ -654,6 +673,19 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
   /** @internal */ _setCallSid(sid: string | undefined): void {
     if (!this._callSid) this._callSid = sid;
+  }
+  /**
+   * @internal A-leg WS auth expectation the media loop enforces (#762): the
+   * per-call nonce minted at origination, or `undefined` in every un-gated mode
+   * (b-leg, originator-only, inbound). Presence ARMS enforcement.
+   */
+  get _streamNonceForServer(): string | undefined {
+    return this._streamNonce;
+  }
+  /** @internal The call SID origination returned — what a `start` frame's
+   * callSid must match in a-leg mode. */
+  get _callSidForServer(): string | undefined {
+    return this._callSid;
   }
   /** @internal */ _signalStreamConnected(): void {
     this._streamConnected.resolve();

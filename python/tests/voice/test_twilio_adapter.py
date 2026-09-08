@@ -413,13 +413,15 @@ async def test_place_call_rejects_non_e164_target(monkeypatch):
 
 # ---------------------------------------------------------- a-leg external mode
 
-#: The exact origination TwiML a-leg mode emits with an empty stream_parameters
-#: dict. Pinned literally so Slice 2's nonce <Parameter> addition is a visible
+#: The exact origination TwiML a-leg mode emits, as a template over the per-call
+#: nonce (Slice 2). Pinned literally so any further TwiML change is a visible
 #: diff. `_make_adapter`'s public_base_url is https://example.trycloudflare.com.
-A_LEG_TWIML_SNAPSHOT = (
+A_LEG_TWIML_TEMPLATE = (
     '<?xml version="1.0" encoding="UTF-8"?>'
     "<Response>"
-    '<Connect><Stream url="wss://example.trycloudflare.com/twilio/stream"/></Connect>'
+    '<Connect><Stream url="wss://example.trycloudflare.com/twilio/stream">'
+    '<Parameter name="nonce" value="{nonce}"/>'
+    "</Stream></Connect>"
     "</Response>"
 )
 
@@ -454,8 +456,7 @@ async def test_place_call_a_leg_emits_connect_stream_and_zero_callee_rest(monkey
 
 @pytest.mark.asyncio
 async def test_place_call_a_leg_twiml_snapshot(monkeypatch):
-    """Pin the exact empty-stream_parameters TwiML string so Slice 2's nonce is
-    a visible diff."""
+    """Pin the exact a-leg TwiML string, nonce <Parameter> included."""
     rest_instances = _install_fake_rest(monkeypatch)
     a = _make_adapter(http_port=0)
     await a.connect()
@@ -463,7 +464,10 @@ async def test_place_call_a_leg_twiml_snapshot(monkeypatch):
         assert a._stream_connected is not None
         a._stream_connected.set()
         await a.place_call(to="+447911123456", attach_stream="a-leg")
-        assert rest_instances[0].place_call_kwargs[0]["twiml"] == A_LEG_TWIML_SNAPSHOT
+        assert a._stream_nonce is not None
+        assert rest_instances[0].place_call_kwargs[0][
+            "twiml"
+        ] == A_LEG_TWIML_TEMPLATE.format(nonce=a._stream_nonce)
     finally:
         await a.disconnect()
 

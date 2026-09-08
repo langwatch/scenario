@@ -47,7 +47,9 @@ from ._twilio_shared import (
     _redact_e164,
     build_clear_frame,
     build_media_frame,
+    escape_xml_attr,
     iter_mulaw_frames,
+    mint_stream_nonce,
     pcm16_24k_to_mulaw8k,
     stream_ws_url,
     validate_e164,
@@ -108,15 +110,21 @@ def _build_connect_stream_twiml(
     ``stream_parameters`` renders ``<Parameter name=.. value=../>`` children
     inside ``<Stream>``; an empty dict renders the self-closing
     ``<Stream url=".."/>`` form byte-identically to the inbound webhook's TwiML.
+
+    Every attribute value goes through ``escape_xml_attr`` so this builder
+    cannot be broken out of, and so it stays byte-identical to the JS twin
+    (``buildConnectStreamTwiml``), which has always escaped.
     """
     param_children = "".join(
-        f'<Parameter name="{name}" value="{value}"/>'
+        f'<Parameter name="{escape_xml_attr(name)}" '
+        f'value="{escape_xml_attr(value)}"/>'
         for name, value in stream_parameters.items()
     )
+    escaped_url = escape_xml_attr(ws_url)
     stream_el = (
-        f'<Stream url="{ws_url}">{param_children}</Stream>'
+        f'<Stream url="{escaped_url}">{param_children}</Stream>'
         if param_children
-        else f'<Stream url="{ws_url}"/>'
+        else f'<Stream url="{escaped_url}"/>'
     )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -221,6 +229,13 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_sid: Optional[str] = None
         self._stream_connected: Optional[asyncio.Event] = None
         self._stream_ws: Any = None  # starlette WebSocket
+        # A-leg WS auth (#762 guardrail (a)). Set by place_call in "a-leg" mode
+        # only; its non-None-ness is what ARMS media-stream nonce enforcement.
+        # In b-leg mode the signed POST /twilio/voice precedes the socket, so
+        # the socket inherits that trust and this stays None — enforcement is
+        # keyed on the mode we originated in, never on whether the inbound frame
+        # happens to carry a nonce (which an attacker could simply omit).
+        self._stream_nonce: Optional[str] = None
         self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
         # Set True by the media-stream loop's terminal path (stop / socket close
         # / throw) the moment it enqueues the end-of-call sentinel. Once the call
@@ -312,6 +327,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_ended_reason = "none"
         self._webhook_invocations = 0
         self._webhook_rejected = 0
+        self._stream_nonce = None
         self._mode = "idle"
 
         # Webhook server is its own unit — see _twilio_server.py. The
@@ -414,6 +430,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_sid = None
         self._stream_connected = None
         self._stream_ws = None
+        self._stream_nonce = None
         if self._inbound_queue is not None:
             # A recv_audio() task may already be blocked in get() on this queue.
             # Wake that in-flight consumer before dropping our reference; setting
@@ -548,11 +565,15 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 # touch nothing on the callee. Same TwiML shape the inbound
                 # webhook returns (`_twilio_server.py`), now on origination.
                 #
-                # Seam (Slice 2): `stream_parameters` renders <Parameter> children
-                # inside <Stream>; empty today, a per-call nonce lands here.
+                # Guardrail (a): the socket is the only inbound signal on this
+                # path, so it must authenticate itself. Mint a per-call CSPRNG
+                # nonce and ship it as a <Parameter> child; Twilio echoes it back
+                # in the `start` frame's customParameters, and the media loop
+                # (`_twilio_server.py`) closes any socket that cannot present it.
+                self._stream_nonce = mint_stream_nonce()
                 origination_twiml = _build_connect_stream_twiml(
                     stream_ws_url(self.public_base_url),
-                    stream_parameters={},
+                    stream_parameters={"nonce": self._stream_nonce},
                 )
             else:
                 # A-leg (originator-side) TwiML for b-leg / originator-only modes:
