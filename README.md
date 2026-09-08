@@ -183,6 +183,37 @@ def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
 <details>
 <summary><strong>Quick Start - TypeScript</strong></summary>
 
+Setup `scenario.config.js` or `scenario.config.mjs` at the root of your project.
+
+```typescript
+import { openai } from "@ai-sdk/openai";
+import { defineConfig } from "@langwatch/scenario";
+
+export default defineConfig({
+  defaultModel: {
+    model: openai("gpt-4.1"),
+  },
+});
+```
+
+Setup `vitest.config.ts` or `vitest.config.mts` at the root of your project. This is important to enable autopilot simulation.
+
+```typescript
+import { withScenario } from "@langwatch/scenario/integrations/vitest/config";
+import VitestReporter from "@langwatch/scenario/integrations/vitest/reporter";
+import { defineConfig } from "vitest/config";
+
+export default withScenario(
+  defineConfig({
+    test: {
+      testTimeout: 180_000, // 3 minutes
+      setupFiles: ["dotenv/config"],
+      reporters: ["default", new VitestReporter()],
+    },
+  })
+);
+```
+
 Save it as `tests/vegetarian-recipe-agent.test.ts`:
 
 ```typescript
