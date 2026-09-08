@@ -59,6 +59,46 @@ export function validateE164(phoneNumber: string): void {
   }
 }
 
+/**
+ * Validate a phone number and return its canonical comparison form.
+ *
+ * Allowlist membership is decided on the value this returns, on BOTH sides of
+ * the comparison, so a match is an exact `Set` lookup. Never compare raw
+ * strings with `includes`/`startsWith`: "+1415555" is a prefix of a real
+ * allowlisted number and must not pass.
+ */
+export function normalizeE164(phoneNumber: string): string {
+  const stripped = phoneNumber.trim();
+  validateE164(stripped);
+  return stripped;
+}
+
+/**
+ * Thrown when the public base URL is not yet reachable from the edge.
+ *
+ * A-leg origination hands Twilio our public URL and Twilio opens the media
+ * WebSocket against it within seconds. If the tunnel edge is not live yet the
+ * call connects to nothing: the caller pays for a dead PSTN call that ends in a
+ * confusing stream-connect timeout. Failing fast under a named error before
+ * origination is the cheaper failure.
+ */
+export class TunnelNotReadyError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "TunnelNotReadyError";
+  }
+}
+
+/**
+ * Anything that can tell us our public URL is reachable from the edge.
+ *
+ * Structurally satisfied by any tunnel wrapper that exposes the check; the
+ * adapter never owns or opens a tunnel itself, it only asks.
+ */
+export interface TunnelReadiness {
+  waitUntilEdgeReachable(): Promise<void>;
+}
+
 /** Throw unless `tones` is a valid DTMF string (`[0-9*#wW]+`). */
 export function validateDtmf(tones: string): void {
   if (!tones || !DTMF_RE.test(tones)) {

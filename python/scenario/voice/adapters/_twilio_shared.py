@@ -19,7 +19,7 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass, field
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Protocol, runtime_checkable
 
 
 logger = logging.getLogger("scenario.voice.twilio")
@@ -130,6 +130,42 @@ def validate_e164(phone_number: str) -> None:
             f"phone_number {phone_number!r} is not in E.164 format "
             f"(expected e.g. '+14155551234', pattern: leading '+' then 7–15 digits)."
         )
+
+
+def normalize_e164(phone_number: str) -> str:
+    """Validate a phone number and return its canonical comparison form.
+
+    Allowlist membership is decided on the value this returns, on BOTH sides of
+    the comparison, so a match is an exact set lookup. Never compare raw
+    strings with ``in``/``startswith``: "+1415555" is a prefix of a real
+    allowlisted number and must not pass.
+    """
+    stripped = phone_number.strip()
+    validate_e164(stripped)
+    return stripped
+
+
+class TunnelNotReadyError(RuntimeError):
+    """Raised when the public base URL is not yet reachable from the edge.
+
+    A-leg origination hands Twilio our public URL and Twilio opens the media
+    WebSocket against it within seconds. If the tunnel edge is not live yet the
+    call connects to nothing: the caller pays for a dead PSTN call that ends in
+    a confusing stream-connect timeout. Failing fast under a named error before
+    origination is the cheaper failure.
+    """
+
+
+@runtime_checkable
+class TunnelReadiness(Protocol):
+    """Anything that can tell us our public URL is reachable from the edge.
+
+    Structurally satisfied by ``scenario.voice.testing.CloudflareTunnel`` — the
+    adapter never imports the tunnel (``testing`` depends on ``adapters``, not
+    the other way round), it just calls the method the tunnel already has.
+    """
+
+    async def wait_until_edge_reachable(self) -> None: ...
 
 
 def validate_dtmf(tones: str) -> None:
@@ -481,7 +517,10 @@ __all__ = [
     "DEFAULT_MAX_CALL_DURATION_SECONDS",
     "resolve_max_call_duration",
     "validate_e164",
+    "normalize_e164",
     "validate_dtmf",
+    "TunnelNotReadyError",
+    "TunnelReadiness",
     "mint_stream_nonce",
     "nonce_matches",
     "escape_xml_attr",

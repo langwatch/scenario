@@ -46,6 +46,8 @@ from ..capabilities import AdapterCapabilities
 from .._telemetry import set_span_attributes, voice_span
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
+    TunnelNotReadyError,
+    TunnelReadiness,
     TwilioRESTHelper,
     _redact_e164,
     build_clear_frame,
@@ -53,6 +55,7 @@ from ._twilio_shared import (
     escape_xml_attr,
     iter_mulaw_frames,
     mint_stream_nonce,
+    normalize_e164,
     pcm16_24k_to_mulaw8k,
     resolve_max_call_duration,
     stream_ws_url,
@@ -182,6 +185,8 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         phone_number: str,
         public_base_url: Optional[str] = None,
         allowed_callers: Optional[list[str]] = None,
+        allowed_callees: Optional[list[str]] = None,
+        tunnel_readiness: Optional[TunnelReadiness] = None,
         on_dtmf: Optional[Callable[[str], None]] = None,
         http_port: int = 8765,
         role: AgentRole = AgentRole.AGENT,
@@ -195,6 +200,22 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self.phone_number = phone_number
         self.public_base_url = public_base_url
         self.allowed_callers = set(allowed_callers) if allowed_callers else None
+        # Destination allowlist for a-leg mode (#762 guardrail (c)). ``None``
+        # denies every a-leg destination: a-leg dials numbers this account does
+        # NOT own, so an unguarded ``to`` is an unbounded dialer and the
+        # capability has to be opted into per destination. Entries are
+        # normalised (and so validated) here rather than at dial time, so a
+        # typo fails at setup instead of when a PSTN call is about to be
+        # billed. b-leg is deliberately not gated on this — it can only reach
+        # numbers on this account, which is its own guardrail.
+        self.allowed_callees = (
+            {normalize_e164(n) for n in allowed_callees} if allowed_callees else None
+        )
+        # Edge-readiness probe consulted before a-leg origination (#762
+        # guardrail (c)). ``CloudflareTunnel`` satisfies it structurally;
+        # ``TwilioHarness`` wires its own tunnel in. ``None`` means the caller
+        # owns a stable public URL and has nothing to wait for.
+        self.tunnel_readiness = tunnel_readiness
         self.on_dtmf = on_dtmf
         self.http_port = http_port
         self.role = role  # type: ignore[misc]
@@ -514,7 +535,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         - ``"a-leg"`` — originate with inline ``<Connect><Stream>`` so the
           Media Stream rides OUR own leg. Touches nothing on the callee (no
           ``resolve_phone_number_sid``/``read_voice_url``/``write_voice_url``),
-          so ``to`` can be any external number.
+          so ``to`` can be any external number. Because that reaches numbers
+          this account does not own, ``to`` must appear in the adapter's
+          ``allowed_callees`` (deny-by-default) and the public base URL must be
+          reachable from the edge — both checked before origination.
 
         The legacy ``attach_stream_to_self`` bool is still honoured but
         superseded by ``attach_stream``: ``True``/unset → ``"b-leg"``,
@@ -542,7 +566,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             RuntimeError: If called after ``wait_for_call()`` (modes are
                 exclusive per adapter instance), or if ``to`` is not a
                 Twilio number on this account.
-            ValueError: If ``to`` is not in E.164 format.
+            ValueError: If ``to`` is not in E.164 format, or — in a-leg mode —
+                is not on ``allowed_callees``.
+            TunnelNotReadyError: If a-leg mode's readiness probe says the
+                public base URL is not reachable from the edge yet.
             asyncio.TimeoutError: If the media stream doesn't open within
                 ``timeout`` seconds.
         """
@@ -560,6 +587,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # ignored: silently dropping it would leave the caller believing the
         # call is bounded when it is not.
         if mode == "a-leg":
+            # Guardrail (c): destinations are deny-by-default in a-leg mode.
+            # Checked here, with the other local caller-fixable failures, so a
+            # misconfigured allowlist costs nothing and dials nothing.
+            self._assert_callee_allowed(to)
             max_call_duration = resolve_max_call_duration(max_call_duration_seconds)
         elif max_call_duration_seconds is not None:
             raise ValueError(
@@ -569,6 +600,14 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             )
         else:
             max_call_duration = None
+
+        # Guardrail (c), second half: a-leg hands Twilio our public URL and
+        # Twilio opens the media socket against it seconds later. Probe the edge
+        # AFTER the free local checks above and BEFORE origination, so an
+        # unreachable tunnel is a named error instead of a billed call that
+        # dies in a stream-connect timeout.
+        if mode == "a-leg":
+            await self._assert_tunnel_ready()
 
         assert self.public_base_url is not None
         assert self._rest is not None
@@ -752,6 +791,52 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     ),
                 },
             )
+
+    def _assert_callee_allowed(self, to: str) -> None:
+        """Refuse an a-leg destination that was not explicitly allowlisted.
+
+        Default-deny: no ``allowed_callees`` means no a-leg call at all. The
+        message names the field to set, because "denied" without "here is how
+        to allow it" just sends the caller reading source.
+
+        Comparison is an exact set lookup on the normalised number, so a
+        near-miss — a prefix, a suffix, an extra space — is a refusal.
+        """
+        if self.allowed_callees is None:
+            raise ValueError(
+                'place_call: attach_stream="a-leg" requires allowed_callees. '
+                "a-leg dials numbers this Twilio account does not own, so "
+                "destinations are deny-by-default: pass "
+                "TwilioAgentAdapter(allowed_callees=[...]) listing every "
+                f"number this adapter may dial, including {_redact_e164(to)}."
+            )
+        if normalize_e164(to) not in self.allowed_callees:
+            raise ValueError(
+                f"place_call: destination {_redact_e164(to)} is not in "
+                "allowed_callees. Add it to "
+                "TwilioAgentAdapter(allowed_callees=[...]) to permit this "
+                "destination."
+            )
+
+    async def _assert_tunnel_ready(self) -> None:
+        """Refuse to originate until the public URL is reachable from the edge.
+
+        Delegates to whatever readiness probe was supplied — ``CloudflareTunnel``
+        already knows how to answer this. No probe means the caller owns a
+        stable public URL and there is nothing to wait for.
+        """
+        if self.tunnel_readiness is None:
+            return
+        try:
+            await self.tunnel_readiness.wait_until_edge_reachable()
+        except TunnelNotReadyError:
+            raise
+        except Exception as exc:
+            raise TunnelNotReadyError(
+                f"place_call: public_base_url {self.public_base_url!r} is not "
+                "reachable from the edge yet, so Twilio's media stream would "
+                "connect to nothing. Not originating."
+            ) from exc
 
     def _enter_mode(self, mode: TwilioAdapterMode) -> None:
         """Transition idle → mode, or raise if already in a different mode.

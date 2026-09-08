@@ -29,18 +29,23 @@ import { twilioLogger } from "./twilio-logger";
 import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
 import {
   TWILIO_FRAME_MS,
+  TunnelNotReadyError,
+  type TunnelReadiness,
   TwilioRESTHelper,
   buildClearFrame,
   buildMediaFrame,
   escapeXmlAttr,
   iterMulawFrames,
   mintStreamNonce,
+  normalizeE164,
   pcm16_24kToMulaw8k,
   redactE164,
   resolveMaxCallDuration,
   streamWsUrl,
   validateE164,
 } from "./twilio-shared";
+
+export { TunnelNotReadyError, type TunnelReadiness } from "./twilio-shared";
 
 export type TwilioAdapterMode = "idle" | "answer" | "call";
 
@@ -126,6 +131,22 @@ export interface TwilioAgentAdapterOptions {
   publicBaseUrl?: string;
   /** Allowed-callers filter for inbound calls. Unset = any caller accepted. */
   allowedCallers?: readonly string[];
+  /**
+   * Destination allowlist for a-leg outbound calls (#762 guardrail (c)).
+   * Unset denies EVERY a-leg destination: a-leg dials numbers this account does
+   * not own, so an unguarded `to` is an unbounded dialer and the capability has
+   * to be opted into per destination. Entries are validated at construction, so
+   * a typo fails at setup instead of when a PSTN call is about to be billed.
+   * b-leg is deliberately not gated on this — it can only reach numbers on this
+   * account, which is its own guardrail.
+   */
+  allowedCallees?: readonly string[];
+  /**
+   * Edge-readiness probe consulted before a-leg origination (#762 guardrail
+   * (c)). Unset means the caller owns a stable public URL and has nothing to
+   * wait for.
+   */
+  tunnelReadiness?: TunnelReadiness;
   /** Callback invoked when the remote side sends DTMF mid-call. */
   onDtmf?: (digit: string) => void;
   /** HTTP server port. 0 = OS-assigned (recommended for tests). */
@@ -167,6 +188,8 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   readonly phoneNumber: string;
   publicBaseUrl?: string;
   readonly allowedCallers?: ReadonlySet<string>;
+  readonly allowedCallees?: ReadonlySet<string>;
+  readonly tunnelReadiness?: TunnelReadiness;
   readonly onDtmf?: (digit: string) => void;
   readonly httpPort: number;
   readonly validateSignature: boolean;
@@ -237,6 +260,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this.allowedCallers = options.allowedCallers
       ? new Set(options.allowedCallers)
       : undefined;
+    // Normalising here is also validating: a bad entry throws at construction
+    // rather than at dial time. See `allowedCallees` on the options type.
+    this.allowedCallees = options.allowedCallees?.length
+      ? new Set(options.allowedCallees.map(normalizeE164))
+      : undefined;
+    this.tunnelReadiness = options.tunnelReadiness;
     this.onDtmf = options.onDtmf;
     this.httpPort = options.httpPort ?? 0;
     this.role = options.role ?? AgentRole.AGENT;
@@ -406,7 +435,10 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     /**
      * Stream-attach mode. "b-leg" (default) rewrites the callee's voice_url —
      * owned numbers only. "a-leg" originates with inline `<Connect><Stream>` so
-     * the stream rides our own leg and `to` can be any external number.
+     * the stream rides our own leg and `to` can be any external number. Because
+     * that reaches numbers this account does not own, `to` must appear in the
+     * adapter's `allowedCallees` (deny-by-default) and the public base URL must
+     * be reachable from the edge — both checked before origination.
      */
     attachStream?: "a-leg" | "b-leg";
     /**
@@ -444,6 +476,10 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     // when it is not.
     let maxCallDuration: number | undefined;
     if (mode === "a-leg") {
+      // Guardrail (c): destinations are deny-by-default in a-leg mode. Checked
+      // here, with the other local caller-fixable failures, so a misconfigured
+      // allowlist costs nothing and dials nothing.
+      this._assertCalleeAllowed(args.to);
       maxCallDuration = resolveMaxCallDuration(args.maxCallDurationSeconds);
     } else if (args.maxCallDurationSeconds !== undefined) {
       throw new Error(
@@ -451,6 +487,15 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           `attachStream="a-leg"; b-leg and originator-only modes hold the ` +
           `originator leg with <Pause> and are bounded by it.`,
       );
+    }
+
+    // Guardrail (c), second half: a-leg hands Twilio our public URL and Twilio
+    // opens the media socket against it seconds later. Probe the edge AFTER the
+    // free local checks above and BEFORE origination, so an unreachable tunnel
+    // is a named error instead of a billed call that dies in a stream-connect
+    // timeout.
+    if (mode === "a-leg") {
+      await this._assertTunnelReady();
     }
 
     // NEW `voice.adapter.dial` span (#775 Tier 2a): self-instrumented, since
@@ -539,6 +584,57 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         }
       },
     );
+  }
+
+  /**
+   * Refuse an a-leg destination that was not explicitly allowlisted.
+   *
+   * Default-deny: no `allowedCallees` means no a-leg call at all. The message
+   * names the option to set, because "denied" without "here is how to allow it"
+   * just sends the caller reading source.
+   *
+   * Comparison is an exact `Set` lookup on the normalised number, so a
+   * near-miss — a prefix, a suffix, an extra space — is a refusal.
+   */
+  private _assertCalleeAllowed(to: string): void {
+    if (!this.allowedCallees) {
+      throw new Error(
+        `placeCall: attachStream="a-leg" requires allowedCallees. ` +
+          `a-leg dials numbers this Twilio account does not own, so ` +
+          `destinations are deny-by-default: pass ` +
+          `new TwilioAgentAdapter({ allowedCallees: [...] }) listing every ` +
+          `number this adapter may dial, including ${redactE164(to)}.`,
+      );
+    }
+    if (!this.allowedCallees.has(normalizeE164(to))) {
+      throw new Error(
+        `placeCall: destination ${redactE164(to)} is not in ` +
+          `allowedCallees. Add it to ` +
+          `new TwilioAgentAdapter({ allowedCallees: [...] }) to permit this ` +
+          `destination.`,
+      );
+    }
+  }
+
+  /**
+   * Refuse to originate until the public URL is reachable from the edge.
+   *
+   * Delegates to whatever readiness probe was supplied. No probe means the
+   * caller owns a stable public URL and there is nothing to wait for.
+   */
+  private async _assertTunnelReady(): Promise<void> {
+    if (!this.tunnelReadiness) return;
+    try {
+      await this.tunnelReadiness.waitUntilEdgeReachable();
+    } catch (err) {
+      if (err instanceof TunnelNotReadyError) throw err;
+      throw new TunnelNotReadyError(
+        `placeCall: publicBaseUrl ${JSON.stringify(this.publicBaseUrl)} is not ` +
+          `reachable from the edge yet, so Twilio's media stream would ` +
+          `connect to nothing. Not originating.`,
+        { cause: err },
+      );
+    }
   }
 
   async waitForCall(timeoutMs = 120_000): Promise<void> {

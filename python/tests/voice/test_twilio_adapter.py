@@ -22,6 +22,10 @@ def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
         # signature; signature validation is exercised in dedicated
         # tests below.
         validate_signature=False,
+        # a-leg destinations are deny-by-default (#762 guardrail (c)), so every
+        # a-leg test needs the number it dials on the allowlist. Overridden by
+        # the allowlist tests themselves.
+        allowed_callees=["+447911123456"],
     )
     kwargs.update(overrides)
     return TwilioAgentAdapter(**kwargs)

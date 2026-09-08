@@ -68,6 +68,10 @@ function makeAdapter(rest: SpyRest): TwilioAgentAdapter {
     phoneNumber: "+14155551234",
     publicBaseUrl: "https://example.test",
     validateSignature: false,
+    // a-leg destinations are deny-by-default (#762 guardrail (c)), so every
+    // a-leg test needs the number it dials on the allowlist. The allowlist
+    // tests build their own adapters instead.
+    allowedCallees: ["+447911123456"],
     rest,
   });
 }
