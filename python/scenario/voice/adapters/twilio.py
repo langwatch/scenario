@@ -75,6 +75,17 @@ PLACE_CALL_A_LEG_SAY_TEXT = (
     "I will hold the line while you complete your scenario."
 )
 
+#: Refusal for ``send_dtmf`` under a-leg (#762 AC10). Says WHY, because
+#: "unsupported" alone reads as an oversight rather than a deliberate guard.
+A_LEG_SEND_DTMF_UNSUPPORTED = (
+    "TwilioAgentAdapter: send_dtmf is unsupported in external (a-leg) mode. "
+    "Sending DTMF replaces the live call's TwiML, which redirects the call away "
+    "from the <Connect><Stream> verb and would end the media stream this "
+    "scenario is running on. In b-leg mode the stream rides the callee's leg, "
+    "so the redirect is harmless; in a-leg mode it is the call. Use b-leg mode "
+    "(an owned callee number) if the scenario needs DTMF."
+)
+
 #: Effective stream-attach mode resolved from ``place_call``'s two parameters.
 StreamAttachMode = Literal["a-leg", "b-leg", "originator-only"]
 
@@ -818,6 +829,24 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 "destination."
             )
 
+    def _assert_dtmf_supported(self) -> None:
+        """Refuse DTMF on a call whose media stream rides our own leg (#762 AC10).
+
+        ``send_dtmf`` works by ``calls(sid).update(twiml=...)``, which REPLACES
+        the TwiML the call is executing. Under b-leg that TwiML is a ``<Say>`` +
+        ``<Pause>`` hold on our leg, so replacing it costs nothing — the Media
+        Stream lives on the callee's leg. Under a-leg the TwiML being replaced
+        IS the ``<Connect><Stream>`` verb carrying the scenario, so the same
+        REST call would redirect the call away from the socket and end the media
+        session mid-run.
+
+        Armed off ``_stream_nonce`` — set only by an a-leg ``place_call``, the
+        same signal the media loop uses to arm nonce enforcement — rather than
+        re-derived from the caller's arguments here.
+        """
+        if self._stream_nonce is not None:
+            raise RuntimeError(A_LEG_SEND_DTMF_UNSUPPORTED)
+
     async def _assert_tunnel_ready(self) -> None:
         """Refuse to originate until the public URL is reachable from the edge.
 
@@ -985,7 +1014,11 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
 
     async def send_dtmf(self, tones: str) -> None:
-        """Send DTMF digits on the live call (uses Twilio REST ``<Play digits>``)."""
+        """Send DTMF digits on the live call (uses Twilio REST ``<Play digits>``).
+
+        Refused in a-leg mode (#762 AC10) — see ``_assert_dtmf_supported``.
+        """
+        self._assert_dtmf_supported()
         if self._rest is None or self._call_sid is None:
             raise RuntimeError("TwilioAgentAdapter: no active call; send_dtmf requires an in-progress call")
         # Run blocking REST call off-thread so we don't stall the event loop.

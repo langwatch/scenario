@@ -68,6 +68,9 @@ class FakeREST:
         # Call SIDs passed to end_call — the max-duration watchdog's REST
         # teardown (#762 guardrail (b)).
         self.end_calls: list[str] = []
+        # ``(call_sid, tones)`` per send_dtmf_on_call — the TwiML-replacing
+        # POST that a-leg mode must never issue (#762 AC10).
+        self.dtmf_calls: list[tuple[str, str]] = []
         # Every callee-touching REST call in the order it happened, so tests can
         # assert an exact sequence (b-leg golden) or its absence (a-leg zero-touch).
         self.rest_call_log: list[tuple[str, tuple[Any, ...]]] = []
@@ -108,7 +111,9 @@ class FakeREST:
         return "CA" + "1" * 32
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
-        pass
+        # Recorded, not ignored: a-leg must issue ZERO of these, and an
+        # assertion needs something to look at (#762 AC10).
+        self.dtmf_calls.append((call_sid, tones))
 
     def end_call(self, call_sid: str) -> None:
         self.end_calls.append(call_sid)

@@ -61,6 +61,18 @@ const PLACE_CALL_A_LEG_SAY_TEXT =
   "Thank you for calling. " +
   "I will hold the line while you complete your scenario.";
 
+/**
+ * Refusal for `sendDtmf` under a-leg (#762 AC10). Says WHY, because
+ * "unsupported" alone reads as an oversight rather than a deliberate guard.
+ */
+export const A_LEG_SEND_DTMF_UNSUPPORTED =
+  "TwilioAgentAdapter: sendDtmf is unsupported in external (a-leg) mode. " +
+  "Sending DTMF replaces the live call's TwiML, which redirects the call away " +
+  "from the <Connect><Stream> verb and would end the media stream this " +
+  "scenario is running on. In b-leg mode the stream rides the callee's leg, " +
+  "so the redirect is harmless; in a-leg mode it is the call. Use b-leg mode " +
+  "(an owned callee number) if the scenario needs DTMF.";
+
 /** Effective stream-attach mode resolved from `placeCall`'s two parameters. */
 type StreamAttachMode = "a-leg" | "b-leg" | "originator-only";
 
@@ -617,6 +629,26 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
 
   /**
+   * Refuse DTMF on a call whose media stream rides our own leg (#762 AC10).
+   *
+   * `sendDtmf` works by `calls(sid).update({ twiml })`, which REPLACES the
+   * TwiML the call is executing. Under b-leg that TwiML is a `<Say>` +
+   * `<Pause>` hold on our leg, so replacing it costs nothing — the Media Stream
+   * lives on the callee's leg. Under a-leg the TwiML being replaced IS the
+   * `<Connect><Stream>` verb carrying the scenario, so the same REST call would
+   * redirect the call away from the socket and end the media session mid-run.
+   *
+   * Armed off `_streamNonce` — set only by an a-leg `placeCall`, the same
+   * signal the media loop uses to arm nonce enforcement — rather than
+   * re-derived from the caller's arguments here.
+   */
+  private _assertDtmfSupported(): void {
+    if (this._streamNonce !== undefined) {
+      throw new Error(A_LEG_SEND_DTMF_UNSUPPORTED);
+    }
+  }
+
+  /**
    * Refuse to originate until the public URL is reachable from the edge.
    *
    * Delegates to whatever readiness probe was supplied. No probe means the
@@ -821,7 +853,13 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     return this._inboundQueue.take(timeout * 1000);
   }
 
+  /**
+   * Send DTMF digits on the live call (uses Twilio REST `<Play digits>`).
+   *
+   * Refused in a-leg mode (#762 AC10) — see {@link _assertDtmfSupported}.
+   */
   async sendDtmf(tones: string): Promise<void> {
+    this._assertDtmfSupported();
     if (!this._rest || !this._callSid) {
       throw new Error(
         "TwilioAgentAdapter: no active call; sendDtmf requires an in-progress call.",
