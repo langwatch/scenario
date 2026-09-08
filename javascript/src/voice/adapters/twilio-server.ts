@@ -468,6 +468,9 @@ export class TwilioWebhookServer {
       // so it must not end the call it failed to authenticate into either: skip
       // the terminal sentinel entirely.
       if (adopted) {
+        // The session that owned the duration cap is over; disarm before
+        // anything else so the watchdog can never hang up a LATER call.
+        adapter._cancelMaxDurationTimer();
         adapter._markStreamEnded();
         adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
       }

@@ -61,6 +61,9 @@ class FakeREST:
         self.auth_token = auth_token
         self.write_calls: list[tuple[str, str]] = []
         self.place_call_kwargs: list[dict[str, Any]] = []
+        # Call SIDs passed to end_call — the max-duration watchdog's REST
+        # teardown (#762 guardrail (b)).
+        self.end_calls: list[str] = []
         # Every callee-touching REST call in the order it happened, so tests can
         # assert an exact sequence (b-leg golden) or its absence (a-leg zero-touch).
         self.rest_call_log: list[tuple[str, tuple[Any, ...]]] = []
@@ -88,17 +91,23 @@ class FakeREST:
         to: str,
         from_: str,
         twiml: str,
+        time_limit: Optional[int] = None,
     ) -> str:
         # Mirrors the real TwilioRESTHelper.place_call signature. The
         # twiml_url parameter was removed (latent SSRF-via-Twilio risk)
         # and the adapter always builds inline TwiML for the A-leg.
+        # ``time_limit`` is Twilio's own max call duration; None means the
+        # emitted request carries no TimeLimit at all.
         self.place_call_kwargs.append(
-            {"to": to, "from_": from_, "twiml": twiml}
+            {"to": to, "from_": from_, "twiml": twiml, "time_limit": time_limit}
         )
         return "CA" + "1" * 32
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
         pass
+
+    def end_call(self, call_sid: str) -> None:
+        self.end_calls.append(call_sid)
 
 
 def _install_fake_rest(monkeypatch: Any) -> list[FakeREST]:
@@ -610,6 +619,10 @@ async def test_place_call_b_leg_golden_twiml_and_rest_sequence(monkeypatch):
         ("write_voice_url", (sid, "https://example.trycloudflare.com/twilio/voice")),
         ("write_voice_url", (sid, "https://old-webhook.example.com/previous")),
     ], "B-leg behaviour changed: callee REST sequence no longer matches golden order"
+    assert rest.place_call_kwargs[0]["time_limit"] is None, (
+        "B-leg behaviour changed: origination now carries a TimeLimit; the "
+        "duration cap is a-leg-only (b-leg is bounded by <Pause length=120>)"
+    )
 
 
 # ---------------------------------------------------------------- TwiML shape

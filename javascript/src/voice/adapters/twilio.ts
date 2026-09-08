@@ -25,6 +25,7 @@ import { AdapterCapabilities } from "../capabilities";
 import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { sleep } from "../utils";
 
+import { twilioLogger } from "./twilio-logger";
 import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
 import {
   TWILIO_FRAME_MS,
@@ -36,6 +37,7 @@ import {
   mintStreamNonce,
   pcm16_24kToMulaw8k,
   redactE164,
+  resolveMaxCallDuration,
   streamWsUrl,
   validateE164,
 } from "./twilio-shared";
@@ -45,8 +47,10 @@ export type TwilioAdapterMode = "idle" | "answer" | "call";
 /** How the media-stream session most recently ended. "none" until a session
  * has ever run (the disconnect-counters T3 enum, #775). Set by
  * {@link TwilioWebhookServer.mediaStreamLoop} at each of its three
- * termination paths. */
-export type TwilioStreamEndedReason = "stop" | "close" | "error" | "none";
+ * termination paths. `"max_duration"` is the a-leg duration cap firing (#762
+ * guardrail (b)) — kept distinct from `"close"` so a scenario author can tell
+ * "we hung the call up at the cap" from "the callee hung up". */
+export type TwilioStreamEndedReason = "stop" | "close" | "error" | "none" | "max_duration";
 
 const PLACE_CALL_A_LEG_SAY_TEXT =
   "Thank you for calling. " +
@@ -189,6 +193,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * nonce (which an attacker could simply omit).
    */
   private _streamNonce?: string;
+  /**
+   * Adapter-side max-call-duration watchdog (#762 guardrail (b)). Armed by
+   * `placeCall` in "a-leg" mode; the belt to Twilio's own `TimeLimit`
+   * suspenders, which is the half that survives this process dying. The
+   * generation counter is the cancel token: every arm and every cancel bumps
+   * it, so an expiry that belongs to a superseded call is dropped instead of
+   * hanging up whatever call is live now.
+   */
+  private _maxDurationGeneration = 0;
+  private _maxDurationTimeout: ReturnType<typeof setTimeout> | null = null;
   private _streamConnected = makeDeferred<void>();
   private _inboundQueue: InboundQueue = new InboundQueue();
   private _connected = false;
@@ -266,6 +280,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
 
     this._mode = "idle";
     this._streamNonce = undefined;
+    this._cancelMaxDurationTimer();
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
@@ -296,6 +311,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     // surfaced onto the disconnect span (#775 Tier 2b) so a Twilio REST
     // outage during teardown is no longer invisible. The swallow behavior
     // itself (a failed restore must never block disconnect()) is unchanged.
+    // Disarm the duration watchdog first: from here on the call is ours to
+    // end, and a timer that fired mid-teardown would hang up a SID this adapter
+    // may already have replaced with a later call's.
+    this._cancelMaxDurationTimer();
+
     let restRestoreFailed = false;
     if (this._mode === "answer" && this._phoneNumberSid && this._rest) {
       try {
@@ -357,6 +377,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._callSid = undefined;
     this._streamWs = null;
     this._streamNonce = undefined;
+    this._cancelMaxDurationTimer();
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
@@ -388,6 +409,21 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
      * the stream rides our own leg and `to` can be any external number.
      */
     attachStream?: "a-leg" | "b-leg";
+    /**
+     * How long the CALL may live, in seconds (a-leg only; default
+     * {@link DEFAULT_MAX_CALL_DURATION_SECONDS}, hard cap
+     * {@link MAX_CALL_DURATION_CAP_SECONDS} — a larger request throws).
+     *
+     * Not to be confused with `timeoutMs`, which bounds how long we WAIT FOR
+     * THE MEDIA STREAM TO CONNECT and says nothing about the call's length.
+     * Under a-leg's `<Connect>` the call lives exactly as long as the
+     * WebSocket, so without a ceiling a hung executor keeps a billing PSTN call
+     * open forever. Two mechanisms enforce it: Twilio's own `TimeLimit` on
+     * `Calls.create` (the load-bearing half — it still fires if this process
+     * hangs or is killed) and an adapter-side wall-clock timer that hangs the
+     * call up via REST and closes the socket.
+     */
+    maxCallDurationSeconds?: number;
   }): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
@@ -402,6 +438,20 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     // conflicting-parameter caller error surfaces before we dial.
     const mode = resolveStreamMode(args.attachStream, args.attachStreamToSelf);
     const timeoutMs = args.timeoutMs ?? 120_000;
+    // Only a-leg loses <Pause>'s implicit ceiling, so only a-leg carries a
+    // duration cap. Naming one in another mode is rejected rather than ignored:
+    // silently dropping it would leave the caller believing the call is bounded
+    // when it is not.
+    let maxCallDuration: number | undefined;
+    if (mode === "a-leg") {
+      maxCallDuration = resolveMaxCallDuration(args.maxCallDurationSeconds);
+    } else if (args.maxCallDurationSeconds !== undefined) {
+      throw new Error(
+        `placeCall: maxCallDurationSeconds is only supported with ` +
+          `attachStream="a-leg"; b-leg and originator-only modes hold the ` +
+          `originator leg with <Pause> and are bounded by it.`,
+      );
+    }
 
     // NEW `voice.adapter.dial` span (#775 Tier 2a): self-instrumented, since
     // no executor span is active by the time placeCall()/waitForCall() run
@@ -453,8 +503,13 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           to: args.to,
           from: this.phoneNumber,
           twiml: originationTwiml,
+          timeLimitSeconds: maxCallDuration,
         });
         setSpanAttributes(span, { "voice.twilio.call_sid": this._callSid });
+
+        if (maxCallDuration !== undefined) {
+          this._armMaxDurationTimer(maxCallDuration, this._callSid, args.to);
+        }
 
         if (mode !== "originator-only") {
           // Wait for the media stream to reach us — via the callee's rewritten
@@ -546,6 +601,79 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       );
     }
     this._mode = mode;
+  }
+
+  // ------------------------------------------------------- max call duration
+
+  /**
+   * Start the wall-clock watchdog that ends `callSid` after `seconds`.
+   *
+   * Any previously-armed timer is cancelled first, so a second `placeCall` on
+   * the same adapter can never leave an older call's timer alive to hang up the
+   * newer call's SID.
+   */
+  private _armMaxDurationTimer(seconds: number, callSid: string, to: string): void {
+    this._cancelMaxDurationTimer();
+    const generation = this._maxDurationGeneration;
+    void (async () => {
+      await this._awaitMaxDuration(seconds * 1000);
+      if (generation !== this._maxDurationGeneration) return; // cancelled or superseded
+      await this._onMaxDurationExpired(seconds, callSid, to);
+    })();
+  }
+
+  /** Disarm the watchdog. Idempotent; safe when none was ever armed. */
+  _cancelMaxDurationTimer(): void {
+    this._maxDurationGeneration += 1;
+    if (this._maxDurationTimeout !== null) {
+      clearTimeout(this._maxDurationTimeout);
+      this._maxDurationTimeout = null;
+    }
+  }
+
+  /**
+   * Wait until the duration cap elapses.
+   *
+   * Test seam (same role as `_driveMediaStream`): tests replace this on the
+   * instance to drive expiry on controlled time instead of waiting for real.
+   */
+  protected async _awaitMaxDuration(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this._maxDurationTimeout = setTimeout(resolve, ms);
+    });
+  }
+
+  /**
+   * Hang up the call and close the socket once the cap elapses.
+   *
+   * The belt to Twilio's `TimeLimit` suspenders: it fires even if the
+   * Twilio-side limit was misconfigured or silently dropped. Cancelled (and
+   * therefore silent) on `disconnect()`, at stream end, and on re-arm.
+   */
+  private async _onMaxDurationExpired(
+    seconds: number,
+    callSid: string,
+    to: string,
+  ): Promise<void> {
+    twilioLogger.warn("max call duration reached — ending call", {
+      seconds,
+      to: redactE164(to),
+      callSid,
+    });
+    this._setStreamEndedReason("max_duration");
+    const rest = this._rest;
+    if (rest) {
+      try {
+        await rest.endCall(callSid);
+      } catch {
+        // Best-effort: Twilio's own TimeLimit is the backstop for this backstop.
+      }
+    }
+    try {
+      this._streamWs?.close();
+    } catch {
+      // Socket already gone; nothing left to close.
+    }
   }
 
   // ------------------------------------------------------------------ I/O
@@ -745,8 +873,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   _recordDtmfReceived(): void {
     this._dtmfReceived += 1;
   }
-  /** @internal Disconnect-counter (#775 Tier 2b): how the media session ended. */
+  /**
+   * @internal Disconnect-counter (#775 Tier 2b): how the media session ended.
+   *
+   * The max-duration watchdog closes the socket itself, so the media loop's own
+   * "close" verdict lands moments later and would otherwise mask WHY the call
+   * ended — the cap's verdict wins ties. `connect()`/`disconnect()` assign the
+   * field directly and so still clear it for the next session.
+   */
   _setStreamEndedReason(reason: TwilioStreamEndedReason): void {
+    if (this._streamEndedReason === "max_duration") return;
     this._streamEndedReason = reason;
   }
   /** @internal Disconnect-counter (#775 Tier 2b): one `/twilio/voice` POST. */

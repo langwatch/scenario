@@ -51,6 +51,46 @@ STREAM_NONCE_BYTES = 16
 STREAM_NONCE_HEX_LEN = STREAM_NONCE_BYTES * 2
 
 
+#: Hard ceiling on how long an a-leg call may live, in seconds (#762 guardrail
+#: (b)). A-leg mode dials numbers we do not own, so a runaway call is a runaway
+#: bill; 300s is well past any scenario turn-taking demo and far short of a
+#: forgotten-call disaster. A per-call value ABOVE this cap is a caller error,
+#: never a silent clamp — see ``resolve_max_call_duration``.
+MAX_CALL_DURATION_CAP_SECONDS = 300
+#: Applied when an a-leg ``place_call`` names no duration. Equal to the cap: an
+#: unspecified duration must still be bounded, and the safest bound we are
+#: willing to grant at all is the one the cap already sets.
+DEFAULT_MAX_CALL_DURATION_SECONDS = MAX_CALL_DURATION_CAP_SECONDS
+
+
+def resolve_max_call_duration(requested: Optional[int]) -> int:
+    """Resolve an a-leg call's maximum duration in seconds.
+
+    ``None`` yields :data:`DEFAULT_MAX_CALL_DURATION_SECONDS`. A request above
+    :data:`MAX_CALL_DURATION_CAP_SECONDS` raises rather than clamping: the cap
+    exists to bound spend, and a caller who silently receives a shorter call
+    than the one they asked for debugs the wrong problem.
+
+    Distinct from ``place_call``'s ``timeout``, which bounds how long we WAIT
+    FOR THE MEDIA STREAM TO CONNECT, not how long the call may last.
+    """
+    if requested is None:
+        return DEFAULT_MAX_CALL_DURATION_SECONDS
+    if requested <= 0:
+        raise ValueError(
+            f"max_call_duration_seconds must be a positive number of seconds, "
+            f"got {requested!r}."
+        )
+    if requested > MAX_CALL_DURATION_CAP_SECONDS:
+        raise ValueError(
+            f"max_call_duration_seconds={requested!r} exceeds the "
+            f"{MAX_CALL_DURATION_CAP_SECONDS}s cap on a-leg calls. A-leg mode "
+            f"dials numbers this account does not own; the cap bounds spend and "
+            f"is not per-call overridable."
+        )
+    return int(requested)
+
+
 def mint_stream_nonce() -> str:
     """Mint a fresh per-call media-stream nonce from the OS CSPRNG."""
     return secrets.token_hex(STREAM_NONCE_BYTES)
@@ -342,8 +382,16 @@ class TwilioRESTHelper:
         to: str,
         from_: str,
         twiml: str,
+        time_limit: Optional[int] = None,
     ) -> str:
         """Originate an outbound call. Returns the call SID.
+
+        ``time_limit`` is Twilio's own maximum call duration in seconds
+        (``TimeLimit`` on the wire). Twilio hangs the call up when it elapses,
+        which is the ONLY duration guard that still fires if this process hangs
+        or is killed — the adapter-side timer is the second belt. Omitted from
+        the request entirely when ``None``, so b-leg origination bodies stay
+        byte-identical to what they have always been.
 
         ``twiml`` is inline TwiML run when the call connects. The
         adapter always builds the inline form (an A-leg ``<Say>`` +
@@ -357,9 +405,20 @@ class TwilioRESTHelper:
         the caller's behalf. No active caller ever needed it, so it was
         removed.
         """
-        call = self._client.calls.create(to=to, from_=from_, twiml=twiml)
+        extra = {} if time_limit is None else {"time_limit": time_limit}
+        call = self._client.calls.create(to=to, from_=from_, twiml=twiml, **extra)
         # Twilio always returns non-None sid for create results; see above.
         return str(call.sid)
+
+    def end_call(self, call_sid: str) -> None:
+        """Hang up an in-progress call (REST ``Status=completed``).
+
+        The adapter-side max-duration timer's teardown action (#762 guardrail
+        (b)). Uses the same ``calls(sid).update(...)`` idiom as
+        ``send_dtmf_on_call``, but ends the call outright instead of replacing
+        its TwiML.
+        """
+        self._client.calls(call_sid).update(status="completed")
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
         """Send DTMF on an in-progress call via the REST ``send_digits`` update.
@@ -418,6 +477,9 @@ __all__ = [
     "DTMF_RE",
     "STREAM_NONCE_BYTES",
     "STREAM_NONCE_HEX_LEN",
+    "MAX_CALL_DURATION_CAP_SECONDS",
+    "DEFAULT_MAX_CALL_DURATION_SECONDS",
+    "resolve_max_call_duration",
     "validate_e164",
     "validate_dtmf",
     "mint_stream_nonce",

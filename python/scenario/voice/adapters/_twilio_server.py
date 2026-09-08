@@ -390,7 +390,7 @@ class TwilioWebhookServer:
                         # that connects.
                         verdict = _authenticate(frame)
                         if verdict == "reject":
-                            adapter._stream_ended_reason = "close"
+                            adapter._set_stream_ended_reason("close")
                             with suppress(Exception):
                                 await ws.close()
                             return
@@ -437,20 +437,20 @@ class TwilioWebhookServer:
                         pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
                         await _enqueue(pcm)
-                    adapter._stream_ended_reason = "stop"
+                    adapter._set_stream_ended_reason("stop")
                     return
         except WebSocketDisconnect:
             # Socket closed mid-stream. ``run_stream_session`` swallows this
             # type specifically (see its docstring) — tag the outcome BEFORE
             # re-raising so that swallow's caller-visible behavior is
             # unchanged.
-            adapter._stream_ended_reason = "close"
+            adapter._set_stream_ended_reason("close")
             raise
         except Exception:
             # Any OTHER transport error (not a clean disconnect) propagates to
             # ``run_stream_session``'s caller unchanged — tag the outcome
             # before re-raising.
-            adapter._stream_ended_reason = "error"
+            adapter._set_stream_ended_reason("error")
             raise
         finally:
             # Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the
@@ -473,6 +473,9 @@ class TwilioWebhookServer:
             # transport, so it must not end the call it failed to authenticate
             # into either: skip the terminal sentinel entirely.
             if adopted:
+                # The session that owned the duration cap is over; disarm before
+                # anything else so the watchdog can never hang up a LATER call.
+                adapter._cancel_max_duration_timer()
                 adapter._stream_ended = True
                 if adapter._inbound_queue is not None:
                     await adapter._inbound_queue.put(AudioChunk(data=b""))

@@ -67,7 +67,12 @@ function stubRest(sid: string): TwilioRESTHelper {
 type SpyRest = TwilioRESTHelper & {
   restCallLog: Array<[string, unknown[]]>;
   writeCalls: Array<[string, string]>;
-  placeCallArgs: Array<{ to: string; from: string; twiml: string }>;
+  placeCallArgs: Array<{
+    to: string;
+    from: string;
+    twiml: string;
+    timeLimitSeconds?: number;
+  }>;
   resolveError: Error | null;
   priorVoiceUrl: string;
 };
@@ -92,7 +97,12 @@ function spyRest(sid: string): SpyRest {
     stub.writeCalls.push([s, url]);
     stub.restCallLog.push(["writeVoiceUrl", [s, url]]);
   };
-  stub.placeCall = async (a: { to: string; from: string; twiml: string }) => {
+  stub.placeCall = async (a: {
+    to: string;
+    from: string;
+    twiml: string;
+    timeLimitSeconds?: number;
+  }) => {
     stub.placeCallArgs.push(a);
     return "CAtest";
   };
@@ -667,5 +677,10 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
       ["writeVoiceUrl", [sid, "https://example.test/twilio/voice"]],
       ["writeVoiceUrl", [sid, "https://old-webhook.example.com/previous"]],
     ]);
+    expect(
+      rest.placeCallArgs[0].timeLimitSeconds,
+      "B-leg behaviour changed: origination now carries a TimeLimit; the " +
+        "duration cap is a-leg-only (b-leg is bounded by <Pause length=120>)",
+    ).toBeUndefined();
   });
 });

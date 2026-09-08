@@ -32,7 +32,10 @@ TwilioAdapterMode = Literal["idle", "answer", "call"]
 #: How the media-stream session most recently ended. "none" until a session has
 #: ever run (the disconnect-counters T3 enum, #775). Set by the media loop
 #: (`_twilio_server.py`) at each of its three termination paths.
-TwilioStreamEndedReason = Literal["stop", "close", "error", "none"]
+#: ``"max_duration"`` is the a-leg duration cap firing (#762 guardrail (b)) —
+#: kept distinct from ``"close"`` so a scenario author can tell "we hung the
+#: call up at the cap" from "the callee hung up".
+TwilioStreamEndedReason = Literal["stop", "close", "error", "none", "max_duration"]
 
 from opentelemetry import trace as _otel_trace
 
@@ -51,6 +54,7 @@ from ._twilio_shared import (
     iter_mulaw_frames,
     mint_stream_nonce,
     pcm16_24k_to_mulaw8k,
+    resolve_max_call_duration,
     stream_ws_url,
     validate_e164,
 )
@@ -236,6 +240,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # keyed on the mode we originated in, never on whether the inbound frame
         # happens to carry a nonce (which an attacker could simply omit).
         self._stream_nonce: Optional[str] = None
+        # Adapter-side max-call-duration watchdog (#762 guardrail (b)). Armed by
+        # place_call in "a-leg" mode; the belt to Twilio's own ``TimeLimit``
+        # suspenders, which is the half that survives this process dying.
+        self._max_duration_task: Optional[asyncio.Task] = None
         self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
         # Set True by the media-stream loop's terminal path (stop / socket close
         # / throw) the moment it enqueues the end-of-call sentinel. Once the call
@@ -328,6 +336,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._webhook_invocations = 0
         self._webhook_rejected = 0
         self._stream_nonce = None
+        self._cancel_max_duration_timer()
         self._mode = "idle"
 
         # Webhook server is its own unit — see _twilio_server.py. The
@@ -354,6 +363,11 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # onto the disconnect span (#775 Tier 2b) so a Twilio REST outage during
         # teardown is no longer invisible. The swallow behavior itself (a failed
         # restore must never block disconnect()) is unchanged.
+        # Disarm the duration watchdog first: from here on the call is ours to
+        # end, and a timer that fired mid-teardown would hang up a SID this
+        # adapter may already have replaced with a later call's.
+        self._cancel_max_duration_timer()
+
         rest_restore_failed = False
         if self._mode == "answer" and self._phone_number_sid is not None:
             try:
@@ -431,6 +445,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_connected = None
         self._stream_ws = None
         self._stream_nonce = None
+        self._max_duration_task = None
         if self._inbound_queue is not None:
             # A recv_audio() task may already be blocked in get() on this queue.
             # Wake that in-flight consumer before dropping our reference; setting
@@ -455,6 +470,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         timeout: float = 120.0,
         attach_stream_to_self: Optional[bool] = None,
         attach_stream: Optional[Literal["a-leg", "b-leg"]] = None,
+        max_call_duration_seconds: Optional[int] = None,
     ) -> None:
         """
         Originate an outbound call from this adapter's Twilio number to ``to``.
@@ -507,6 +523,21 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
 
         Default timeout 120s covers cloudflared cold-start latency.
 
+        ``timeout`` and ``max_call_duration_seconds`` are two different clocks
+        and are configured independently:
+
+        - ``timeout`` bounds how long we WAIT FOR THE MEDIA STREAM TO CONNECT
+          after origination. It says nothing about how long the call may run.
+        - ``max_call_duration_seconds`` bounds HOW LONG THE CALL MAY LIVE
+          (a-leg only, default ``DEFAULT_MAX_CALL_DURATION_SECONDS``, hard cap
+          ``MAX_CALL_DURATION_CAP_SECONDS``; a larger request raises). Under
+          a-leg's ``<Connect>`` the call lives exactly as long as the WebSocket,
+          so without a ceiling a hung executor keeps a billing PSTN call open
+          forever. Two mechanisms enforce it: Twilio's own ``TimeLimit`` on
+          ``Calls.create`` (the load-bearing half — it still fires if this
+          process hangs or is killed) and an adapter-side wall-clock timer that
+          hangs the call up via REST and closes the socket.
+
         Raises:
             RuntimeError: If called after ``wait_for_call()`` (modes are
                 exclusive per adapter instance), or if ``to`` is not a
@@ -524,6 +555,20 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # (typed) supersedes the legacy `attach_stream_to_self` bool; the bool's
         # third mode (originator-only) is unreachable via `attach_stream` by design.
         mode = _resolve_stream_mode(attach_stream, attach_stream_to_self)
+        # Only a-leg loses <Pause>'s implicit ceiling, so only a-leg carries a
+        # duration cap. Naming one in another mode is rejected rather than
+        # ignored: silently dropping it would leave the caller believing the
+        # call is bounded when it is not.
+        if mode == "a-leg":
+            max_call_duration = resolve_max_call_duration(max_call_duration_seconds)
+        elif max_call_duration_seconds is not None:
+            raise ValueError(
+                "place_call: max_call_duration_seconds is only supported with "
+                'attach_stream="a-leg"; b-leg and originator-only modes hold the '
+                "originator leg with <Pause> and are bounded by it."
+            )
+        else:
+            max_call_duration = None
 
         assert self.public_base_url is not None
         assert self._rest is not None
@@ -595,7 +640,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     "</Response>"
                 )
             self._call_sid = self._rest.place_call(
-                to=to, from_=self.phone_number, twiml=origination_twiml
+                to=to,
+                from_=self.phone_number,
+                twiml=origination_twiml,
+                time_limit=max_call_duration,
             )
             logger.info(
                 "TwilioAgentAdapter: placed call %s from %s to %s",
@@ -604,6 +652,9 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 _redact_e164(to),
             )
             set_span_attributes(_dial, {"voice.twilio.call_sid": self._call_sid})
+
+            if max_call_duration is not None:
+                self._arm_max_duration_timer(max_call_duration, self._call_sid, to)
 
             if mode != "originator-only":
                 # Wait for the media stream to reach us. In b-leg mode it arrives
@@ -718,6 +769,76 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 f"adapter in the other direction."
             )
         self._mode = mode
+
+    # ------------------------------------------------------- max call duration
+
+    def _arm_max_duration_timer(self, seconds: int, call_sid: str, to: str) -> None:
+        """Start the wall-clock watchdog that ends ``call_sid`` at ``seconds``.
+
+        Any previously-armed timer is cancelled first, so a second
+        ``place_call`` on the same adapter can never leave an older call's timer
+        alive to hang up the newer call's SID.
+        """
+        self._cancel_max_duration_timer()
+        self._max_duration_task = asyncio.create_task(
+            self._run_max_duration_timer(seconds, call_sid, to)
+        )
+
+    def _cancel_max_duration_timer(self) -> None:
+        """Disarm the watchdog. Idempotent; safe when none was ever armed."""
+        task = self._max_duration_task
+        self._max_duration_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _await_max_duration(self, seconds: int) -> None:
+        """Sleep until the duration cap elapses.
+
+        Test seam (same role as ``_build_app``/``_media_stream_loop``): tests
+        replace this on the instance to drive expiry on controlled time instead
+        of sleeping for real.
+        """
+        await asyncio.sleep(seconds)
+
+    async def _run_max_duration_timer(
+        self, seconds: int, call_sid: str, to: str
+    ) -> None:
+        """Hang up the call and close the socket once the cap elapses.
+
+        The belt to Twilio's ``TimeLimit`` suspenders: it fires even if the
+        Twilio-side limit was misconfigured or silently dropped. Cancelled (and
+        therefore silent) on ``disconnect()``, at stream end, and on re-arm.
+        """
+        await self._await_max_duration(seconds)
+        logger.warning(
+            "TwilioAgentAdapter: max call duration of %ss reached on call to "
+            "%s — ending call %s",
+            seconds,
+            _redact_e164(to),
+            call_sid,
+        )
+        self._set_stream_ended_reason("max_duration")
+        rest = self._rest
+        if rest is not None:
+            # Blocking REST call off-thread, as send_dtmf does.
+            with suppress(Exception):
+                await asyncio.to_thread(rest.end_call, call_sid)
+        ws = self._stream_ws
+        if ws is not None:
+            with suppress(Exception):
+                await ws.close()
+
+    def _set_stream_ended_reason(self, reason: TwilioStreamEndedReason) -> None:
+        """Record how the media session ended, cap verdict winning ties.
+
+        The watchdog closes the socket itself, so the media loop's own "close"
+        verdict lands moments later and would otherwise mask WHY the call
+        ended. connect()/disconnect() reset the field directly and so still
+        clear it for the next session.
+        """
+        if self._stream_ended_reason == "max_duration":
+            return
+        self._stream_ended_reason = reason
 
     # ------------------------------------------------------------------ I/O
 

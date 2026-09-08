@@ -468,17 +468,45 @@ export class TwilioRESTHelper {
    * `twimlUrl` — the historical Python version dropped that too (SSRF-via-
    * Twilio risk if a caller ever passed an attacker-controlled URL).
    */
-  async placeCall(args: { to: string; from: string; twiml: string }): Promise<string> {
+  async placeCall(args: {
+    to: string;
+    from: string;
+    twiml: string;
+    /**
+     * Twilio's own maximum call duration in seconds (`TimeLimit` on the wire).
+     * Twilio hangs the call up when it elapses, which is the ONLY duration
+     * guard that still fires if this process hangs or is killed — the
+     * adapter-side timer is the second belt. Omitted from the request entirely
+     * when undefined, so b-leg origination bodies stay byte-identical to what
+     * they have always been.
+     */
+    timeLimitSeconds?: number;
+  }): Promise<string> {
     const body = new URLSearchParams({
       To: args.to,
       From: args.from,
       Twiml: args.twiml,
     });
+    if (args.timeLimitSeconds !== undefined) {
+      body.set("TimeLimit", String(args.timeLimitSeconds));
+    }
     const data = (await this._request("POST", `/Calls.json`, body)) as { sid?: string };
     if (!data.sid) {
       throw new Error("Twilio REST Calls.create returned no sid");
     }
     return data.sid;
+  }
+
+  /**
+   * Hang up an in-progress call (REST `Status=completed`).
+   *
+   * The adapter-side max-duration timer's teardown action (#762 guardrail (b)).
+   * Same `POST /Calls/{sid}.json` idiom as {@link sendDtmfOnCall}, but it ends
+   * the call outright instead of replacing its TwiML.
+   */
+  async endCall(callSid: string): Promise<void> {
+    const body = new URLSearchParams({ Status: "completed" });
+    await this._request("POST", `/Calls/${callSid}.json`, body);
   }
 
   /** Send DTMF on an in-progress call via TwiML update with `<Play digits>`. */
@@ -535,6 +563,52 @@ export function escapeXmlAttr(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+/**
+ * Hard ceiling on how long an a-leg call may live, in seconds (#762 guardrail
+ * (b)). A-leg mode dials numbers we do not own, so a runaway call is a runaway
+ * bill; 300s is well past any scenario turn-taking demo and far short of a
+ * forgotten-call disaster. A per-call value ABOVE this cap is a caller error,
+ * never a silent clamp — see {@link resolveMaxCallDuration}. Mirrors Python's
+ * `MAX_CALL_DURATION_CAP_SECONDS`.
+ */
+export const MAX_CALL_DURATION_CAP_SECONDS = 300;
+
+/**
+ * Applied when an a-leg `placeCall` names no duration. Equal to the cap: an
+ * unspecified duration must still be bounded, and the safest bound we are
+ * willing to grant at all is the one the cap already sets.
+ */
+export const DEFAULT_MAX_CALL_DURATION_SECONDS = MAX_CALL_DURATION_CAP_SECONDS;
+
+/**
+ * Resolve an a-leg call's maximum duration in seconds.
+ *
+ * `undefined` yields {@link DEFAULT_MAX_CALL_DURATION_SECONDS}. A request above
+ * {@link MAX_CALL_DURATION_CAP_SECONDS} throws rather than clamping: the cap
+ * exists to bound spend, and a caller who silently receives a shorter call than
+ * the one they asked for debugs the wrong problem.
+ *
+ * Distinct from `placeCall`'s `timeoutMs`, which bounds how long we WAIT FOR
+ * THE MEDIA STREAM TO CONNECT, not how long the call may last.
+ */
+export function resolveMaxCallDuration(requested: number | undefined): number {
+  if (requested === undefined) return DEFAULT_MAX_CALL_DURATION_SECONDS;
+  if (!(requested > 0)) {
+    throw new Error(
+      `maxCallDurationSeconds must be a positive number of seconds, got ${JSON.stringify(requested)}.`,
+    );
+  }
+  if (requested > MAX_CALL_DURATION_CAP_SECONDS) {
+    throw new Error(
+      `maxCallDurationSeconds=${JSON.stringify(requested)} exceeds the ` +
+        `${MAX_CALL_DURATION_CAP_SECONDS}s cap on a-leg calls. A-leg mode dials ` +
+        `numbers this account does not own; the cap bounds spend and is not ` +
+        `per-call overridable.`,
+    );
+  }
+  return Math.trunc(requested);
 }
 
 /**

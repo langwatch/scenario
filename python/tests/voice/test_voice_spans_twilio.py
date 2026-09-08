@@ -116,6 +116,7 @@ class FakeREST:
         self.auth_token = auth_token
         self.write_calls: list[tuple[str, str]] = []
         self.place_call_kwargs: list[dict[str, Any]] = []
+        self.end_calls: list[str] = []
         self._prior_voice_url = "https://old-webhook.example.com/previous"
 
     def resolve_phone_number_sid(self, number: str) -> str:
@@ -127,13 +128,21 @@ class FakeREST:
     def write_voice_url(self, sid: str, url: str) -> None:
         self.write_calls.append((sid, url))
 
-    def place_call(self, *, to: str, from_: str, twiml: str) -> str:
-        # Mirrors the real TwilioRESTHelper.place_call signature.
-        self.place_call_kwargs.append({"to": to, "from_": from_, "twiml": twiml})
+    def place_call(
+        self, *, to: str, from_: str, twiml: str, time_limit: Optional[int] = None
+    ) -> str:
+        # Mirrors the real TwilioRESTHelper.place_call signature. ``time_limit``
+        # is Twilio's own max call duration (a-leg only; None on b-leg).
+        self.place_call_kwargs.append(
+            {"to": to, "from_": from_, "twiml": twiml, "time_limit": time_limit}
+        )
         return "CA" + "1" * 32
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
         pass
+
+    def end_call(self, call_sid: str) -> None:
+        self.end_calls.append(call_sid)
 
 
 def _install_fake_rest(monkeypatch: Any) -> list[FakeREST]:
@@ -705,7 +714,9 @@ async def test_t7_dial_span_error_on_rest_failure_records_original_exception(
     adapter = _make_adapter(http_port=0)
     await adapter.connect()
     try:
-        def _boom(*, to: str, from_: str, twiml: str) -> str:
+        def _boom(
+            *, to: str, from_: str, twiml: str, time_limit: Optional[int] = None
+        ) -> str:
             raise RuntimeError("Twilio REST: rate limited")
 
         rest_instances[0].place_call = _boom  # type: ignore[method-assign]
