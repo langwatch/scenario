@@ -133,7 +133,7 @@ class TwilioWebhookServer:
 
         Returned lazily so we don't import FastAPI at module load time.
         """
-        from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+        from fastapi import FastAPI, Request, WebSocket
         from fastapi.responses import Response
 
 
@@ -267,7 +267,12 @@ class TwilioWebhookServer:
         # ``_stream_ws`` (which ``send_audio`` writes to — adopting an
         # unauthenticated socket would hand the attacker our outbound audio) and
         # not the per-call queue purge (which would drop the live call's audio).
-        enforce_auth = adapter._stream_nonce is not None
+        #
+        # The nonce is read WHERE the ``start`` frame is processed, never
+        # snapshotted here at loop entry: a socket that opened before
+        # ``place_call`` armed the nonce would otherwise be adopted un-gated at
+        # entry and grandfather its later ``start`` frame past the check (the
+        # CWE-306 arming race).
         adopted = False
 
         def _adopt() -> None:
@@ -333,8 +338,6 @@ class TwilioWebhookServer:
                 return "ignore"
             return "accept"
 
-        if not enforce_auth:
-            _adopt()
         # Buffer µ-law for batched decoding — send_audio/recv_audio operate at
         # the AudioChunk level, so we coalesce ~100ms of incoming µ-law per
         # chunk to avoid thousands of tiny AudioChunk objects.
@@ -394,6 +397,12 @@ class TwilioWebhookServer:
                     continue
 
                 if frame.event == "start":
+                    # Read the adapter's CURRENT nonce here, when the start frame
+                    # is processed — never a snapshot from loop entry. This is
+                    # what closes the arming race: a socket that connected before
+                    # ``place_call`` armed the nonce is still gated on it the
+                    # moment its start frame arrives.
+                    enforce_auth = adapter._stream_nonce is not None
                     if enforce_auth:
                         # A bad nonce closes the socket outright; a good nonce on
                         # the wrong call is merely ignored (AC5/AC6). Either way
@@ -412,6 +421,10 @@ class TwilioWebhookServer:
                             return
                         if verdict == "ignore":
                             continue
+                    # Adopt on the first start frame — after auth in a-leg mode,
+                    # always in un-gated (b-leg/inbound) mode. Idempotent: a
+                    # resend must not clobber the live call's state.
+                    if not adopted:
                         _adopt()
                     adapter._stream_sid = frame.stream_sid
                     if frame.call_sid and adapter._call_sid is None:

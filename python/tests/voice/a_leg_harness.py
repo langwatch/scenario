@@ -53,10 +53,22 @@ class _ScriptedWS:
     drivers below wait on, so no test has to guess at a sleep.
     """
 
-    def __init__(self, frames: list[str], *, disconnect_at_end: bool = False) -> None:
+    def __init__(
+        self,
+        frames: list[str],
+        *,
+        disconnect_at_end: bool = False,
+        gate: Optional[asyncio.Event] = None,
+    ) -> None:
         self._frames = list(frames)
         self._idx = 0
         self._disconnect_at_end = disconnect_at_end
+        # ``gate`` models a socket that connected before ``place_call`` armed the
+        # nonce: its first frame is withheld until the test sets the gate (after
+        # arming), so the loop must consult live nonce state, not a loop-entry
+        # snapshot.
+        self._gate = gate
+        self._gate_awaited = False
         self.closed = False
         self.sent: list[str] = []
         self.parked = asyncio.Event()
@@ -65,6 +77,9 @@ class _ScriptedWS:
         return None
 
     async def receive_text(self) -> str:
+        if self._gate is not None and not self._gate_awaited:
+            self._gate_awaited = True
+            await self._gate.wait()
         if self._idx < len(self._frames):
             msg = self._frames[self._idx]
             self._idx += 1

@@ -139,11 +139,15 @@ export type ScriptedSocket = MediaStreamWebSocket & {
  */
 export function scriptedSocket(
   frames: string[],
-  opts: { closeAtEnd?: boolean } = {},
+  opts: { closeAtEnd?: boolean; gate?: Promise<void> } = {},
 ): ScriptedSocket {
   const queue = [...frames];
   let signalParked!: () => void;
   const parked = new Promise<void>((resolve) => (signalParked = resolve));
+  // `gate` models a socket that connected before `placeCall` armed the nonce:
+  // its first frame is withheld until the test opens the gate (after arming),
+  // so the loop must consult live nonce state, not a loop-entry snapshot.
+  let gateAwaited = false;
   return {
     closed: false,
     sent: [] as string[],
@@ -153,11 +157,15 @@ export function scriptedSocket(
         typeof data === "string" ? data : Buffer.from(data).toString("utf-8"),
       );
     },
-    receiveText(): Promise<string | null> {
+    async receiveText(): Promise<string | null> {
+      if (opts.gate && !gateAwaited) {
+        gateAwaited = true;
+        await opts.gate;
+      }
       const head = queue.shift();
-      if (head !== undefined) return Promise.resolve(head);
+      if (head !== undefined) return head;
       signalParked();
-      if (opts.closeAtEnd) return Promise.resolve(null);
+      if (opts.closeAtEnd) return null;
       return new Promise<string | null>(() => {
         /* parked: the socket stays open */
       });

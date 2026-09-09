@@ -61,6 +61,37 @@ describe("TwilioAgentAdapter a-leg media-stream authentication", () => {
     expect(adapter._streamWsForServer).toBe(genuine);
   });
 
+  it("AC5: a socket connected before the nonce was armed is still gated on it", async () => {
+    // CWE-306 arming race: a socket that opens BEFORE placeCall arms the nonce
+    // must be gated on the CURRENT nonce when its start frame is processed — not
+    // on the un-armed state at loop entry. Its nonceless start frame, delivered
+    // AFTER arming, is rejected, not adopted un-gated.
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+
+    let armNonce!: () => void;
+    const gate = new Promise<void>((resolve) => (armNonce = resolve));
+    const early = scriptedSocket([startFrame({})], { gate }); // no nonce
+    // Enter the loop with no nonce armed; it parks on the gated first frame.
+    void adapter._driveMediaStream(early);
+
+    // Arm enforcement via an a-leg placeCall, THEN release the withheld frame.
+    const { nonce, call } = await startALegCall(adapter, rest);
+    armNonce();
+    // Let the loop process the delivered (nonceless) start frame.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(early.closed, "the pre-arm socket was adopted un-gated").toBe(true);
+    expect(adapter._streamWsForServer).toBeNull();
+    expect(await isPending(call)).toBe(true); // never became our transport
+
+    // Settle the pending placeCall so it does not outlive the test.
+    await drive(adapter, scriptedSocket([startFrame({ nonce })]));
+    await call;
+  });
+
   it("AC5: omitting the nonce Parameter is a rejection, not a bypass", async () => {
     const rest = spyRest();
     const adapter = makeAdapter(rest);

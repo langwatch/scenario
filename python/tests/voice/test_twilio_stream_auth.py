@@ -12,11 +12,14 @@ of ``specs/voice-twilio-a-leg-external.feature``. Mirrors
 ``javascript/src/voice/adapters/__tests__/twilio-stream-auth.test.ts``.
 """
 
+import asyncio
 import re
+from contextlib import suppress
 
 import pytest
 
 from scenario.voice.adapters import _twilio_shared
+from scenario.voice.adapters._twilio_server import TwilioWebhookServer
 from scenario.voice.adapters._twilio_shared import (
     STREAM_NONCE_BYTES,
     STREAM_NONCE_HEX_LEN,
@@ -56,6 +59,52 @@ async def test_a_leg_socket_with_wrong_nonce_is_closed_and_never_connects(monkey
             assert a._stream_connected.is_set()
             assert a._stream_ws is genuine
     finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_a_leg_socket_connected_before_arming_is_still_gated(monkeypatch):
+    """AC5 arming race (CWE-306): a socket that connected BEFORE ``place_call``
+    armed the nonce must be gated on the CURRENT nonce when its start frame is
+    processed — not on the un-armed state snapshotted at loop entry. Its
+    nonceless start frame, arriving after the nonce is armed, is rejected, not
+    adopted."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    server = TwilioWebhookServer(a)
+    loop = None
+    try:
+        gate = asyncio.Event()
+        early = _ScriptedWS([_start_frame(nonce=None)], gate=gate)
+        loop = asyncio.create_task(server.media_stream_loop(early))
+        # Let the loop enter and park on the gated first frame BEFORE arming.
+        await asyncio.sleep(0)
+
+        nonce = await _place_a_leg_call(a, rest_instances[0])
+        assert a._stream_nonce is not None
+
+        # Release the nonceless start frame now that enforcement is armed.
+        gate.set()
+        await asyncio.sleep(0.05)  # let the loop process the delivered frame
+
+        assert early.closed is True, "the pre-arm socket was adopted un-gated"
+        assert a._stream_ws is None
+        assert a._stream_connected is not None
+        assert not a._stream_connected.is_set()
+        assert a._stream_ended_reason == "none"
+
+        # The correct-nonce socket that follows is the one that connects.
+        genuine = _ScriptedWS([_start_frame(nonce=nonce)])
+        async with _driving(a, genuine):
+            assert genuine.closed is False
+            assert a._stream_connected.is_set()
+            assert a._stream_ws is genuine
+    finally:
+        if loop is not None and not loop.done():
+            loop.cancel()
+            with suppress(Exception):
+                await loop
         await a.disconnect()
 
 

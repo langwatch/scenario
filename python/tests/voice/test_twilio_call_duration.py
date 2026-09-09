@@ -367,6 +367,7 @@ async def test_a_leg_stream_connect_timeout_hangs_the_call_up(monkeypatch):
     ``max_call_duration_seconds``.
     """
     a, rest = await _connected_adapter(monkeypatch)
+    assert a._stream_connected is not None
     a._stream_connected.clear()  # nothing will drive a socket
     try:
         with pytest.raises(asyncio.TimeoutError):
@@ -384,6 +385,7 @@ async def test_b_leg_stream_connect_timeout_hangs_nothing_up(monkeypatch):
     """b-leg holds the originator leg with <Pause>, which bounds it already — the
     hangup stays a-leg-only so b-leg's failure path is byte-for-byte unchanged."""
     a, rest = await _connected_adapter(monkeypatch)
+    assert a._stream_connected is not None
     a._stream_connected.clear()
     try:
         with pytest.raises(asyncio.TimeoutError):

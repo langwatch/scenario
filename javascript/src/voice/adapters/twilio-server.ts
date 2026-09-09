@@ -300,7 +300,11 @@ export class TwilioWebhookServer {
     // (which `sendAudio` writes to — adopting an unauthenticated socket would
     // hand the attacker our outbound audio) and not the per-call queue purge
     // (which would drop the live call's audio).
-    const expectedNonce = adapter._streamNonceForServer;
+    //
+    // The nonce is read WHERE the `start` frame is processed, never snapshotted
+    // here at loop entry: a socket that opened before `placeCall` armed the
+    // nonce would otherwise be adopted un-gated at entry and grandfather its
+    // later `start` frame past the check (the CWE-306 arming race).
     let adopted = false;
 
     /**
@@ -347,8 +351,6 @@ export class TwilioWebhookServer {
       }
       return "accept";
     };
-
-    if (expectedNonce === undefined) adopt();
 
     const buffered: number[] = [];
     const flushThresholdBytes = (BATCH_MS / TWILIO_FRAME_MS) * 160; // 100ms = 800 bytes µ-law
@@ -408,6 +410,11 @@ export class TwilioWebhookServer {
         if (!frame) continue;
 
         if (frame.event === "start") {
+          // Read the adapter's CURRENT nonce here, when the start frame is
+          // processed — never a snapshot from loop entry. This is what closes
+          // the arming race: a socket that connected before `placeCall` armed
+          // the nonce is still gated on it the moment its start frame arrives.
+          const expectedNonce = adapter._streamNonceForServer;
           if (expectedNonce !== undefined) {
             // A bad nonce closes the socket outright; a good nonce on the wrong
             // call is merely ignored (AC5/AC6). Either way the socket gets no
@@ -423,8 +430,11 @@ export class TwilioWebhookServer {
               return;
             }
             if (verdict === "ignore") continue;
-            adopt();
           }
+          // Adopt on the first start frame — after auth in a-leg mode, always in
+          // un-gated (b-leg/inbound) mode. Idempotent: a resend must not clobber
+          // the live call's state.
+          if (!adopted) adopt();
           if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
           if (frame.callSid) adapter._setCallSid(frame.callSid);
           adapter._signalStreamConnected();
