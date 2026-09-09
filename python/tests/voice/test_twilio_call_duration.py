@@ -395,6 +395,80 @@ async def test_expired_watchdog_in_flight_does_not_close_a_newer_calls_socket(mo
         await a.disconnect()
 
 
+@pytest.mark.asyncio
+async def test_stale_watchdog_after_takeover_never_relabels_the_newer_call(monkeypatch):
+    """#762 P2 follow-up: the ended-reason stamp ran BEFORE any generation check.
+
+    ``"max_duration"`` wins ended-reason ties permanently, so a watchdog that
+    fires AFTER a newer call has taken over would brand that live call for the
+    rest of its life. Asserted independently of the socket close: B goes live
+    FIRST, then A's stale watchdog fires. Ending A's own SID is still correct —
+    call A really did exceed its cap — but B's ended-reason must be untouched.
+
+    Like the socket-close twin above, B is a b-leg dial: it bumps the call
+    generation without arming, so it does not cancel A's task and A's stale
+    watchdog runs to completion over B's live call.
+    """
+    a, rest = await _connected_adapter(monkeypatch)
+    a_sid = "CA" + "a" * 32
+    b_sid = "CB" + "b" * 32
+    sids = iter([a_sid, b_sid])
+
+    def _place(*, to, from_, twiml, time_limit=None):
+        rest.place_call_kwargs.append(
+            {"to": to, "from_": from_, "twiml": twiml, "time_limit": time_limit}
+        )
+        return next(sids)
+
+    rest.place_call = _place  # type: ignore[method-assign]
+
+    expiry_a = _ControlledExpiry()
+    a._await_max_duration = expiry_a  # type: ignore[method-assign]
+
+    call_a = None
+    call_b = None
+    try:
+        # 1. Place a-leg A and arm its watchdog — hold expiry.
+        call_a = asyncio.create_task(
+            a.place_call(
+                to=A_LEG_DESTINATION, attach_stream="a-leg",
+                timeout=120.0, max_call_duration_seconds=42,
+            )
+        )
+        await _await_origination(rest, 1)
+        await _armed(expiry_a)
+
+        # 2. A b-leg B takes over and goes live BEFORE A's watchdog fires.
+        call_b = asyncio.create_task(a.place_call(to="+14155557777"))  # b-leg
+        await _await_origination(rest, 2)
+        genuine_b = _ScriptedWS([_start_frame(nonce=None, call_sid=b_sid)])
+        async with _driving(a, genuine_b, production=True):
+            await asyncio.wait_for(call_b, timeout=2.0)
+            assert a._stream_ws is genuine_b
+            assert a._stream_ended_reason == "none"
+
+            # 3. NOW A's stale watchdog fires. Its own SID is hung up, but the
+            #    ended-reason of B's live call must stay untouched.
+            expiry_a.release.set()
+            for _ in range(2000):
+                if a_sid in rest.end_calls:
+                    break
+                await asyncio.sleep(0.001)
+            assert a_sid in rest.end_calls, "A's watchdog never reached the hang-up"
+            await asyncio.sleep(0.02)  # let the handler run past the hang-up
+
+            assert a._stream_ended_reason != "max_duration", (
+                "a stale watchdog relabelled a call it does not own"
+            )
+            assert genuine_b.closed is False
+    finally:
+        if call_a is not None:
+            await _cancel(call_a)
+        if call_b is not None:
+            await _cancel(call_b)
+        await a.disconnect()
+
+
 # ------------------------------------------------- REST wire body (AC12, real helper)
 
 

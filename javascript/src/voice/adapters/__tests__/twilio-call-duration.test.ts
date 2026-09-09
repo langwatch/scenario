@@ -415,6 +415,130 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     expiryB.release();
     await vi.waitFor(() => expect(rest.endCalls).toEqual([aSid, bSid]));
   });
+
+  it("#762 P2 follow-up: a b-leg takeover A never sees closes B's socket (guard keyed on the re-arm counter)", async () => {
+    // The a-leg case above was caught because a re-arming a-leg B bumps
+    // `_maxDurationGeneration`. A plain b-leg (also `waitForCall`, or a no-cap
+    // dial) arms no timer, so it bumps ONLY `_callGeneration` — invisible to a
+    // guard keyed on the re-arm counter. Mirror the Python P2 test's choice and
+    // let B be a plain b-leg `placeCall({ to })`.
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+
+    const aSid = "CA" + "a".repeat(32);
+    const bSid = "CB" + "b".repeat(32);
+    const sids = [aSid, bSid];
+    let placeIdx = 0;
+    rest.placeCall = async (args) => {
+      rest.placeCallArgs.push(args);
+      return sids[placeIdx++];
+    };
+    let releaseEnd!: () => void;
+    const endHeld = new Promise<void>((resolve) => (releaseEnd = resolve));
+    rest.endCall = async (callSid: string) => {
+      rest.endCalls.push(callSid);
+      if (callSid === aSid) await endHeld;
+    };
+
+    // 1. Place a-leg A and connect its socket; arm its watchdog.
+    const expiryA = controlledExpiry();
+    installExpiry(adapter, expiryA);
+    const callA = adapter.placeCall({
+      to: A_LEG_DESTINATION,
+      attachStream: "a-leg",
+      timeoutMs: 120_000,
+      maxCallDurationSeconds: 42,
+    });
+    await vi.waitUntil(() => rest.placeCallArgs.length === 1, { timeout: 1_000 });
+    const nonceA = NONCE_RE.exec(rest.placeCallArgs[0].twiml)![1];
+    await drive(adapter, scriptedSocket([startFrame({ nonce: nonceA, callSid: aSid })]), {
+      production: true,
+    });
+    await callA;
+    await armed(expiryA);
+
+    // 2. Expire A; its hang-up blocks in flight.
+    expiryA.release();
+    await vi.waitUntil(() => rest.endCalls.includes(aSid), { timeout: 1_000 });
+
+    // 3. A PLAIN B-LEG B takes over — bumps `_callGeneration` only, never the
+    //    re-arm counter. Connect B's un-gated (nonce-less) socket.
+    const callB = adapter.placeCall({ to: A_LEG_DESTINATION }); // default b-leg
+    await vi.waitUntil(() => rest.placeCallArgs.length === 2, { timeout: 1_000 });
+    const genuineB = scriptedSocket([startFrame({ callSid: bSid })]);
+    await drive(adapter, genuineB, { production: true });
+    await callB;
+    expect(adapter._streamWsForServer).toBe(genuineB);
+
+    // 4. Release A's held hang-up. A sees a newer call generation and must leave
+    //    both B's socket and B's ended-reason alone; only A's own SID is ended.
+    releaseEnd();
+    await flush();
+    expect(genuineB.closed, "A's expired watchdog closed the b-leg's socket").toBe(false);
+    expect(adapter._streamWsForServer).toBe(genuineB);
+    expect(endedReason(adapter), "A's watchdog mislabelled the b-leg call").not.toBe(
+      "max_duration",
+    );
+    expect(rest.endCalls, "only the expired call was ended").toEqual([aSid]);
+  });
+
+  it("#762 P2 follow-up: a stale watchdog firing AFTER a takeover never relabels the newer call", async () => {
+    // Independent of the socket close: `"max_duration"` wins ended-reason ties
+    // permanently, so a watchdog that fires once a newer call is already live
+    // would brand that call for the rest of its life. B takes over FIRST, then
+    // A's stale watchdog fires — its own SID is still hung up (call A really did
+    // exceed its cap) but B's ended-reason must be untouched.
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+
+    const aSid = "CA" + "a".repeat(32);
+    const bSid = "CB" + "b".repeat(32);
+    const sids = [aSid, bSid];
+    let placeIdx = 0;
+    rest.placeCall = async (args) => {
+      rest.placeCallArgs.push(args);
+      return sids[placeIdx++];
+    };
+
+    // 1. Place a-leg A, connect its socket, arm its watchdog — hold expiry.
+    const expiryA = controlledExpiry();
+    installExpiry(adapter, expiryA);
+    const callA = adapter.placeCall({
+      to: A_LEG_DESTINATION,
+      attachStream: "a-leg",
+      timeoutMs: 120_000,
+      maxCallDurationSeconds: 42,
+    });
+    await vi.waitUntil(() => rest.placeCallArgs.length === 1, { timeout: 1_000 });
+    const nonceA = NONCE_RE.exec(rest.placeCallArgs[0].twiml)![1];
+    await drive(adapter, scriptedSocket([startFrame({ nonce: nonceA, callSid: aSid })]), {
+      production: true,
+    });
+    await callA;
+    await armed(expiryA);
+
+    // 2. A plain b-leg B takes over and goes live BEFORE A's watchdog fires.
+    const callB = adapter.placeCall({ to: A_LEG_DESTINATION }); // default b-leg
+    await vi.waitUntil(() => rest.placeCallArgs.length === 2, { timeout: 1_000 });
+    const genuineB = scriptedSocket([startFrame({ callSid: bSid })]);
+    await drive(adapter, genuineB, { production: true });
+    await callB;
+    expect(endedReason(adapter)).toBe("none");
+
+    // 3. NOW A's stale watchdog fires. It ends its own SID (correct) but must
+    //    not stamp `max_duration` on B's live call.
+    expiryA.release();
+    await vi.waitUntil(() => rest.endCalls.includes(aSid), { timeout: 1_000 });
+    await flush();
+    expect(endedReason(adapter), "a stale watchdog relabelled a call it does not own").not.toBe(
+      "max_duration",
+    );
+    expect(genuineB.closed).toBe(false);
+  });
 });
 
 // ------------------------------------------- REST wire body (AC12, real helper)

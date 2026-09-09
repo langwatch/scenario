@@ -767,11 +767,28 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    */
   private _armMaxDurationTimer(seconds: number, callSid: string, to: string): void {
     this._cancelMaxDurationTimer();
-    const generation = this._maxDurationGeneration;
+    // Capture BOTH cancel tokens at arm time (#762 P2 follow-up). Two distinct
+    // things must silence a stale watchdog, and they move independent counters
+    // with DIFFERENT reach:
+    // - `_maxDurationGeneration` is bumped by `_cancelMaxDurationTimer()` alone
+    //   (disconnect, stream-end, re-arm, abandon) — "this timer was cancelled".
+    //   That silences the watchdog ENTIRELY, hang-up included: the pre-await
+    //   guard returns, so a disconnected/re-armed call is never re-ended.
+    // - `_callGeneration` is bumped by `_resetConnectionStateForDial()` on every
+    //   dial — "a newer call took over the adapter". A b-leg / `waitForCall` /
+    //   no-cap takeover bumps ONLY this one (it arms no timer, so it never
+    //   touches `_maxDurationGeneration`), which is why keying the guard on the
+    //   re-arm counter alone left the takeover invisible and closed the newer
+    //   call's socket. This one does NOT suppress the hang-up — call A really
+    //   did hit its cap and its own SID must still be ended — it only stops us
+    //   from stamping the ended-reason of, or closing the socket of, the newer
+    //   call. That narrower check lives in `_onMaxDurationExpired`.
+    const maxGeneration = this._maxDurationGeneration;
+    const callGeneration = this._callGeneration;
     void (async () => {
       await this._awaitMaxDuration(seconds * 1000);
-      if (generation !== this._maxDurationGeneration) return; // cancelled or superseded
-      await this._onMaxDurationExpired(seconds, callSid, to, generation);
+      if (maxGeneration !== this._maxDurationGeneration) return; // cancelled or re-armed
+      await this._onMaxDurationExpired(seconds, callSid, to, callGeneration, maxGeneration);
     })();
   }
 
@@ -823,14 +840,27 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     seconds: number,
     callSid: string,
     to: string,
-    generation: number,
+    callGeneration: number,
+    maxGeneration: number,
   ): Promise<void> {
     twilioLogger.warn("max call duration reached — ending call", {
       seconds,
       to: redactE164(to),
       callSid,
     });
-    this._setStreamEndedReason("max_duration");
+    // We still own the call only while NEITHER cancel token has moved since we
+    // armed. Ending `callSid` via REST is SID-targeted and always correct, but
+    // the other two side effects target whatever call is live now:
+    // - the ended-reason stamp: `"max_duration"` wins ended-reason ties
+    //   permanently, so stamping it for a call we no longer own mislabels a
+    //   newer live call for the rest of its life;
+    // - the socket close: the REST hang-up is an `await`, so a newer call can
+    //   take over while it is in flight, and closing `_streamWs` would tear down
+    //   the newer call's authenticated socket.
+    const stillOurs = (): boolean =>
+      callGeneration === this._callGeneration &&
+      maxGeneration === this._maxDurationGeneration;
+    if (stillOurs()) this._setStreamEndedReason("max_duration");
     const rest = this._rest;
     if (rest) {
       try {
@@ -839,13 +869,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         // Best-effort: Twilio's own TimeLimit is the backstop for this backstop.
       }
     }
-    // Ending `callSid` above is SID-targeted and always correct. Closing
-    // `_streamWs` is not: the REST hang-up is an `await`, and a newer `placeCall`
-    // can re-arm the watchdog (bumping the generation) and adopt a fresh,
-    // authenticated socket while our hang-up response is still pending (#762 P2).
-    // Re-check the generation so we close only the expired call's socket, never
-    // the newer call's.
-    if (generation !== this._maxDurationGeneration) return;
+    if (!stillOurs()) return;
     try {
       this._streamWs?.close();
     } catch {

@@ -1013,12 +1013,19 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
 
         ``generation`` is the call generation this watchdog was armed under
         (#762 P2). Ending the ORIGINATED ``call_sid`` via REST is always correct
-        — it targets the expired call by SID. But closing ``_stream_ws`` targets
-        whatever socket is live NOW, and the REST hang-up above is an ``await``:
-        a newer ``place_call`` can adopt a fresh, authenticated socket while our
-        hang-up response is still pending. So we re-check the generation after
-        the await and close the socket only when no newer call has taken over —
-        otherwise we would tear down the newer call's socket.
+        — it targets the expired call by SID. But the OTHER two side effects
+        target whatever call is live NOW, so both are gated on still owning the
+        generation:
+
+        - The ended-reason stamp (before the REST hang-up): ``"max_duration"``
+          wins ended-reason ties permanently, so a stale watchdog — one that
+          fires after a newer call (a b-leg / inbound / no-cap dial that bumps
+          the generation WITHOUT cancelling this task) has taken over — would
+          otherwise mislabel that newer live call for the rest of its life.
+        - The socket close (after the REST hang-up ``await``): a newer
+          ``place_call`` can adopt a fresh, authenticated socket while our
+          hang-up response is still pending, and closing ``_stream_ws`` would
+          tear it down.
         """
         await self._await_max_duration(seconds)
         logger.warning(
@@ -1028,10 +1035,14 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             _redact_e164(to),
             call_sid,
         )
-        self._set_stream_ended_reason("max_duration")
+        # Only stamp the ended-reason while we still own the call generation; a
+        # stale watchdog must not relabel a newer live call.
+        if generation == self._call_generation:
+            self._set_stream_ended_reason("max_duration")
         rest = self._rest
         if rest is not None:
-            # Blocking REST call off-thread, as send_dtmf does.
+            # Blocking REST call off-thread, as send_dtmf does. Targets our own
+            # SID, so it is correct even once a newer call has taken over.
             with suppress(Exception):
                 await asyncio.to_thread(rest.end_call, call_sid)
         # A newer call took over while the hang-up was in flight — its socket is
