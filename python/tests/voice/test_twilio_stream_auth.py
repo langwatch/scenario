@@ -64,7 +64,7 @@ async def test_a_leg_socket_with_wrong_nonce_is_closed_and_never_connects(monkey
             assert genuine.closed is False
             assert a._stream_connected.is_set()
             assert a._stream_ws is genuine
-        await call  # the correct-nonce socket is the one that connects
+        _ = await call  # the correct-nonce socket is the one that connects
     finally:
         await a.disconnect()
 
@@ -107,7 +107,7 @@ async def test_a_leg_socket_connected_before_arming_is_still_gated(monkeypatch):
             assert genuine.closed is False
             assert a._stream_connected.is_set()
             assert a._stream_ws is genuine
-        await call
+        _ = await call
     finally:
         if loop is not None and not loop.done():
             loop.cancel()
@@ -330,7 +330,7 @@ async def test_a_leg_start_frame_with_other_call_sid_is_ignored(monkeypatch):
         async with _driving(a, genuine):
             assert a._stream_connected.is_set()
             assert a._stream_sid == "MZ762"
-        await call
+        _ = await call
     finally:
         await a.disconnect()
 
@@ -396,7 +396,7 @@ async def test_b_leg_emits_no_parameter_and_still_connects(monkeypatch):
             assert a._stream_connected is not None
             assert a._stream_connected.is_set()
             assert a._stream_ws is ws
-        await call
+        _ = await call
     finally:
         await a.disconnect()
 
@@ -434,7 +434,7 @@ async def test_a_leg_then_b_leg_on_the_same_adapter_still_connects(monkeypatch):
 
             await a.send_dtmf("123")
             assert rest.dtmf_calls == [(a._call_sid, "123")]
-        await call_b
+        _ = await call_b
         await _cancel(call_a)
     finally:
         await a.disconnect()

@@ -49,7 +49,7 @@ async def test_send_dtmf_in_a_leg_mode_raises_and_leaves_the_stream_alone(monkey
             assert rest.dtmf_calls == [], "a-leg must issue zero TwiML-replace POSTs"
             assert ws.closed is False
             assert a._stream_ws is ws
-        await call
+        _ = await call
     finally:
         await a.disconnect()
 

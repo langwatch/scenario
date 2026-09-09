@@ -136,6 +136,6 @@ async def test_a_leg_loop_carries_audio_in_both_directions(monkeypatch):
             assert [_mulaw_decode(byte) for byte in emitted] == RAMP_PCM16_8K, (
                 "outbound PCM16 left the socket mis-encoded, reordered or resampled wrong"
             )
-        await call
+        _ = await call
     finally:
         await a.disconnect()

@@ -152,7 +152,7 @@ async def _place_call_and_connect(a: TwilioAgentAdapter, rest: Any, **kwargs: An
     await _await_origination(rest, start + 1)
     assert a._stream_connected is not None
     a._stream_connected.set()
-    await call
+    _ = await call
 
 
 async def _dial_then_connect(a: TwilioAgentAdapter, coro: Any) -> None:
@@ -172,7 +172,7 @@ async def _dial_then_connect(a: TwilioAgentAdapter, coro: Any) -> None:
             break
         assert a._stream_connected is not None
         a._stream_connected.set()
-    await task
+    _ = await task
 
 
 async def _cancel(call: "asyncio.Task[None]") -> None:
@@ -180,7 +180,7 @@ async def _cancel(call: "asyncio.Task[None]") -> None:
     if not call.done():
         call.cancel()
     with suppress(asyncio.CancelledError, Exception):
-        await call
+        _ = await call
 
 
 @asynccontextmanager
