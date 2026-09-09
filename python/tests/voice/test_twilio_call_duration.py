@@ -190,7 +190,7 @@ async def test_timer_is_cancelled_by_disconnect_and_never_calls_rest(monkeypatch
 
     expiry.release.set()
     with suppress(asyncio.CancelledError):
-        await task
+        _ = await task
     assert task.cancelled(), "disconnect() left the duration timer armed"
     assert rest.end_calls == []
 
@@ -244,7 +244,7 @@ async def test_timer_is_cancelled_when_the_stream_ends(monkeypatch):
 
         expiry.release.set()
         with suppress(asyncio.CancelledError):
-            await task
+            _ = await task
         assert task.cancelled(), "stream end left the duration timer armed"
         assert rest.end_calls == []
         assert a._stream_ended_reason == "stop"
@@ -277,7 +277,7 @@ async def test_second_place_call_replaces_the_first_timer(monkeypatch):
 
         expiry_one.release.set()
         with suppress(asyncio.CancelledError):
-            await first
+            _ = await first
         assert first.cancelled()
         assert rest.end_calls == []
     finally:

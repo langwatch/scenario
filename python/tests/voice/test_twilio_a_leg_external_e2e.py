@@ -27,13 +27,16 @@ Binds AC11 of ``specs/voice-twilio-a-leg-external.feature``.
 
 from __future__ import annotations
 
+import logging
 import os
 
 import pytest
 
 import scenario
-from scenario.voice.stt import ElevenLabsSTTProvider, set_stt_provider
+from scenario.voice import stt as stt_module
 from scenario.voice.testing import TwilioHarness
+
+log = logging.getLogger(__name__)
 
 #: What the user simulator opens with. The assertion below looks for this
 #: prompt's audio actually leaving on the sendAudio direction, and for the
@@ -59,12 +62,10 @@ def e2e_providers():
     if os.environ.get("SCENARIO_TWILIO_E2E_STT") != "elevenlabs":
         yield
         return
-    import scenario.voice.stt as stt_module
-
-    prev = stt_module._provider
-    set_stt_provider(ElevenLabsSTTProvider())
+    prev = stt_module.get_stt_provider()
+    stt_module.set_stt_provider(stt_module.ElevenLabsSTTProvider())
     yield
-    set_stt_provider(prev)
+    stt_module.set_stt_provider(prev)
 
 
 @pytest.mark.timeout(PYTEST_TIMEOUT_SECONDS)
@@ -135,6 +136,7 @@ async def test_a_leg_external_call_exchanges_audio_both_directions(
         )
 
     frames_received = frames_seen[-1] if frames_seen else 0
+    log.info("a-leg e2e: frames_received=%d", frames_received)
     assert frames_received > 0, (
         "no inbound media frames decoded — the a-leg socket carried no audio"
     )

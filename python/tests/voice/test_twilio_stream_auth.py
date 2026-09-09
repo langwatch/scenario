@@ -24,7 +24,6 @@ from scenario.voice.adapters._twilio_shared import (
 )
 
 from .a_leg_harness import (
-    A_LEG_DESTINATION,
     ORIGINATED_CALL_SID,
     _driving,
     _place_a_leg_call,

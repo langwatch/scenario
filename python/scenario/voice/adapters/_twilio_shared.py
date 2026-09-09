@@ -177,7 +177,8 @@ class TunnelReadiness(Protocol):
     the other way round), it just calls the method the tunnel already has.
     """
 
-    async def wait_until_edge_reachable(self) -> None: ...
+    async def wait_until_edge_reachable(self) -> None:
+        """Return once the public edge answers; raise if it will not."""
 
 
 def validate_dtmf(tones: str) -> None:
