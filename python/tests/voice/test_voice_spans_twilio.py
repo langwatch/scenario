@@ -211,7 +211,7 @@ async def _dial_then_connect(adapter: TwilioAgentAdapter, coro: Any) -> None:
             break
         assert adapter._stream_connected is not None
         adapter._stream_connected.set()
-    await task
+    _ = await task
 
 
 # --------------------------------------------------------------------------- media-loop frame builders
