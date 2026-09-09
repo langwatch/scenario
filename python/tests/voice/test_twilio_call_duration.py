@@ -28,8 +28,12 @@ from scenario.voice.adapters._twilio_shared import (
 from .a_leg_harness import (
     A_LEG_DESTINATION,
     ORIGINATED_CALL_SID,
+    _await_origination,
+    _cancel,
+    _driving,
     _place_call_and_connect,
     _ScriptedWS,
+    _start_frame,
 )
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
 
@@ -291,6 +295,103 @@ async def test_second_place_call_replaces_the_first_timer(monkeypatch):
         assert first.cancelled()
         assert rest.end_calls == []
     finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_expired_watchdog_in_flight_does_not_close_a_newer_calls_socket(monkeypatch):
+    """#762 P2: call A's watchdog fires and its hang-up REST call is IN FLIGHT
+    when call B takes over on the same adapter. When A's response finally
+    resolves, its handler must close only the EXPIRED call's socket — never
+    whatever socket is live now. Here that live socket is B's, so releasing A's
+    held hang-up must leave B's socket open.
+
+    The existing cancellation tests only cover expiry BEFORE the handler starts;
+    this drives the re-arm/takeover WHILE the hang-up is already awaiting.
+
+    A second a-leg dial cancels A's asyncio task outright, so — to exercise the
+    handler resuming past its in-flight hang-up, the JS twin's un-cancellable
+    scenario — B is a b-leg dial: it bumps the call generation (evicting A's
+    claim on the socket) without arming, and so does not cancel A's task.
+    """
+    import threading
+
+    a, rest = await _connected_adapter(monkeypatch)
+    a_sid = "CA" + "a" * 32
+    b_sid = "CB" + "b" * 32
+
+    # Distinct SIDs for A then B.
+    sids = iter([a_sid, b_sid])
+
+    def _place(*, to, from_, twiml, time_limit=None):
+        rest.place_call_kwargs.append(
+            {"to": to, "from_": from_, "twiml": twiml, "time_limit": time_limit}
+        )
+        return next(sids)
+
+    rest.place_call = _place  # type: ignore[method-assign]
+
+    # Hold A's hang-up REST response until the test releases it.
+    end_gate = threading.Event()
+
+    def _end(call_sid):
+        rest.end_calls.append(call_sid)
+        if call_sid == a_sid:
+            end_gate.wait()
+
+    rest.end_call = _end  # type: ignore[method-assign]
+
+    expiry_a = _ControlledExpiry()
+    a._await_max_duration = expiry_a  # type: ignore[method-assign]
+
+    call_a = None
+    call_b = None
+    try:
+        # 1. Place a-leg call A and arm its watchdog.
+        call_a = asyncio.create_task(
+            a.place_call(
+                to=A_LEG_DESTINATION, attach_stream="a-leg",
+                timeout=120.0, max_call_duration_seconds=42,
+            )
+        )
+        await _await_origination(rest, 1)
+        await _armed(expiry_a)
+        assert a._call_sid == a_sid
+
+        # 2. Expire A; its hang-up blocks in flight on end_gate.
+        expiry_a.release.set()
+        for _ in range(2000):
+            if a_sid in rest.end_calls:
+                break
+            await asyncio.sleep(0.001)
+        assert rest.end_calls == [a_sid], "A's watchdog never reached the hang-up"
+
+        # 3. B takes over (bumps the generation) and its socket goes live.
+        call_b = asyncio.create_task(a.place_call(to="+14155557777"))  # b-leg
+        await _await_origination(rest, 2)
+        assert a._call_sid == b_sid
+        assert a._stream_nonce is None
+
+        genuine_b = _ScriptedWS([_start_frame(nonce=None, call_sid=b_sid)])
+        async with _driving(a, genuine_b, production=True):
+            await asyncio.wait_for(call_b, timeout=2.0)
+            assert a._stream_ws is genuine_b
+
+            # 4. Release A's held hang-up. Its handler resumes, sees a newer
+            #    generation, and must leave B's socket alone.
+            end_gate.set()
+            await asyncio.sleep(0.05)
+
+            assert genuine_b.closed is False, "A's expired watchdog closed B's socket"
+            assert a._stream_ws is genuine_b
+            # Only the expired call was ended; B's live call was not.
+            assert rest.end_calls == [a_sid]
+    finally:
+        end_gate.set()
+        if call_a is not None:
+            await _cancel(call_a)
+        if call_b is not None:
+            await _cancel(call_b)
         await a.disconnect()
 
 

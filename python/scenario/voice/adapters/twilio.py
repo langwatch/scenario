@@ -963,8 +963,13 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         alive to hang up the newer call's SID.
         """
         self._cancel_max_duration_timer()
+        # Capture the generation this watchdog is armed under (#762 P2). After
+        # the hang-up REST round-trip the handler re-checks it before closing the
+        # socket, so an expiry whose REST response resolves AFTER a newer call has
+        # taken over cannot close that newer call's authenticated socket.
+        generation = self._call_generation
         self._max_duration_task = asyncio.create_task(
-            self._run_max_duration_timer(seconds, call_sid, to)
+            self._run_max_duration_timer(seconds, call_sid, to, generation)
         )
 
     async def _abandon_originated_call(self, call_sid: str) -> None:
@@ -998,13 +1003,22 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         await asyncio.sleep(seconds)
 
     async def _run_max_duration_timer(
-        self, seconds: int, call_sid: str, to: str
+        self, seconds: int, call_sid: str, to: str, generation: int
     ) -> None:
         """Hang up the call and close the socket once the cap elapses.
 
         The belt to Twilio's ``TimeLimit`` suspenders: it fires even if the
         Twilio-side limit was misconfigured or silently dropped. Cancelled (and
         therefore silent) on ``disconnect()``, at stream end, and on re-arm.
+
+        ``generation`` is the call generation this watchdog was armed under
+        (#762 P2). Ending the ORIGINATED ``call_sid`` via REST is always correct
+        — it targets the expired call by SID. But closing ``_stream_ws`` targets
+        whatever socket is live NOW, and the REST hang-up above is an ``await``:
+        a newer ``place_call`` can adopt a fresh, authenticated socket while our
+        hang-up response is still pending. So we re-check the generation after
+        the await and close the socket only when no newer call has taken over —
+        otherwise we would tear down the newer call's socket.
         """
         await self._await_max_duration(seconds)
         logger.warning(
@@ -1020,6 +1034,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             # Blocking REST call off-thread, as send_dtmf does.
             with suppress(Exception):
                 await asyncio.to_thread(rest.end_call, call_sid)
+        # A newer call took over while the hang-up was in flight — its socket is
+        # not ours to close.
+        if generation != self._call_generation:
+            return
         ws = self._stream_ws
         if ws is not None:
             with suppress(Exception):

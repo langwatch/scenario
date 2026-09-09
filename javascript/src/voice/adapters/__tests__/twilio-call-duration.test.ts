@@ -29,6 +29,7 @@ import {
   dialAndConnect,
   drive,
   makeAdapter,
+  NONCE_RE,
   ORIGINATED_CALL_SID,
   scriptedSocket,
   spyRest,
@@ -336,6 +337,84 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     expect(endedReason(adapter)).toBe("none");
   });
 
+  it("#762 P2: an expired watchdog in flight does not close a newer call's socket", async () => {
+    // Call A's watchdog fires and its hang-up REST call is IN FLIGHT when call B
+    // takes over. The pre-await generation check already passed for A, so A's
+    // handler keeps running; after its hang-up resolves it must close only the
+    // EXPIRED call's socket — never whatever socket is live now (B's).
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+
+    const aSid = "CA" + "a".repeat(32);
+    const bSid = "CB" + "b".repeat(32);
+    const sids = [aSid, bSid];
+    let placeIdx = 0;
+    rest.placeCall = async (args) => {
+      rest.placeCallArgs.push(args);
+      return sids[placeIdx++];
+    };
+    // Hold A's hang-up REST response until the test releases it.
+    let releaseEnd!: () => void;
+    const endHeld = new Promise<void>((resolve) => (releaseEnd = resolve));
+    rest.endCall = async (callSid: string) => {
+      rest.endCalls.push(callSid);
+      if (callSid === aSid) await endHeld;
+    };
+
+    // 1. Place a-leg call A and connect its socket; arm its watchdog.
+    const expiryA = controlledExpiry();
+    installExpiry(adapter, expiryA);
+    const callA = adapter.placeCall({
+      to: A_LEG_DESTINATION,
+      attachStream: "a-leg",
+      timeoutMs: 120_000,
+      maxCallDurationSeconds: 42,
+    });
+    await vi.waitUntil(() => rest.placeCallArgs.length === 1, { timeout: 1_000 });
+    const nonceA = NONCE_RE.exec(rest.placeCallArgs[0].twiml)![1];
+    await drive(adapter, scriptedSocket([startFrame({ nonce: nonceA, callSid: aSid })]), {
+      production: true,
+    });
+    await callA;
+    await armed(expiryA);
+    expect(adapter._callSidForServer).toBe(aSid);
+
+    // 2. Expire A; its hang-up blocks in flight.
+    expiryA.release();
+    await vi.waitUntil(() => rest.endCalls.includes(aSid), { timeout: 1_000 });
+
+    // 3. Call B takes over (bumps the timer generation); connect B's socket.
+    const expiryB = controlledExpiry();
+    installExpiry(adapter, expiryB);
+    const callB = adapter.placeCall({
+      to: A_LEG_DESTINATION,
+      attachStream: "a-leg",
+      timeoutMs: 120_000,
+      maxCallDurationSeconds: 42,
+    });
+    await vi.waitUntil(() => rest.placeCallArgs.length === 2, { timeout: 1_000 });
+    await armed(expiryB);
+    expect(adapter._callSidForServer).toBe(bSid);
+    const nonceB = NONCE_RE.exec(rest.placeCallArgs[1].twiml)![1];
+    const genuineB = scriptedSocket([startFrame({ nonce: nonceB, callSid: bSid })]);
+    await drive(adapter, genuineB, { production: true });
+    await callB;
+    expect(adapter._streamWsForServer).toBe(genuineB);
+
+    // 4. Release A's held hang-up. Its handler resumes, sees a newer generation,
+    //    and must leave B's socket alone.
+    releaseEnd();
+    await flush();
+    expect(genuineB.closed, "A's expired watchdog closed B's socket").toBe(false);
+    expect(adapter._streamWsForServer).toBe(genuineB);
+    expect(rest.endCalls, "only the expired call was ended").toEqual([aSid]);
+
+    // B's own watchdog is still live and targets B, not A.
+    expiryB.release();
+    await vi.waitFor(() => expect(rest.endCalls).toEqual([aSid, bSid]));
+  });
 });
 
 // ------------------------------------------- REST wire body (AC12, real helper)

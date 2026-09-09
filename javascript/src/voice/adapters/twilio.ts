@@ -771,7 +771,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     void (async () => {
       await this._awaitMaxDuration(seconds * 1000);
       if (generation !== this._maxDurationGeneration) return; // cancelled or superseded
-      await this._onMaxDurationExpired(seconds, callSid, to);
+      await this._onMaxDurationExpired(seconds, callSid, to, generation);
     })();
   }
 
@@ -823,6 +823,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     seconds: number,
     callSid: string,
     to: string,
+    generation: number,
   ): Promise<void> {
     twilioLogger.warn("max call duration reached — ending call", {
       seconds,
@@ -838,6 +839,13 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         // Best-effort: Twilio's own TimeLimit is the backstop for this backstop.
       }
     }
+    // Ending `callSid` above is SID-targeted and always correct. Closing
+    // `_streamWs` is not: the REST hang-up is an `await`, and a newer `placeCall`
+    // can re-arm the watchdog (bumping the generation) and adopt a fresh,
+    // authenticated socket while our hang-up response is still pending (#762 P2).
+    // Re-check the generation so we close only the expired call's socket, never
+    // the newer call's.
+    if (generation !== this._maxDurationGeneration) return;
     try {
       this._streamWs?.close();
     } catch {
