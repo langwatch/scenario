@@ -38,6 +38,15 @@ OUTBOUND_PROMPT = "Hello, I am calling to test this line. Can you hear me?"
 MAX_CALL_DURATION_SECONDS = 180
 
 
+#: pytest.ini pins ``timeout = 60`` for the whole suite; this test legitimately
+#: outlives that (120s stream-connect wait + up to 180s of call + LLM turns), and
+#: pytest-timeout killing the process mid-call skips the adapter's own hangup.
+#: The adapter's guards (stream-connect timeout, max_call_duration_seconds,
+#: Twilio TimeLimit) are the real ceilings — this only has to sit above them.
+PYTEST_TIMEOUT_SECONDS = 600
+
+
+@pytest.mark.timeout(PYTEST_TIMEOUT_SECONDS)
 @pytest.mark.asyncio
 async def test_a_leg_external_call_exchanges_audio_both_directions(
     requires_twilio_a_leg_external,
