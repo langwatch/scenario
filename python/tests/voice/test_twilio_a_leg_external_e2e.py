@@ -16,6 +16,12 @@ How to run (operator, from ``python/``)::
     TWILIO_PHONE_NUMBER=+1415... SCENARIO_TWILIO_EXTERNAL_TO=+4479... \\
     OPENAI_API_KEY=... uv run pytest tests/voice/test_twilio_a_leg_external_e2e.py
 
+Provider overrides (all optional; defaults are the OpenAI stack)::
+
+    SCENARIO_TWILIO_E2E_VOICE=elevenlabs/<voice_id>   # user-simulator TTS
+    SCENARIO_TWILIO_E2E_STT=elevenlabs                 # transcription of callee audio
+    SCENARIO_TWILIO_E2E_MODEL=gemini/gemini-2.5-flash  # user-simulator + judge LLM
+
 Binds AC11 of ``specs/voice-twilio-a-leg-external.feature``.
 """
 
@@ -26,6 +32,7 @@ import os
 import pytest
 
 import scenario
+from scenario.voice.stt import ElevenLabsSTTProvider, set_stt_provider
 from scenario.voice.testing import TwilioHarness
 
 #: What the user simulator opens with. The assertion below looks for this
@@ -46,10 +53,25 @@ MAX_CALL_DURATION_SECONDS = 180
 PYTEST_TIMEOUT_SECONDS = 600
 
 
+@pytest.fixture
+def e2e_providers():
+    """Apply the optional STT override for this one test, then undo it."""
+    if os.environ.get("SCENARIO_TWILIO_E2E_STT") != "elevenlabs":
+        yield
+        return
+    import scenario.voice.stt as stt_module
+
+    prev = stt_module._provider
+    set_stt_provider(ElevenLabsSTTProvider())
+    yield
+    set_stt_provider(prev)
+
+
 @pytest.mark.timeout(PYTEST_TIMEOUT_SECONDS)
 @pytest.mark.asyncio
 async def test_a_leg_external_call_exchanges_audio_both_directions(
     requires_twilio_a_leg_external,
+    e2e_providers,
 ):
     """A-leg dials an external number and audio flows in both directions.
 
@@ -58,6 +80,9 @@ async def test_a_leg_external_call_exchanges_audio_both_directions(
     assistant turns are the STT read of that same audio.
     """
     external_to = os.environ["SCENARIO_TWILIO_EXTERNAL_TO"]
+    voice = os.environ.get("SCENARIO_TWILIO_E2E_VOICE", "openai/nova")
+    model = os.environ.get("SCENARIO_TWILIO_E2E_MODEL")
+    frames_seen: list[int] = []
 
     async with TwilioHarness(
         account_sid=os.environ["TWILIO_ACCOUNT_SID"],
@@ -75,6 +100,11 @@ async def test_a_leg_external_call_exchanges_audio_both_directions(
             max_call_duration_seconds=MAX_CALL_DURATION_SECONDS,
         )
 
+        def sample_frames(_state: scenario.ScenarioState) -> None:
+            # Must run inside the script: scenario.run() disconnects every voice
+            # adapter on the way out, and disconnect() zeroes the counters.
+            frames_seen.append(adapter._frames_received)
+
         result = await scenario.run(
             name="twilio_a_leg_external_smoke",
             description=(
@@ -85,26 +115,26 @@ async def test_a_leg_external_call_exchanges_audio_both_directions(
             ),
             agents=[
                 adapter,
-                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.UserSimulatorAgent(voice=voice, model=model),
                 scenario.JudgeAgent(
+                    model=model,
                     criteria=[
                         "The callee received the caller's spoken audio",
                         "The callee's spoken reply came back over the media stream",
                         "The call completed without transport errors",
-                    ]
+                    ],
                 ),
             ],
             script=[
                 scenario.user(OUTBOUND_PROMPT),
                 scenario.agent(),
+                sample_frames,
                 scenario.judge(),
             ],
             max_turns=4,
         )
 
-        # Sampled inside the harness: disconnect() resets the counters.
-        frames_received = adapter._frames_received
-
+    frames_received = frames_seen[-1] if frames_seen else 0
     assert frames_received > 0, (
         "no inbound media frames decoded — the a-leg socket carried no audio"
     )
