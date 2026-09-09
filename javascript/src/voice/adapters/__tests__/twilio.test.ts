@@ -29,6 +29,31 @@ import {
 
 const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
+/**
+ * Run a dial and fire the stream-connected signal once it has reset and begun
+ * awaiting (#762 P1) — the replacement for pre-firing the signal before the dial.
+ */
+async function dialAndConnect(
+  adapter: TwilioAgentAdapter,
+  dial: Promise<void>,
+): Promise<void> {
+  let settled = false;
+  const done = dial.then(
+    () => {
+      settled = true;
+    },
+    (err) => {
+      settled = true;
+      throw err;
+    },
+  );
+  for (let i = 0; i < 500 && !settled; i++) {
+    await Promise.resolve();
+    adapter._signalStreamConnected();
+  }
+  await done;
+}
+
 /** Build an adapter wired to a stubbed REST helper so connect() can run. */
 function makeAdapter(opts?: {
   publicBaseUrl?: string;
@@ -557,8 +582,10 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     // connect() resolves the adapter's OWN number; measure callee-zero after it.
     const baseLog = rest.restCallLog.length;
     const baseWrites = rest.writeCalls.length;
-    adapter._signalStreamConnected(); // a-leg stream still comes to us
-    await adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" }),
+    );
 
     expect(rest.placeCallArgs).toHaveLength(1);
     const twiml = rest.placeCallArgs[0].twiml;
@@ -574,8 +601,10 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     const adapter = makeAdapterWithRest(rest);
     await adapter.connect();
     openAdapter = adapter;
-    adapter._signalStreamConnected();
-    await adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" }),
+    );
     const nonce = adapter._streamNonceForServer;
     expect(nonce).toBeDefined();
     expect(rest.placeCallArgs[0].twiml).toBe(aLegTwiml(nonce as string));
@@ -608,8 +637,10 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     const adapter = makeAdapterWithRest(rest);
     await adapter.connect();
     const baseWrites = rest.writeCalls.length;
-    adapter._signalStreamConnected();
-    await adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" }),
+    );
     expect(calleeState(adapter)).toEqual({ sid: undefined, prior: undefined });
     await adapter.disconnect();
     expect(rest.writeCalls.slice(baseWrites)).toEqual([]);
@@ -655,8 +686,7 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     await adapter.connect();
     // connect() resolves the adapter's own number; slice it off the golden.
     const baseLog = rest.restCallLog.length;
-    adapter._signalStreamConnected();
-    await adapter.placeCall({ to: "+14155557777" }); // default b-leg
+    await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" })); // default b-leg
     await adapter.disconnect();
 
     const expectedBLegTwiml =

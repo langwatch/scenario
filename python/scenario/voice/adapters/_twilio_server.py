@@ -274,6 +274,17 @@ class TwilioWebhookServer:
         # entry and grandfather its later ``start`` frame past the check (the
         # CWE-306 arming race).
         adopted = False
+        # The call generation captured at ADOPTION (#762 P1). Until this socket
+        # adopts it stays -1 and ``_owns_current_call`` is False by the ``adopted``
+        # guard, so the reference is safe. Once adopted, a bump of
+        # ``adapter._call_generation`` (a new ``place_call``/``wait_for_call``)
+        # makes this socket stale: it is closed on its next frame and none of its
+        # side effects touch the current call.
+        my_generation = -1
+
+        def _owns_current_call() -> bool:
+            """True only while this socket is the adapter's current-gen transport."""
+            return adopted and my_generation == adapter._call_generation
 
         def _adopt() -> None:
             """Make ``ws`` the adapter's live transport and re-arm per-call state.
@@ -301,9 +312,12 @@ class TwilioWebhookServer:
             untouched: a consumer already parked in ``get()`` stays parked for
             real audio.
             """
-            nonlocal adopted
+            nonlocal adopted, my_generation
             assert adapter._inbound_queue is not None
             adopted = True
+            # Capture the generation we are adopting under. Any later dial bumps
+            # ``adapter._call_generation`` and this socket becomes stale.
+            my_generation = adapter._call_generation
             adapter._stream_ws = ws
             adapter._stream_ended = False
             adapter._stream_ended_reason = "none"
@@ -396,6 +410,18 @@ class TwilioWebhookServer:
                 if frame is None:
                     continue
 
+                # Security (#762 P1): a socket adopted under an OLDER call
+                # generation (it connected — and even adopted — before this dial
+                # armed the nonce) is stale the instant place_call/wait_for_call
+                # bumped the generation. Close it on its next frame so it can
+                # neither inject audio nor connect nor change the current call's
+                # terminal state. The ``finally`` below is generation-gated too,
+                # so this early return does not end the live call.
+                if adopted and my_generation != adapter._call_generation:
+                    with suppress(Exception):
+                        await ws.close()
+                    return
+
                 # Security (#762, CWE-306): only an ADOPTED socket may touch
                 # adapter state. A b-leg/inbound socket adopts un-gated on its
                 # first ``start``; an a-leg socket adopts only after presenting
@@ -477,7 +503,7 @@ class TwilioWebhookServer:
                         pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
                         await _enqueue(pcm)
-                    if adopted:
+                    if _owns_current_call():
                         adapter._set_stream_ended_reason("stop")
                     return
         except WebSocketDisconnect:
@@ -485,14 +511,14 @@ class TwilioWebhookServer:
             # type specifically (see its docstring) — tag the outcome BEFORE
             # re-raising so that swallow's caller-visible behavior is
             # unchanged.
-            if adopted:
+            if _owns_current_call():
                 adapter._set_stream_ended_reason("close")
             raise
         except Exception:
             # Any OTHER transport error (not a clean disconnect) propagates to
             # ``run_stream_session``'s caller unchanged — tag the outcome
             # before re-raising.
-            if adopted:
+            if _owns_current_call():
                 adapter._set_stream_ended_reason("error")
             raise
         finally:
@@ -514,8 +540,12 @@ class TwilioWebhookServer:
             # ``disconnect()`` already nulled the queue.
             # A socket rejected before adoption never became this adapter's
             # transport, so it must not end the call it failed to authenticate
-            # into either: skip the terminal sentinel entirely.
-            if adopted:
+            # into either: skip the terminal sentinel entirely. A socket adopted
+            # under an OLDER generation (#762 P1) is likewise not the current
+            # call: its teardown must not cancel the live call's watchdog or mark
+            # the live stream ended — hence ``_owns_current_call`` rather than a
+            # bare ``adopted``.
+            if _owns_current_call():
                 # The session that owned the duration cap is over; disarm before
                 # anything else so the watchdog can never hang up a LATER call.
                 adapter._cancel_max_duration_timer()

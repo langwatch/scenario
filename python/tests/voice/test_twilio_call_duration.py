@@ -25,7 +25,12 @@ from scenario.voice.adapters._twilio_shared import (
     MAX_CALL_DURATION_CAP_SECONDS,
 )
 
-from .a_leg_harness import A_LEG_DESTINATION, ORIGINATED_CALL_SID, _ScriptedWS
+from .a_leg_harness import (
+    A_LEG_DESTINATION,
+    ORIGINATED_CALL_SID,
+    _place_call_and_connect,
+    _ScriptedWS,
+)
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
 
 
@@ -73,8 +78,9 @@ async def test_a_leg_place_call_sends_configured_time_limit(monkeypatch):
     """AC12: the configured max duration lands in the Calls.create request."""
     a, rest = await _connected_adapter(monkeypatch)
     try:
-        await a.place_call(
-            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=120
+        await _place_call_and_connect(
+            a, rest, to="+447700900123", attach_stream="a-leg",
+            max_call_duration_seconds=120,
         )
         assert rest.place_call_kwargs[0]["time_limit"] == 120
     finally:
@@ -86,7 +92,9 @@ async def test_a_leg_place_call_defaults_time_limit_when_unset(monkeypatch):
     """A caller who names no duration still gets a bounded call."""
     a, rest = await _connected_adapter(monkeypatch)
     try:
-        await a.place_call(to="+447700900123", attach_stream="a-leg")
+        await _place_call_and_connect(
+            a, rest, to="+447700900123", attach_stream="a-leg"
+        )
         assert (
             rest.place_call_kwargs[0]["time_limit"]
             == DEFAULT_MAX_CALL_DURATION_SECONDS
@@ -148,11 +156,9 @@ async def test_max_duration_timer_ends_the_originated_call_and_closes_ws(monkeyp
     expiry = _ControlledExpiry()
     a._await_max_duration = expiry  # type: ignore[method-assign]
     try:
-        await a.place_call(
-            to="+447700900123",
-            attach_stream="a-leg",
-            timeout=120.0,
-            max_call_duration_seconds=42,
+        await _place_call_and_connect(
+            a, rest, to="+447700900123", attach_stream="a-leg",
+            timeout=120.0, max_call_duration_seconds=42,
         )
         ws = _ScriptedWS([])
         a._stream_ws = ws
@@ -179,8 +185,9 @@ async def test_timer_is_cancelled_by_disconnect_and_never_calls_rest(monkeypatch
     a, rest = await _connected_adapter(monkeypatch)
     expiry = _ControlledExpiry()
     a._await_max_duration = expiry  # type: ignore[method-assign]
-    await a.place_call(
-        to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
+    await _place_call_and_connect(
+        a, rest, to="+447700900123", attach_stream="a-leg",
+        max_call_duration_seconds=42,
     )
     task = a._max_duration_task
     assert task is not None
@@ -205,8 +212,9 @@ async def test_timer_is_cancelled_when_the_stream_ends(monkeypatch):
     expiry = _ControlledExpiry()
     a._await_max_duration = expiry  # type: ignore[method-assign]
     try:
-        await a.place_call(
-            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
+        await _place_call_and_connect(
+            a, rest, to="+447700900123", attach_stream="a-leg",
+            max_call_duration_seconds=42,
         )
         task = a._max_duration_task
         assert task is not None
@@ -260,8 +268,9 @@ async def test_second_place_call_replaces_the_first_timer(monkeypatch):
     expiry_one = _ControlledExpiry()
     a._await_max_duration = expiry_one  # type: ignore[method-assign]
     try:
-        await a.place_call(
-            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
+        await _place_call_and_connect(
+            a, rest, to="+447700900123", attach_stream="a-leg",
+            max_call_duration_seconds=42,
         )
         first = a._max_duration_task
         assert first is not None
@@ -269,8 +278,9 @@ async def test_second_place_call_replaces_the_first_timer(monkeypatch):
 
         expiry_two = _ControlledExpiry()
         a._await_max_duration = expiry_two  # type: ignore[method-assign]
-        await a.place_call(
-            to="+447700900123", attach_stream="a-leg", max_call_duration_seconds=42
+        await _place_call_and_connect(
+            a, rest, to="+447700900123", attach_stream="a-leg",
+            max_call_duration_seconds=42,
         )
         await _armed(expiry_two)
         assert a._max_duration_task is not first

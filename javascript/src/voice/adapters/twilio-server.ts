@@ -306,6 +306,14 @@ export class TwilioWebhookServer {
     // nonce would otherwise be adopted un-gated at entry and grandfather its
     // later `start` frame past the check (the CWE-306 arming race).
     let adopted = false;
+    // The call generation captured at ADOPTION (#762 P1). Until this socket
+    // adopts it stays -1 and `ownsCurrentCall` is false via the `adopted` guard.
+    // Once adopted, a bump of `adapter._callGenerationForServer` (a new
+    // placeCall/waitForCall) makes this socket stale: it is closed on its next
+    // frame and none of its side effects touch the current call.
+    let myGeneration = -1;
+    const ownsCurrentCall = (): boolean =>
+      adopted && myGeneration === adapter._callGenerationForServer;
 
     /**
      * Make `ws` the adapter's live transport and re-arm per-call state.
@@ -319,6 +327,9 @@ export class TwilioWebhookServer {
      */
     const adopt = (): void => {
       adopted = true;
+      // Capture the generation we are adopting under. Any later dial bumps
+      // `adapter._callGenerationForServer` and this socket becomes stale.
+      myGeneration = adapter._callGenerationForServer;
       adapter._setStreamWs(ws);
       adapter._resetCallState();
     };
@@ -403,11 +414,22 @@ export class TwilioWebhookServer {
       while (true) {
         const text = await ws.receiveText();
         if (text == null) {
-          if (adopted) adapter._setStreamEndedReason("close");
+          if (ownsCurrentCall()) adapter._setStreamEndedReason("close");
           return; // socket closed
         }
         const frame = parseMediaStreamFrame(text);
         if (!frame) continue;
+
+        // Security (#762 P1): a socket adopted under an OLDER call generation (it
+        // connected — and even adopted — before this dial armed the nonce) is
+        // stale the instant placeCall/waitForCall bumped the generation. Close it
+        // on its next frame so it can neither inject audio nor connect nor change
+        // the current call's terminal state. The `finally` below is
+        // generation-gated too, so this early return does not end the live call.
+        if (adopted && myGeneration !== adapter._callGenerationForServer) {
+          ws.close();
+          return;
+        }
 
         // Security (#762, CWE-306): only an ADOPTED socket may touch adapter
         // state. A b-leg/inbound socket adopts un-gated on its first `start`; an
@@ -467,7 +489,7 @@ export class TwilioWebhookServer {
           }
         } else if (frame.event === "stop") {
           flush();
-          if (adopted) adapter._setStreamEndedReason("stop");
+          if (ownsCurrentCall()) adapter._setStreamEndedReason("stop");
           return;
         }
       }
@@ -475,7 +497,7 @@ export class TwilioWebhookServer {
       // Any transport error that is not a clean socket close (`text == null`
       // above) propagates to `runStreamSession`'s caller unchanged — tag the
       // outcome before re-throwing.
-      if (adopted) adapter._setStreamEndedReason("error");
+      if (ownsCurrentCall()) adapter._setStreamEndedReason("error");
       throw err;
     } finally {
       // Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the loop
@@ -496,8 +518,11 @@ export class TwilioWebhookServer {
       //
       // A socket rejected before adoption never became this adapter's transport,
       // so it must not end the call it failed to authenticate into either: skip
-      // the terminal sentinel entirely.
-      if (adopted) {
+      // the terminal sentinel entirely. A socket adopted under an OLDER
+      // generation (#762 P1) is likewise not the current call: its teardown must
+      // not cancel the live call's watchdog or mark the live stream ended —
+      // hence `ownsCurrentCall()` rather than a bare `adopted`.
+      if (ownsCurrentCall()) {
         // The session that owned the duration cap is over; disarm before
         // anything else so the watchdog can never hang up a LATER call.
         adapter._cancelMaxDurationTimer();

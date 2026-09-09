@@ -22,6 +22,7 @@ import { TunnelNotReadyError } from "../twilio-shared";
 // `a-leg-harness.ts`.
 import {
   A_LEG_DESTINATION,
+  dialAndConnect,
   makeAdapter,
   spyRest,
   type SpyRest,
@@ -119,7 +120,7 @@ describe("TwilioAgentAdapter a-leg destination guard", () => {
 
   it("AC8 (positive): the allowlisted destination originates normally", async () => {
     const { adapter, rest } = await connected({ allowedCallees: [ALLOWED] });
-    await adapter.placeCall({ to: ALLOWED, attachStream: "a-leg" });
+    await dialAndConnect(adapter, adapter.placeCall({ to: ALLOWED, attachStream: "a-leg" }));
     expect(rest.placeCallArgs).toHaveLength(1);
     expect(rest.placeCallArgs[0].to).toBe(ALLOWED);
   });
@@ -151,7 +152,7 @@ describe("TwilioAgentAdapter a-leg destination guard", () => {
     // b-leg can only reach numbers this account owns, which is its own
     // guardrail — it is never gated on allowedCallees.
     const { adapter, rest } = await connected({});
-    await adapter.placeCall({ to: "+14155557777" }); // default b-leg
+    await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" })); // default b-leg
     expect(rest.placeCallArgs).toHaveLength(1);
     expect(rest.placeCallArgs[0].to).toBe("+14155557777");
   });
@@ -172,7 +173,7 @@ describe("TwilioAgentAdapter a-leg destination guard", () => {
 
   it("AC9 (ordering): the probe runs while zero calls have been originated", async () => {
     const { adapter, rest, tunnel } = await connected({ allowedCallees: [ALLOWED] });
-    await adapter.placeCall({ to: ALLOWED, attachStream: "a-leg" });
+    await dialAndConnect(adapter, adapter.placeCall({ to: ALLOWED, attachStream: "a-leg" }));
     expect(tunnel.calls).toBe(1);
     expect(tunnel.originationsAtProbe).toBe(0);
     expect(rest.placeCallArgs).toHaveLength(1);
@@ -197,7 +198,7 @@ describe("TwilioAgentAdapter a-leg destination guard", () => {
       allowedCallees: [ALLOWED],
       tunnelError: new Error("edge did not resolve"),
     });
-    await adapter.placeCall({ to: "+14155557777" }); // default b-leg
+    await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" })); // default b-leg
     expect(tunnel.calls).toBe(0);
     expect(rest.placeCallArgs).toHaveLength(1);
   });

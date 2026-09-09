@@ -11,6 +11,8 @@ import pytest
 
 from scenario.voice import AudioChunk, TwilioAgentAdapter
 
+from .a_leg_harness import _dial_then_connect
+
 
 def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
     kwargs: dict[str, Any] = dict(
@@ -228,8 +230,7 @@ async def test_place_call_transitions_to_call_mode(monkeypatch):
         # Pre-fire the stream-connected event so place_call returns instead of
         # blocking — we're testing mode transition, not the WS handshake.
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         assert a._mode == "call"
         assert len(rest_instances[0].place_call_kwargs) == 1
     finally:
@@ -244,8 +245,7 @@ async def test_wait_for_call_transitions_to_answer_mode(monkeypatch):
     try:
         assert a._mode == "idle"
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.wait_for_call(timeout=1.0)
+        await _dial_then_connect(a, a.wait_for_call(timeout=1.0))
         assert a._mode == "answer"
     finally:
         await a.disconnect()
@@ -258,8 +258,7 @@ async def test_wait_for_call_then_place_call_raises(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.wait_for_call(timeout=1.0)
+        await _dial_then_connect(a, a.wait_for_call(timeout=1.0))
         with pytest.raises(RuntimeError, match="already in 'answer' mode"):
             await a.place_call(to="+14155557777")
     finally:
@@ -273,8 +272,7 @@ async def test_place_call_then_wait_for_call_raises(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         with pytest.raises(RuntimeError, match="already in 'call' mode"):
             await a.wait_for_call(timeout=1.0)
     finally:
@@ -302,8 +300,7 @@ async def test_place_call_writes_and_restores_callee_voice_url(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         rest = rest_instances[0]
         # Exactly one write on place_call: callee's voice_url → harness.
         assert len(rest.write_calls) == 1
@@ -358,8 +355,7 @@ async def test_wait_for_call_writes_and_restores_voice_url(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.wait_for_call(timeout=1.0)
+        await _dial_then_connect(a, a.wait_for_call(timeout=1.0))
         # Exactly one write on mode entry.
         rest = rest_instances[0]
         assert len(rest.write_calls) == 1
@@ -389,8 +385,7 @@ async def test_place_call_passes_inline_pause_twiml_to_rest(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         kw = rest_instances[0].place_call_kwargs[0]
         assert kw["to"] == "+14155557777"
         assert kw["from_"] == "+14155551234"
@@ -458,8 +453,9 @@ async def test_place_call_a_leg_emits_connect_stream_and_zero_callee_rest(monkey
     base_writes = len(rest.write_calls)
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()  # a-leg stream still comes to us
-        await a.place_call(to="+447700900123", attach_stream="a-leg")
+        await _dial_then_connect(
+            a, a.place_call(to="+447700900123", attach_stream="a-leg")
+        )
         # Origination carries the inline <Connect><Stream> TwiML.
         assert len(rest.place_call_kwargs) == 1
         twiml = rest.place_call_kwargs[0]["twiml"]
@@ -480,8 +476,9 @@ async def test_place_call_a_leg_twiml_snapshot(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+447700900123", attach_stream="a-leg")
+        await _dial_then_connect(
+            a, a.place_call(to="+447700900123", attach_stream="a-leg")
+        )
         assert a._stream_nonce is not None
         assert rest_instances[0].place_call_kwargs[0][
             "twiml"
@@ -532,8 +529,9 @@ async def test_place_call_a_leg_disconnect_is_noop_on_success(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+447700900123", attach_stream="a-leg")
+        await _dial_then_connect(
+            a, a.place_call(to="+447700900123", attach_stream="a-leg")
+        )
         assert a._callee_phone_number_sid is None
         assert a._prior_callee_voice_url is None
     finally:
@@ -602,9 +600,7 @@ async def test_place_call_b_leg_golden_twiml_and_rest_sequence(monkeypatch):
     # connect() resolves the adapter's own number; slice it off the golden.
     base_log = len(rest.rest_call_log)
     try:
-        assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")  # default b-leg
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))  # default b-leg
     finally:
         await a.disconnect()
 

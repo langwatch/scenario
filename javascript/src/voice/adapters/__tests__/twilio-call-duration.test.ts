@@ -26,6 +26,7 @@ import {
 // suite — see `a-leg-harness.ts`.
 import {
   A_LEG_DESTINATION,
+  dialAndConnect,
   drive,
   makeAdapter,
   ORIGINATED_CALL_SID,
@@ -124,18 +125,24 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
   it("AC12: places the configured time limit in the Calls.create request", async () => {
     const rest = spyRest();
     const adapter = await connected(rest);
-    await adapter.placeCall({
-      to: A_LEG_DESTINATION,
-      attachStream: "a-leg",
-      maxCallDurationSeconds: 120,
-    });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({
+        to: A_LEG_DESTINATION,
+        attachStream: "a-leg",
+        maxCallDurationSeconds: 120,
+      }),
+    );
     expect(rest.placeCallArgs[0].timeLimitSeconds).toBe(120);
   });
 
   it("defaults the time limit when the caller names none", async () => {
     const rest = spyRest();
     const adapter = await connected(rest);
-    await adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" }),
+    );
     expect(rest.placeCallArgs[0].timeLimitSeconds).toBe(DEFAULT_MAX_CALL_DURATION_SECONDS);
   });
 
@@ -182,12 +189,15 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const expiry = controlledExpiry();
     installExpiry(adapter, expiry);
 
-    await adapter.placeCall({
-      to: A_LEG_DESTINATION,
-      attachStream: "a-leg",
-      timeoutMs: 120_000,
-      maxCallDurationSeconds: 42,
-    });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({
+        to: A_LEG_DESTINATION,
+        attachStream: "a-leg",
+        timeoutMs: 120_000,
+        maxCallDurationSeconds: 42,
+      }),
+    );
     const ws = scriptedSocket([]);
     adapter._setStreamWs(ws);
 
@@ -208,11 +218,14 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const expiry = controlledExpiry();
     installExpiry(adapter, expiry);
 
-    await adapter.placeCall({
-      to: A_LEG_DESTINATION,
-      attachStream: "a-leg",
-      maxCallDurationSeconds: 42,
-    });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({
+        to: A_LEG_DESTINATION,
+        attachStream: "a-leg",
+        maxCallDurationSeconds: 42,
+      }),
+    );
     await armed(expiry);
 
     await adapter.disconnect();
@@ -233,11 +246,14 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const expiry = controlledExpiry();
     installExpiry(adapter, expiry);
 
-    await adapter.placeCall({
-      to: A_LEG_DESTINATION,
-      attachStream: "a-leg",
-      maxCallDurationSeconds: 42,
-    });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({
+        to: A_LEG_DESTINATION,
+        attachStream: "a-leg",
+        maxCallDurationSeconds: 42,
+      }),
+    );
     await armed(expiry);
 
     const nonce = adapter._streamNonceForServer;
@@ -292,20 +308,26 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     const adapter = await connected(rest);
     const first = controlledExpiry();
     installExpiry(adapter, first);
-    await adapter.placeCall({
-      to: A_LEG_DESTINATION,
-      attachStream: "a-leg",
-      maxCallDurationSeconds: 42,
-    });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({
+        to: A_LEG_DESTINATION,
+        attachStream: "a-leg",
+        maxCallDurationSeconds: 42,
+      }),
+    );
     await armed(first);
 
     const second = controlledExpiry();
     installExpiry(adapter, second);
-    await adapter.placeCall({
-      to: A_LEG_DESTINATION,
-      attachStream: "a-leg",
-      maxCallDurationSeconds: 42,
-    });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({
+        to: A_LEG_DESTINATION,
+        attachStream: "a-leg",
+        maxCallDurationSeconds: 42,
+      }),
+    );
     await armed(second);
 
     first.release();
@@ -313,6 +335,7 @@ describe("TwilioAgentAdapter a-leg max call duration", () => {
     expect(rest.endCalls).toEqual([]);
     expect(endedReason(adapter)).toBe("none");
   });
+
 });
 
 // ------------------------------------------- REST wire body (AC12, real helper)

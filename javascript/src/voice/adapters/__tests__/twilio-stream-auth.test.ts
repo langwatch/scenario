@@ -20,8 +20,10 @@ import type { TwilioAgentAdapter } from "../twilio";
 import { STREAM_NONCE_HEX_LEN } from "../twilio-shared";
 // One shared a-leg socket double + REST spy across the nonce, DTMF-guard and
 // frame-loop suites — see `a-leg-harness.ts`.
+import { AudioChunk } from "../../audio-chunk";
 import {
   A_LEG_DESTINATION,
+  dialAndConnect,
   drive,
   isPending,
   makeAdapter,
@@ -186,13 +188,18 @@ describe("TwilioAgentAdapter a-leg media-stream authentication", () => {
     const adapter = makeAdapter(rest);
     await adapter.connect();
     openAdapter = adapter;
-    // Both dials only need to REACH origination; pre-resolve the connect signal.
-    adapter._signalStreamConnected();
-
-    await adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" });
+    // Both dials only need to REACH origination; the dial resets and awaits the
+    // connect signal, so fire it after the reset.
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" }),
+    );
     // placeCall is once-per-mode; re-arm for a second dial.
     (adapter as unknown as { _mode: string })._mode = "idle";
-    await adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" }),
+    );
 
     const nonces = rest.placeCallArgs.map((a) => {
       const match = NONCE_RE.exec(a.twiml);
@@ -248,11 +255,13 @@ describe("TwilioAgentAdapter a-leg media-stream authentication", () => {
     const adapter = makeAdapter(rest);
     await adapter.connect();
     openAdapter = adapter;
-    adapter._signalStreamConnected();
-    await adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" });
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" }),
+    );
     expect(adapter._streamNonceForServer).toBeDefined();
 
-    await adapter.placeCall({ to: "+14155557777" }); // b-leg on the same adapter
+    await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" })); // b-leg
     expect(adapter._streamNonceForServer, "the a-leg nonce outlived its call").toBeUndefined();
 
     const ws = scriptedSocket([startFrame({ callSid: "CA" + "9".repeat(32) })]);
@@ -282,5 +291,84 @@ describe("TwilioAgentAdapter a-leg media-stream authentication", () => {
     expect(ws.closed).toBe(false);
     await call;
     expect(adapter._streamWsForServer).toBe(ws);
+  });
+
+  it("#762 P1: a socket adopted before dialing is evicted and changes nothing", async () => {
+    // A nonceless socket adopted AFTER connect() but BEFORE placeCall arms the
+    // nonce is bound to an older call generation. Placing the a-leg call evicts
+    // it: it must not stay our transport, its media must not be enqueued, and its
+    // stop must neither end the stream nor cancel the live call's watchdog.
+    // placeCall itself must not resolve until the genuine nonce socket's start.
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+
+    const mediaFrame = JSON.stringify({
+      event: "media",
+      streamSid: "MZ762",
+      media: { payload: Buffer.from(new Uint8Array(160).fill(0xff)).toString("base64") },
+    });
+    const stopFrame = JSON.stringify({ event: "stop" });
+    const frames = [startFrame({}), mediaFrame, stopFrame];
+    let idx = 0;
+    let releaseMedia!: () => void;
+    const released = new Promise<void>((resolve) => (releaseMedia = resolve));
+    let signalStartSeen!: () => void;
+    const startSeen = new Promise<void>((resolve) => (signalStartSeen = resolve));
+    const early = {
+      closed: false,
+      sent: [] as string[],
+      send(data: string | Uint8Array) {
+        this.sent.push(
+          typeof data === "string" ? data : Buffer.from(data).toString("utf-8"),
+        );
+      },
+      async receiveText(): Promise<string | null> {
+        // Once the start has been served and processed, hold the media/stop
+        // until the test releases them.
+        if (idx === 1) {
+          signalStartSeen();
+          await released;
+        }
+        if (idx < frames.length) return frames[idx++];
+        return new Promise<string | null>(() => {
+          /* park: socket stays open */
+        });
+      },
+      close() {
+        this.closed = true;
+      },
+    };
+
+    // 1. The early nonceless socket adopts un-gated (no nonce armed yet).
+    const earlyLoop = adapter._driveMediaStream(early);
+    await startSeen;
+    expect(adapter._streamWsForServer).toBe(early);
+
+    // 2. Placing the a-leg call bumps the generation and resets connection state.
+    const { nonce, call } = await startALegCall(adapter, rest);
+    expect(adapter._streamWsForServer, "the stale socket stayed our transport").toBeNull();
+    expect(await isPending(call), "placeCall resolved before a genuine socket").toBe(true);
+    expect(adapter._maxDurationArmedForTest).toBe(true);
+
+    // 3. Release the stale socket's media + stop: the generation guard closes it,
+    //    and neither its media nor its terminal path touches the current call.
+    releaseMedia();
+    await earlyLoop;
+    expect(early.closed).toBe(true);
+    expect(adapter._framesReceivedForTest, "stale media was enqueued").toBe(0);
+    expect(adapter._streamEndedForTest, "stale stop ended the live stream").toBe(false);
+    expect(adapter._maxDurationArmedForTest, "stale stop disarmed the watchdog").toBe(true);
+
+    // 4. The genuine nonce socket resolves placeCall; one sent chunk reaches it,
+    //    never the evicted socket.
+    const genuine = scriptedSocket([startFrame({ nonce })]);
+    await drive(adapter, genuine, { production: true });
+    await call;
+    expect(adapter._streamWsForServer).toBe(genuine);
+    await adapter.sendAudio(new AudioChunk({ data: new Uint8Array(960) }));
+    expect(genuine.sent.length).toBeGreaterThan(0);
+    expect(early.sent).toEqual([]);
   });
 });

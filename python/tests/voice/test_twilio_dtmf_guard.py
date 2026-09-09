@@ -15,7 +15,13 @@ import pytest
 
 from scenario.voice.adapters.twilio import A_LEG_SEND_DTMF_UNSUPPORTED
 
-from .a_leg_harness import _driving, _place_a_leg_call, _ScriptedWS, _start_frame
+from .a_leg_harness import (
+    _driving,
+    _place_a_leg_call,
+    _place_call_and_connect,
+    _ScriptedWS,
+    _start_frame,
+)
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
 
 
@@ -28,7 +34,7 @@ async def test_send_dtmf_in_a_leg_mode_raises_and_leaves_the_stream_alone(monkey
     await a.connect()
     rest = rest_instances[0]
     try:
-        nonce = await _place_a_leg_call(a, rest)
+        nonce, call = await _place_a_leg_call(a, rest)
         ws = _ScriptedWS([_start_frame(nonce=nonce)])
         async with _driving(a, ws):
             assert a._stream_ws is ws, "precondition: the a-leg socket is live"
@@ -43,6 +49,7 @@ async def test_send_dtmf_in_a_leg_mode_raises_and_leaves_the_stream_alone(monkey
             assert rest.dtmf_calls == [], "a-leg must issue zero TwiML-replace POSTs"
             assert ws.closed is False
             assert a._stream_ws is ws
+        await call
     finally:
         await a.disconnect()
 
@@ -56,9 +63,7 @@ async def test_send_dtmf_still_works_in_b_leg_mode(monkeypatch):
     await a.connect()
     rest = rest_instances[0]
     try:
-        assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")  # default b-leg
+        await _place_call_and_connect(a, rest, to="+14155557777")  # default b-leg
         assert a._stream_nonce is None
 
         await a.send_dtmf("123")

@@ -261,6 +261,15 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_sid: Optional[str] = None
         self._stream_connected: Optional[asyncio.Event] = None
         self._stream_ws: Any = None  # starlette WebSocket
+        # Call generation (#762 P1). Bumped by connect()/place_call()/
+        # wait_for_call() every time we (re)dial. The media loop captures it at
+        # the moment a socket is ADOPTED and re-checks it on every later side
+        # effect (enqueue, signal-connected, mark-ended, cancel-watchdog, being
+        # ``_stream_ws``): a socket adopted under an older generation — one that
+        # connected and even adopted BEFORE this dial armed the nonce — is stale
+        # the instant the counter moves, and is closed on its next frame instead
+        # of injecting audio into, or ending, the current call.
+        self._call_generation: int = 0
         # A-leg WS auth (#762 guardrail (a)). Set by place_call in "a-leg" mode
         # only; its non-None-ness is what ARMS media-stream nonce enforcement.
         # In b-leg mode the signed POST /twilio/voice precedes the socket, so
@@ -365,6 +374,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._webhook_rejected = 0
         self._stream_nonce = None
         self._cancel_max_duration_timer()
+        # Fresh connection lifecycle — bump the generation so any socket left
+        # over from a previous connect can never pass the media loop's identity
+        # check against this one.
+        self._call_generation += 1
         self._mode = "idle"
 
         # Webhook server is its own unit — see _twilio_server.py. The
@@ -490,6 +503,43 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._webhook_rejected = 0
 
     # ------------------------------------------------------------------ direction
+
+    def _reset_connection_state_for_dial(self) -> None:
+        """Invalidate any socket adopted under a prior call generation (#762 P1).
+
+        Bumping ``_call_generation`` is what evicts a socket that connected — and
+        even ADOPTED — before this dial armed the nonce: the media loop captured
+        the old generation at adoption and closes itself on its next frame once
+        the counter moves. We also reset the per-dial connection state the loop
+        writes, so this dial starts from a clean slate and, critically, cannot
+        resolve on a stale socket's ``_stream_connected`` signal:
+
+        - clear ``_stream_connected`` — otherwise a socket that adopted un-gated
+          before arming has already fired it and ``place_call`` would return
+          before any socket authenticates;
+        - drop ``_stream_ws``/``_stream_sid`` — the stale socket must not remain
+          our outbound transport (``send_audio`` writes there);
+        - drain the inbound queue and zero ``_frames_received`` — the stale
+          socket's media must not surface as this call's audio;
+        - clear the terminal flag/reason — the stale session's ``stop`` must not
+          read as this call having ended.
+
+        Called by both ``place_call`` and ``wait_for_call``. Inbound/b-leg
+        behaviour is unchanged: no socket has adopted yet when the genuine one
+        arrives, so it adopts under the current generation and connects exactly
+        as before.
+        """
+        self._call_generation += 1
+        self._stream_ws = None
+        self._stream_sid = None
+        if self._stream_connected is not None:
+            self._stream_connected.clear()
+        if self._inbound_queue is not None:
+            while not self._inbound_queue.empty():
+                self._inbound_queue.get_nowait()
+        self._stream_ended = False
+        self._stream_ended_reason = "none"
+        self._frames_received = 0
 
     async def place_call(
         self,
@@ -634,6 +684,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 "voice.twilio.from": _redact_e164(self.phone_number),
             },
         ) as _dial:
+            # #762 P1: bump the call generation and reset per-dial connection
+            # state BEFORE originating, so a socket that adopted un-gated before
+            # this dial is evicted and cannot resolve the wait below.
+            self._reset_connection_state_for_dial()
             if mode == "b-leg":
                 # Resolve B-leg's number SID and snapshot+rewrite its voice_url so
                 # B's leg attaches its Media Stream to our harness webhook. We own
@@ -785,6 +839,11 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 "voice.twilio.to": _redact_e164(self.phone_number),
             },
         ) as _dial:
+            # #762 P1: bump the call generation and reset per-dial connection
+            # state, symmetric with place_call. For inbound this only guards a
+            # reconnect/back-to-back dial; a fresh inbound socket still connects
+            # exactly as before.
+            self._reset_connection_state_for_dial()
             # Snapshot the prior webhook so we can restore it on disconnect, then
             # point the number at our server. Only answer mode does this.
             self._prior_voice_url = self._rest.read_voice_url(self._phone_number_sid)

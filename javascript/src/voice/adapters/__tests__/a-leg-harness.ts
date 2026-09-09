@@ -237,6 +237,39 @@ export async function startALegCall(
   return { nonce: (match as RegExpExecArray)[1], call };
 }
 
+/**
+ * Run a dial (`placeCall`/`waitForCall`) and fire the stream-connected signal
+ * once the dial has reset it and begun awaiting.
+ *
+ * `placeCall`/`waitForCall` now reset the connected signal when dialing (#762
+ * P1) and only resolve once a socket connects, so a test that just needs the
+ * dial to COMPLETE (not a real socket) can no longer pre-fire the signal before
+ * the dial. This fires it after the reset instead — the drop-in replacement for
+ * the old `adapter._signalStreamConnected(); await adapter.placeCall(...)`.
+ */
+export async function dialAndConnect(
+  adapter: TwilioAgentAdapter,
+  dial: Promise<void>,
+): Promise<void> {
+  let settled = false;
+  const done = dial.then(
+    () => {
+      settled = true;
+    },
+    (err) => {
+      settled = true;
+      throw err;
+    },
+  );
+  for (let i = 0; i < 500 && !settled; i++) {
+    // Yield a microtask so the dial can progress through its own awaits (the
+    // reset, then the REST call) before we fire the connected signal.
+    await Promise.resolve();
+    adapter._signalStreamConnected();
+  }
+  await done;
+}
+
 /** Has `promise` settled by the next macrotask tick? */
 export async function isPending(promise: Promise<unknown>): Promise<boolean> {
   const pendingMarker = Symbol("pending");

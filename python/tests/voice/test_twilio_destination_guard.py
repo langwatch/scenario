@@ -19,6 +19,7 @@ import pytest
 
 from scenario.voice import TunnelNotReadyError, TwilioAgentAdapter
 
+from .a_leg_harness import _dial_then_connect
 from .test_twilio_adapter import _install_fake_rest, _make_adapter
 
 
@@ -103,7 +104,7 @@ async def test_a_leg_allows_destination_on_allowed_callees(monkeypatch):
     """AC8 (positive): the allowlisted destination originates normally."""
     a, rest, _, tunnel = await _connected(monkeypatch, allowed_callees=[ALLOWED])
     try:
-        await a.place_call(to=ALLOWED, attach_stream="a-leg")
+        await _dial_then_connect(a, a.place_call(to=ALLOWED, attach_stream="a-leg"))
         assert len(rest.place_call_kwargs) == 1
         assert rest.place_call_kwargs[0]["to"] == ALLOWED
     finally:
@@ -143,7 +144,7 @@ async def test_b_leg_is_unaffected_by_an_unset_allowed_callees(monkeypatch):
     own guardrail — it is never gated on allowed_callees."""
     a, rest, _, tunnel = await _connected(monkeypatch, allowed_callees=None)
     try:
-        await a.place_call(to="+14155557777")  # default b-leg
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))  # default b-leg
         assert len(rest.place_call_kwargs) == 1
         assert rest.place_call_kwargs[0]["to"] == "+14155557777"
     finally:
@@ -175,7 +176,7 @@ async def test_a_leg_probes_the_tunnel_before_originating(monkeypatch):
     while zero calls had been originated."""
     a, rest, _, tunnel = await _connected(monkeypatch, allowed_callees=[ALLOWED])
     try:
-        await a.place_call(to=ALLOWED, attach_stream="a-leg")
+        await _dial_then_connect(a, a.place_call(to=ALLOWED, attach_stream="a-leg"))
         assert tunnel.calls == 1
         assert tunnel.originations_at_probe == 0
         assert len(rest.place_call_kwargs) == 1
@@ -210,7 +211,7 @@ async def test_b_leg_does_not_probe_the_tunnel(monkeypatch):
         tunnel_error=RuntimeError("edge did not resolve"),
     )
     try:
-        await a.place_call(to="+14155557777")  # default b-leg
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))  # default b-leg
         assert tunnel.calls == 0
         assert len(rest.place_call_kwargs) == 1
     finally:

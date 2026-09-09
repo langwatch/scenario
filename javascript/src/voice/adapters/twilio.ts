@@ -215,6 +215,17 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   private _callSid?: string;
   private _streamWs: MediaStreamWebSocket | null = null;
   /**
+   * Call generation (#762 P1). Bumped by `connect`/`placeCall`/`waitForCall`
+   * every time we (re)dial. The media loop captures it at the moment a socket is
+   * ADOPTED and re-checks it on every later side effect (enqueue, signal
+   * connected, mark ended, cancel watchdog, being `_streamWs`): a socket adopted
+   * under an older generation — one that connected and even adopted BEFORE this
+   * dial armed the nonce — is stale the instant the counter moves, and is closed
+   * on its next frame instead of injecting audio into, or ending, the current
+   * call.
+   */
+  private _callGeneration = 0;
+  /**
    * A-leg WS auth (#762 guardrail (a)). Set by `placeCall` in "a-leg" mode only;
    * its non-undefined-ness is what ARMS media-stream nonce enforcement. In b-leg
    * mode the signed `POST /twilio/voice` precedes the socket, so the socket
@@ -317,6 +328,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._mode = "idle";
     this._streamNonce = undefined;
     this._cancelMaxDurationTimer();
+    // Fresh connection lifecycle — bump the generation so any socket left over
+    // from a previous connect can never pass the media loop's identity check.
+    this._callGeneration += 1;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
@@ -519,6 +533,10 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         "voice.twilio.from": redactE164(this.phoneNumber),
       },
       async (span) => {
+        // #762 P1: bump the call generation and reset per-dial connection state
+        // BEFORE originating, so a socket that adopted un-gated before this dial
+        // is evicted and cannot resolve the stream-connected wait below.
+        this._resetConnectionStateForDial();
         if (mode === "b-leg") {
           this._calleePhoneNumberSid = await rest.resolvePhoneNumberSid(args.to);
           this._priorCalleeVoiceUrl =
@@ -693,6 +711,10 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         "voice.twilio.to": redactE164(this.phoneNumber),
       },
       async (span) => {
+        // #762 P1: bump the call generation and reset per-dial connection state,
+        // symmetric with placeCall. For inbound this only guards a
+        // reconnect/back-to-back dial; a fresh inbound socket still connects.
+        this._resetConnectionStateForDial();
         this._priorVoiceUrl =
           (await rest.readVoiceUrl(phoneNumberSid)) ?? undefined;
         const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
@@ -1002,6 +1024,40 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._inboundQueue.clearBuffered();
   }
   /**
+   * @internal The call generation captured by the media loop at adoption (#762
+   * P1). A later dial bumps it; a socket adopted under the old value is stale.
+   */
+  get _callGenerationForServer(): number {
+    return this._callGeneration;
+  }
+  /**
+   * Invalidate any socket adopted under a prior call generation (#762 P1).
+   *
+   * Bumping `_callGeneration` evicts a socket that connected — and even ADOPTED
+   * — before this dial armed the nonce: the media loop captured the old
+   * generation at adoption and closes itself on its next frame once the counter
+   * moves. We also reset the per-dial connection state the loop writes, so this
+   * dial starts clean and, critically, cannot resolve on a stale socket's
+   * connected signal: replacing `_streamConnected` with a fresh deferred
+   * discards an early un-gated socket's resolve so `placeCall` blocks until a
+   * genuine socket authenticates; dropping `_streamWs`/`_streamSid` stops
+   * `sendAudio` writing to the stale socket; clearing buffered inbound audio and
+   * zeroing the frame counter keeps the stale socket's media out of this call;
+   * clearing the terminal flag/reason stops its `stop` reading as this call
+   * ending. Inbound/b-leg behaviour is unchanged: no socket has adopted yet when
+   * the genuine one arrives, so it adopts under the current generation.
+   */
+  _resetConnectionStateForDial(): void {
+    this._callGeneration += 1;
+    this._streamWs = null;
+    this._streamSid = undefined;
+    this._streamConnected = makeDeferred<void>();
+    this._inboundQueue.clearBuffered();
+    this._streamEnded = false;
+    this._streamEndedReason = "none";
+    this._framesReceived = 0;
+  }
+  /**
    * @internal The socket that IS this adapter's live transport, or `null`.
    *
    * `runStreamSession` compares against it so only the owning socket may null
@@ -1019,6 +1075,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * instead of a blind sleep. */
   get _framesReceivedForTest(): number {
     return this._framesReceived;
+  }
+  /** @internal Test-only view of the terminal flag (#762 P1): lets a test assert
+   * a stale socket's `stop` did NOT mark the live stream ended. */
+  get _streamEndedForTest(): boolean {
+    return this._streamEnded;
+  }
+  /** @internal Test-only view of whether the max-duration watchdog is armed
+   * (#762 P1/P2): a stale socket's teardown must not disarm it. */
+  get _maxDurationArmedForTest(): boolean {
+    return this._maxDurationTimeout !== null;
   }
   /** @internal */ _onWebhookRejected(): void {
     this.rejectedCount += 1;

@@ -27,9 +27,12 @@ from scenario.voice.adapters._twilio_shared import (
     STREAM_NONCE_HEX_LEN,
     mint_stream_nonce,
 )
+from scenario.voice.audio_chunk import AudioChunk
 
 from .a_leg_harness import (
     ORIGINATED_CALL_SID,
+    _await_origination,
+    _cancel,
     _driving,
     _place_a_leg_call,
     _ScriptedWS,
@@ -46,7 +49,7 @@ async def test_a_leg_socket_with_wrong_nonce_is_closed_and_never_connects(monkey
     a = _make_adapter(http_port=0)
     await a.connect()
     try:
-        nonce = await _place_a_leg_call(a, rest_instances[0])
+        nonce, call = await _place_a_leg_call(a, rest_instances[0])
 
         attacker = _ScriptedWS([_start_frame(nonce="not-the-nonce")])
         async with _driving(a, attacker):
@@ -54,12 +57,14 @@ async def test_a_leg_socket_with_wrong_nonce_is_closed_and_never_connects(monkey
             assert a._stream_connected is not None
             assert not a._stream_connected.is_set()
             assert a._stream_ws is None  # never adopted as our transport
+        assert not call.done()  # place_call: stream-connected never fired
 
         genuine = _ScriptedWS([_start_frame(nonce=nonce)])
         async with _driving(a, genuine):
             assert genuine.closed is False
             assert a._stream_connected.is_set()
             assert a._stream_ws is genuine
+        await call  # the correct-nonce socket is the one that connects
     finally:
         await a.disconnect()
 
@@ -83,7 +88,7 @@ async def test_a_leg_socket_connected_before_arming_is_still_gated(monkeypatch):
         # Let the loop enter and park on the gated first frame BEFORE arming.
         await asyncio.sleep(0)
 
-        nonce = await _place_a_leg_call(a, rest_instances[0])
+        nonce, call = await _place_a_leg_call(a, rest_instances[0])
         assert a._stream_nonce is not None
 
         # Release the nonceless start frame now that enforcement is armed.
@@ -102,11 +107,117 @@ async def test_a_leg_socket_connected_before_arming_is_still_gated(monkeypatch):
             assert genuine.closed is False
             assert a._stream_connected.is_set()
             assert a._stream_ws is genuine
+        await call
     finally:
         if loop is not None and not loop.done():
             loop.cancel()
             with suppress(asyncio.CancelledError):
                 _ = await loop
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_a_leg_socket_adopted_before_dialing_is_evicted(monkeypatch):
+    """#762 P1: a nonceless socket adopted AFTER ``connect()`` but BEFORE
+    ``place_call`` arms the nonce is bound to an older call generation. When the
+    a-leg call is placed, that stale socket is evicted: it must not remain our
+    outbound transport, its media must not be enqueued, and its ``stop`` must
+    neither end the stream nor cancel the live call's watchdog. ``place_call``
+    itself must not resolve until the genuine nonce-authenticated socket's
+    ``start``. Twin of the JS regression."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    rest = rest_instances[0]
+    server = TwilioWebhookServer(a)
+
+    # A socket double that adopts on its nonceless start, then parks until the
+    # test releases its media + stop frames.
+    release = asyncio.Event()
+
+    class _EarlyAdoptWS:
+        def __init__(self) -> None:
+            self._frames = [
+                _start_frame(nonce=None),
+                json.dumps(
+                    {
+                        "event": "media",
+                        "streamSid": "MZ762",
+                        "media": {
+                            "payload": base64.b64encode(b"\xff" * 160).decode("ascii")
+                        },
+                    }
+                ),
+                json.dumps({"event": "stop"}),
+            ]
+            self._idx = 0
+            self.closed = False
+            self.sent: list[str] = []
+            self.start_processed = asyncio.Event()
+
+        async def receive_text(self) -> str:
+            # After the start frame is served and processed the loop asks again;
+            # hold the media/stop frames until the test opens the gate.
+            if self._idx == 1:
+                self.start_processed.set()
+                await release.wait()
+            if self._idx < len(self._frames):
+                msg = self._frames[self._idx]
+                self._idx += 1
+                return msg
+            await asyncio.Event().wait()  # park
+            raise AssertionError("unreachable")  # pragma: no cover
+
+        async def send_text(self, text: str) -> None:
+            self.sent.append(text)
+
+        async def close(self) -> None:
+            self.closed = True
+
+    early = _EarlyAdoptWS()
+    early_loop = asyncio.create_task(server.media_stream_loop(early))
+    try:
+        # 1. The early nonceless socket adopts un-gated (no nonce armed yet).
+        await asyncio.wait_for(early.start_processed.wait(), timeout=2.0)
+        assert a._stream_ws is early
+        assert a._stream_connected is not None
+        assert a._stream_connected.is_set()
+
+        # 2. Placing the a-leg call bumps the generation and resets connection
+        #    state: the stale socket is dropped as transport and the stale
+        #    connected signal is cleared, so place_call cannot resolve on it.
+        nonce, call = await _place_a_leg_call(a, rest)
+        assert a._stream_ws is None, "the stale socket stayed our transport"
+        assert not a._stream_connected.is_set(), "place_call resolved on a stale signal"
+        assert not call.done(), "place_call resolved before a genuine socket"
+        watchdog = a._max_duration_task
+        assert watchdog is not None
+
+        # 3. Release the stale socket's media + stop. The generation guard closes
+        #    it on its next frame; neither the media nor the terminal path may
+        #    touch the current call's state.
+        release.set()
+        await asyncio.wait_for(early_loop, timeout=2.0)
+        assert early.closed is True
+        assert a._frames_received == 0, "stale socket's media was enqueued"
+        assert a._stream_ended is False, "stale socket's stop ended the live stream"
+        assert a._max_duration_task is watchdog, "stale socket's stop disarmed the watchdog"
+        assert not watchdog.cancelled()
+
+        # 4. The genuine nonce socket is the one that resolves place_call, and one
+        #    sent chunk reaches it — never the evicted socket.
+        genuine = _ScriptedWS([_start_frame(nonce=nonce)])
+        async with _driving(a, genuine, production=True):
+            await asyncio.wait_for(call, timeout=2.0)
+            assert a._stream_ws is genuine
+            await a.send_audio(AudioChunk(data=b"\x00" * 960))
+            assert len(genuine.sent) > 0
+        assert early.sent == [], "the evicted socket received outbound frames"
+    finally:
+        if not early_loop.done():
+            early_loop.cancel()
+            with suppress(asyncio.CancelledError):
+                _ = await early_loop
         await a.disconnect()
 
 
@@ -121,7 +232,7 @@ async def test_a_leg_media_from_socket_that_never_authenticated_is_not_enqueued(
     a = _make_adapter(http_port=0)
     await a.connect()
     try:
-        await _place_a_leg_call(a, rest_instances[0])
+        _nonce, call = await _place_a_leg_call(a, rest_instances[0])
 
         media = json.dumps(
             {
@@ -136,6 +247,8 @@ async def test_a_leg_media_from_socket_that_never_authenticated_is_not_enqueued(
             assert a._stream_ws is None
             assert a._stream_connected is not None
             assert not a._stream_connected.is_set()
+        assert not call.done()
+        await _cancel(call)
     finally:
         await a.disconnect()
 
@@ -148,12 +261,14 @@ async def test_a_leg_socket_with_no_nonce_parameter_is_closed(monkeypatch):
     a = _make_adapter(http_port=0)
     await a.connect()
     try:
-        await _place_a_leg_call(a, rest_instances[0])
+        _nonce, call = await _place_a_leg_call(a, rest_instances[0])
         ws = _ScriptedWS([_start_frame(nonce=None)])
         async with _driving(a, ws):
             assert ws.closed is True
             assert a._stream_connected is not None
             assert not a._stream_connected.is_set()
+        assert not call.done()
+        await _cancel(call)
     finally:
         await a.disconnect()
 
@@ -179,7 +294,7 @@ async def test_a_leg_socket_with_malformed_nonce_is_rejected(monkeypatch, bad_no
     a = _make_adapter(http_port=0)
     await a.connect()
     try:
-        await _place_a_leg_call(a, rest_instances[0])
+        _nonce, call = await _place_a_leg_call(a, rest_instances[0])
         ws = _ScriptedWS([_start_frame(nonce=bad_nonce)])
         async with _driving(a, ws):
             assert ws.closed is True
@@ -187,6 +302,8 @@ async def test_a_leg_socket_with_malformed_nonce_is_rejected(monkeypatch, bad_no
             assert not a._stream_connected.is_set()
             assert a._stream_ws is None
             assert a._stream_ended_reason == "none"
+        assert not call.done()
+        await _cancel(call)
     finally:
         await a.disconnect()
 
@@ -199,7 +316,7 @@ async def test_a_leg_start_frame_with_other_call_sid_is_ignored(monkeypatch):
     a = _make_adapter(http_port=0)
     await a.connect()
     try:
-        nonce = await _place_a_leg_call(a, rest_instances[0])
+        nonce, call = await _place_a_leg_call(a, rest_instances[0])
         assert a._call_sid == ORIGINATED_CALL_SID
 
         stale = _ScriptedWS([_start_frame(nonce=nonce, call_sid="CA" + "9" * 32)])
@@ -207,11 +324,13 @@ async def test_a_leg_start_frame_with_other_call_sid_is_ignored(monkeypatch):
             assert a._stream_connected is not None
             assert not a._stream_connected.is_set()
             assert a._stream_ws is None
+        assert not call.done()
 
         genuine = _ScriptedWS([_start_frame(nonce=nonce)])
         async with _driving(a, genuine):
             assert a._stream_connected.is_set()
             assert a._stream_sid == "MZ762"
+        await call
     finally:
         await a.disconnect()
 
@@ -224,8 +343,10 @@ async def test_a_leg_mints_a_fresh_nonce_per_call(monkeypatch):
     a = _make_adapter(http_port=0)
     await a.connect()
     try:
-        first = await _place_a_leg_call(a, rest_instances[0])
-        second = await _place_a_leg_call(a, rest_instances[0])
+        first, first_call = await _place_a_leg_call(a, rest_instances[0])
+        second, second_call = await _place_a_leg_call(a, rest_instances[0])
+        await _cancel(first_call)
+        await _cancel(second_call)
     finally:
         await a.disconnect()
 
@@ -262,19 +383,20 @@ async def test_b_leg_emits_no_parameter_and_still_connects(monkeypatch):
     rest_instances = _install_fake_rest(monkeypatch)
     a = _make_adapter(http_port=0)
     await a.connect()
+    rest = rest_instances[0]
     try:
-        assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")  # default b-leg
-        a._stream_connected.clear()
-        assert "<Parameter" not in rest_instances[0].place_call_kwargs[-1]["twiml"]
+        call = asyncio.create_task(a.place_call(to="+14155557777"))  # default b-leg
+        await _await_origination(rest, 1)
+        assert "<Parameter" not in rest.place_call_kwargs[-1]["twiml"]
         assert a._stream_nonce is None
 
         ws = _ScriptedWS([_start_frame(nonce=None, call_sid="CA" + "9" * 32)])
         async with _driving(a, ws):
             assert ws.closed is False
+            assert a._stream_connected is not None
             assert a._stream_connected.is_set()
             assert a._stream_ws is ws
+        await call
     finally:
         await a.disconnect()
 
@@ -295,22 +417,25 @@ async def test_a_leg_then_b_leg_on_the_same_adapter_still_connects(monkeypatch):
     await a.connect()
     rest = rest_instances[0]
     try:
-        await _place_a_leg_call(a, rest)
+        _nonce, call_a = await _place_a_leg_call(a, rest)
         assert a._stream_nonce is not None
 
-        assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")  # b-leg on the same adapter
-        a._stream_connected.clear()
+        # b-leg on the same adapter: its dial supersedes the pending a-leg dial
+        # (bumps the generation), and mints no nonce.
+        call_b = asyncio.create_task(a.place_call(to="+14155557777"))
+        await _await_origination(rest, 2)
         assert a._stream_nonce is None, "the a-leg nonce outlived its call"
 
         ws = _ScriptedWS([_start_frame(nonce=None, call_sid="CA" + "9" * 32)])
         async with _driving(a, ws):
             assert ws.closed is False, "the b-leg socket was gated on a stale nonce"
+            assert a._stream_connected is not None
             assert a._stream_connected.is_set()
 
             await a.send_dtmf("123")
             assert rest.dtmf_calls == [(a._call_sid, "123")]
+        await call_b
+        await _cancel(call_a)
     finally:
         await a.disconnect()
 
@@ -330,10 +455,11 @@ async def test_unauthenticated_socket_cannot_clear_the_live_transport(monkeypatc
     a = _make_adapter(http_port=0)
     await a.connect()
     try:
-        nonce = await _place_a_leg_call(a, rest_instances[0])
+        nonce, call = await _place_a_leg_call(a, rest_instances[0])
 
         genuine = _ScriptedWS([_start_frame(nonce=nonce)])
         async with _driving(a, genuine, production=True):
+            await asyncio.wait_for(call, timeout=2.0)
             assert a._stream_ws is genuine
             assert a._stream_sid == "MZ762"
 

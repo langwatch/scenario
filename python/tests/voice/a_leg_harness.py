@@ -11,7 +11,7 @@ Direct twin of ``javascript/src/voice/adapters/__tests__/a-leg-harness.ts``.
 import asyncio
 import json
 import re
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any, AsyncIterator, Optional
 
 from scenario.voice import TwilioAgentAdapter
@@ -99,17 +99,88 @@ class _ScriptedWS:
         self.closed = True
 
 
-async def _place_a_leg_call(a: TwilioAgentAdapter, rest: Any) -> str:
-    """Run an a-leg ``place_call`` and return the nonce it put in the TwiML."""
-    assert a._stream_connected is not None
-    # place_call waits for the stream; this test drives the socket afterwards,
-    # so pre-set the event and clear it once the TwiML has been captured.
-    a._stream_connected.set()
-    await a.place_call(to=A_LEG_DESTINATION, attach_stream="a-leg")
-    a._stream_connected.clear()
+async def _await_origination(rest: Any, count: int, timeout: float = 1.0) -> None:
+    """Wait until ``place_call`` has recorded ``count`` REST dials.
+
+    ``place_call`` now resets the stream-connected signal when dialing (#762 P1),
+    so it no longer returns until a genuine socket authenticates. Tests drive it
+    as a background task and use this to wait for the point PAST the reset where
+    the origination TwiML — and the armed nonce — are observable, instead of a
+    blind sleep. Twin of the JS harness' ``vi.waitUntil(placeCallArgs.length)``.
+    """
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    while len(rest.place_call_kwargs) < count:
+        if loop.time() > deadline:
+            raise AssertionError("place_call never reached origination")
+        await asyncio.sleep(0)
+
+
+async def _place_a_leg_call(
+    a: TwilioAgentAdapter, rest: Any, *, timeout: float = 10.0
+) -> tuple[str, "asyncio.Task[None]"]:
+    """Start an a-leg ``place_call`` WITHOUT awaiting it; return its nonce and task.
+
+    ``place_call`` resets the stream-connected signal when dialing and only
+    resolves once a genuine socket authenticates (#762 P1), so the returned task
+    IS the stream-connected signal: a rejected socket leaves it pending
+    (``not task.done()``), and the socket that authenticates settles it — the twin
+    of the JS harness' ``startALegCall`` returning ``{ nonce, call }``. Callers
+    settle it by driving a genuine socket and awaiting the task, or by cancelling
+    it at teardown.
+    """
+    call: "asyncio.Task[None]" = asyncio.create_task(
+        a.place_call(to=A_LEG_DESTINATION, attach_stream="a-leg", timeout=timeout)
+    )
+    start = len(rest.place_call_kwargs)
+    await _await_origination(rest, start + 1)
     match = NONCE_RE.search(rest.place_call_kwargs[-1]["twiml"])
     assert match is not None, "a-leg origination TwiML carries no nonce Parameter"
-    return match.group(1)
+    return match.group(1), call
+
+
+async def _place_call_and_connect(a: TwilioAgentAdapter, rest: Any, **kwargs: Any) -> None:
+    """Run ``place_call`` to completion by signalling a connection once it dials.
+
+    ``place_call`` now blocks until a socket authenticates (#762 P1); tests that
+    only need the dial to COMPLETE (the REST body, the armed watchdog) and do not
+    drive a real socket use this to settle it — the stand-in for the old
+    pre-set-``_stream_connected`` idiom, now that the dial's own reset clears it.
+    """
+    start = len(rest.place_call_kwargs)
+    call = asyncio.create_task(a.place_call(**kwargs))
+    await _await_origination(rest, start + 1)
+    assert a._stream_connected is not None
+    a._stream_connected.set()
+    await call
+
+
+async def _dial_then_connect(a: TwilioAgentAdapter, coro: Any) -> None:
+    """Run a dial (``place_call``/``wait_for_call``) and fire the stream-connected
+    signal once the dial has reset it and begun awaiting.
+
+    ``place_call``/``wait_for_call`` now reset the connected signal when dialing
+    (#762 P1) and only resolve once a socket connects, so a test that just needs
+    the dial to COMPLETE (not a real socket) can no longer pre-set the signal
+    before the dial. This fires it after the reset instead — the drop-in
+    replacement for the old ``a._stream_connected.set(); await a.place_call(...)``.
+    """
+    task: "asyncio.Task[None]" = asyncio.create_task(coro)
+    for _ in range(200):
+        await asyncio.sleep(0)
+        if task.done():
+            break
+        assert a._stream_connected is not None
+        a._stream_connected.set()
+    await task
+
+
+async def _cancel(call: "asyncio.Task[None]") -> None:
+    """Cancel a still-pending ``place_call`` task and swallow its cancellation."""
+    if not call.done():
+        call.cancel()
+    with suppress(asyncio.CancelledError, Exception):
+        await call
 
 
 @asynccontextmanager
