@@ -181,20 +181,32 @@ function edgeReadiness(baseUrl: string): TunnelReadiness {
       const deadlineMs = Date.now() + 300_000;
       let last = "";
       while (Date.now() < deadlineMs) {
-        const results = await Promise.allSettled([
-          dohResolve("https://cloudflare-dns.com/dns-query", host),
-          dohResolve("https://dns.google/resolve", host),
-          resolve4(host).then((a) => a[0] ?? null),
-        ]);
-        for (const r of results) {
-          if (r.status === "fulfilled" && r.value) return;
+        try {
+          await Promise.any([
+            dohResolve("https://cloudflare-dns.com/dns-query", host).then((result) => {
+              if (!result) throw new Error("no answer");
+              return result;
+            }),
+            dohResolve("https://dns.google/resolve", host).then((result) => {
+              if (!result) throw new Error("no answer");
+              return result;
+            }),
+            resolve4(host).then((a) => {
+              const result = a[0] ?? null;
+              if (!result) throw new Error("no answer");
+              return result;
+            }),
+          ]);
+          return;
+        } catch (err) {
+          if (!(err instanceof AggregateError)) {
+            throw err;
+          }
+          last =
+            (err.errors as Array<Error>)
+              .map((e) => (e instanceof Error ? e.message : String(e)))
+              .join(", ") || "no resolver responded";
         }
-        last =
-          results
-            .map((r) =>
-              r.status === "rejected" ? String((r.reason as Error).message) : "no answer",
-            )
-            .join(", ") || "no resolver responded";
         await new Promise((r) => setTimeout(r, 1_000));
       }
       throw new TunnelNotReadyError(
