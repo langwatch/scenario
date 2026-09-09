@@ -409,6 +409,15 @@ export class TwilioWebhookServer {
         const frame = parseMediaStreamFrame(text);
         if (!frame) continue;
 
+        // Security (#762, CWE-306): only an ADOPTED socket may touch adapter
+        // state. A b-leg/inbound socket adopts un-gated on its first `start`; an
+        // a-leg socket adopts only after presenting the nonce. Any other branch
+        // (`media`/`dtmf`/`stop`/…) from a socket that skipped `start` — or
+        // failed auth and was left "ignored" — is dropped silently, so a leaked
+        // tunnel URL cannot inject audio or DTMF into the live call. `start` is
+        // what adopts, so it is the one branch this cannot gate.
+        if (frame.event !== "start" && !adopted) continue;
+
         if (frame.event === "start") {
           // Read the adapter's CURRENT nonce here, when the start frame is
           // processed — never a snapshot from loop entry. This is what closes

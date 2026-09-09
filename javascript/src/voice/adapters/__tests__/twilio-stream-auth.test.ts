@@ -12,6 +12,8 @@
  * `python/tests/voice/test_twilio_stream_auth.py`.
  */
 
+import { Buffer } from "node:buffer";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TwilioAgentAdapter } from "../twilio";
@@ -86,6 +88,36 @@ describe("TwilioAgentAdapter a-leg media-stream authentication", () => {
     expect(early.closed, "the pre-arm socket was adopted un-gated").toBe(true);
     expect(adapter._streamWsForServer).toBeNull();
     expect(await isPending(call)).toBe(true); // never became our transport
+
+    // Settle the pending placeCall so it does not outlive the test.
+    await drive(adapter, scriptedSocket([startFrame({ nonce })]));
+    await call;
+  });
+
+  it("media from a socket that never authenticated is dropped, not enqueued", async () => {
+    // CWE-306: a socket that skips the authenticated `start` must not inject
+    // audio into the live call. Its `media` frames are dropped before the media
+    // branch runs, so the frame counter never moves and nothing reaches the
+    // inbound queue. Without the pre-branch adoption guard an un-adopted socket
+    // could pump audio straight into the call. Mirrors the Python twin.
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    const { nonce, call } = await startALegCall(adapter, rest);
+
+    const media = JSON.stringify({
+      event: "media",
+      streamSid: "MZ762",
+      media: {
+        payload: Buffer.from(new Uint8Array(160).fill(0xff)).toString("base64"),
+      },
+    });
+    const attacker = scriptedSocket([media]);
+    await drive(adapter, attacker);
+    expect(adapter._framesReceivedForTest, "un-adopted socket injected audio").toBe(0);
+    expect(adapter._streamWsForServer).toBeNull();
+    expect(await isPending(call)).toBe(true); // stream-connected never fired
 
     // Settle the pending placeCall so it does not outlive the test.
     await drive(adapter, scriptedSocket([startFrame({ nonce })]));

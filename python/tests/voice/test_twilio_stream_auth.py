@@ -13,6 +13,8 @@ of ``specs/voice-twilio-a-leg-external.feature``. Mirrors
 """
 
 import asyncio
+import base64
+import json
 import re
 from contextlib import suppress
 
@@ -103,8 +105,38 @@ async def test_a_leg_socket_connected_before_arming_is_still_gated(monkeypatch):
     finally:
         if loop is not None and not loop.done():
             loop.cancel()
-            with suppress(Exception):
-                await loop
+            with suppress(asyncio.CancelledError):
+                _ = await loop
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_a_leg_media_from_socket_that_never_authenticated_is_not_enqueued(monkeypatch):
+    """CWE-306: a socket that skips the authenticated ``start`` must not inject
+    audio into the live call. Its ``media`` frames are dropped before the media
+    branch runs, so ``_frames_received`` never moves and nothing reaches the
+    inbound queue. Without the pre-branch adoption guard an un-adopted socket
+    could pump audio straight into the call. Mirrors the JS twin."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        await _place_a_leg_call(a, rest_instances[0])
+
+        media = json.dumps(
+            {
+                "event": "media",
+                "streamSid": "MZ762",
+                "media": {"payload": base64.b64encode(b"\xff" * 160).decode("ascii")},
+            }
+        )
+        attacker = _ScriptedWS([media])
+        async with _driving(a, attacker):
+            assert a._frames_received == 0, "un-adopted socket injected audio"
+            assert a._stream_ws is None
+            assert a._stream_connected is not None
+            assert not a._stream_connected.is_set()
+    finally:
         await a.disconnect()
 
 
