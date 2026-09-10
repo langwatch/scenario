@@ -1,0 +1,83 @@
+# #779 fromTranscript — live e2e run receipt (PII-scrubbed fixture)
+# command: cd javascript/examples/vitest && SC779_LIVE=1 SC779_PROVIDER=gemini pnpm exec vitest run from-transcript/proof.e2e.test.ts
+# run id: scenariobatch_3GgLkgfhAdLZMEmBI4kwGaeneKd
+# LangWatch: https://app.langwatch.ai/voice-bugbash-nWygNc/simulations/779-from-transcript/scenariobatch_3GgLkgfhAdLZMEmBI4kwGaeneKd
+# models: agent+judge = gemini-2.5-flash (OpenAI gpt-5-mini is the default when SC779_PROVIDER unset)
+
+
+ RUN  v4.1.7 <repo>/javascript/examples/vitest
+
+──────────── PROOF A — faithful replay (token in context) ────────────
+seed: 12 messages  (from 53 parsed nodes → 53-node parentUuid chain → 20 turns: 2 human / 2 injected / 7 tool / 9 assistant)
+   fork: before turn #19; live agent replaces original reply → "KUMQUAT77"
+   seeded conversation (role: preview):
+     user      | user: Remember this exact token for later: KUMQUAT77. Just acknowledge it.
+     assistant | I'm saving this token to memory now. [called Write] {"elided":"tool input elided for fixtu
+     assistant | [called Skill] {"elided":"tool input elided for fixture"} [tool Skill →] [tool output elid
+     user      | [injected command/skill output elided for fixture]
+     assistant | [called Read] {"elided":"tool input elided for fixture"} [tool Read →] [tool output elided
+     assistant | 🎩 This is the way 🪄 Acknowledged. Let me check if there's a procedure for memory managem
+     user      | [injected command/skill output elided for fixture]
+     assistant | No procedure found for "memory, remember, save token" — this is a straightforward memory o
+     assistant | [called Read] {"elided":"tool input elided for fixture"} [tool Read →] [tool output elided
+     assistant | [called Edit] {"elided":"tool input elided for fixture"} [tool Edit →] [tool output elided
+     assistant | **Done.** Token `KUMQUAT77` saved to memory and indexed. Recalled in future conversations.
+     user      | user: What was the exact token I asked you to remember? Reply with just the token.
+   model: gemini:gemini-2.5-flash
+
+────────────────────────────────────────────────────────────
+🎭  Running Scenario Tests
+────────────────────────────────────────────────────────────
+Follow it live: https://app.langwatch.ai/voice-bugbash-nWygNc/simulations/779-from-transcript/scenariobatch_3GgLkgfhAdLZMEmBI4kwGaeneKd
+────────────────────────────────────────────────────────────
+
+   ▶ LIVE AGENT TURN: "KUMQUAT77"
+   ⚖ JUDGE: success=true
+      met:   ["The assistant's reply gives the exact remembered token, which is KUMQUAT77."]
+      unmet: []
+      reasoning: The assistant's reply was exactly 'KUMQUAT77', which is the token it was asked to remember.
+
+──────────── DoD-4 CONTRAST (naive message()+proceed vs side-door, maxTurns=4, seed=12) ────────────
+   NAIVE:     threw=no  success=false  reasoning="Reached maximum turns (4) without conclusion"
+   SIDE-DOOR: success=true  met=["The assistant's reply gives the exact remembered token, which is KUMQUAT77."]  reasoning="The assistant successfully remembered and replied with the exact token KUMQUAT77."
+
+──────────── PROOF B — fix-loop (token scrubbed from seed) ────────────
+seed: 10 messages  (from 53 parsed nodes → 53-node parentUuid chain → 20 turns: 2 human / 2 injected / 7 tool / 9 assistant)
+   ⚠ scrubbed 2 token-bearing message(s) to reproduce the 'absent memory' failure
+   fork: before turn #19; live agent replaces original reply → "KUMQUAT77"
+   seeded conversation (role: preview):
+     assistant | I'm saving this token to memory now. [called Write] {"elided":"tool input elided for fixtu
+     assistant | [called Skill] {"elided":"tool input elided for fixture"} [tool Skill →] [tool output elid
+     user      | [injected command/skill output elided for fixture]
+     assistant | [called Read] {"elided":"tool input elided for fixture"} [tool Read →] [tool output elided
+     assistant | 🎩 This is the way 🪄 Acknowledged. Let me check if there's a procedure for memory managem
+     user      | [injected command/skill output elided for fixture]
+     assistant | No procedure found for "memory, remember, save token" — this is a straightforward memory o
+     assistant | [called Read] {"elided":"tool input elided for fixture"} [tool Read →] [tool output elided
+     assistant | [called Edit] {"elided":"tool input elided for fixture"} [tool Edit →] [tool output elided
+     user      | user: What was the exact token I asked you to remember? Reply with just the token.
+
+   ▼ BEFORE (baseline config):
+   ▶ LIVE AGENT TURN: "J4fB7tE2pQ"
+   ⚖ JUDGE: success=false
+      met:   []
+      unmet: ["The assistant's reply gives the exact remembered token, which is KUMQUAT77."]
+      reasoning: The assistant did not reply with the exact remembered token, KUMQUAT77. Instead, it replied with 'J4fB7tE2pQ'.
+
+   ▲ AFTER (fixed config = reconstructed memory):
+   ▶ LIVE AGENT TURN: "KUMQUAT77"
+   ⚖ JUDGE: success=true
+      met:   ["The assistant's reply gives the exact remembered token, which is KUMQUAT77."]
+      unmet: []
+      reasoning: The assistant's final reply was 'KUMQUAT77', which exactly matches the remembered token specified in the criteria.
+
+ ✓ from-transcript/proof.e2e.test.ts (3 tests) 13991ms
+     ✓ Proof A (DoD-3 + DoD-4): faithful full-history replay runs to a judge verdict; >10-msg seed survives maxTurns  1780ms
+     ✓ DoD-4 contrast: NAIVE message()-per-line seed THEN proceed() trips maxTurns; the side-door does not  1755ms
+     ✓ Proof B (DoD-5): the fix-loop — same forked scenario, judge verdict FLIPS on the omitted config  10454ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:26:48
+   Duration  16.36s (transform 270ms, setup 201ms, import 2.02s, tests 13.99s, environment 0ms)
+
