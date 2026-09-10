@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/langwatch/scenario/compare/python/v1.5.0...python/v1.6.0) (2026-09-10)
+
+
+### Features
+
+* **voice/twilio:** a-leg external-number dialing for TwilioAgentAdapter ([#982](https://github.com/langwatch/scenario/issues/982)) ([29dea33](https://github.com/langwatch/scenario/commit/29dea3374ef4abffbd25233a3bfff4184fd6852d))
+
 ## [1.5.0](https://github.com/langwatch/scenario/compare/python/v1.4.0...python/v1.5.0) (2026-09-06)
 
 
