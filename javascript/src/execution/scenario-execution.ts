@@ -858,17 +858,47 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // undefined-guard makes a second end impossible; reset() clears a leftover
       // root from a run that crashed before reaching here.
       if (this.runRootSpan) {
-        if (runError) {
-          this.runRootSpan.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: String(runError),
-          });
-        }
-        this.runRootSpan.end();
+        this.endRunRootSpan(this.runRootSpan, runError);
         this.runRootSpan = undefined;
       }
       // Clean up the subscription when execution is done
       subscription.unsubscribe();
+    }
+  }
+
+  /**
+   * Tear down the run-level root span without ever propagating out of
+   * {@link execute}'s `finally`.
+   *
+   * WHY guarded: this runs in the `finally`, where a throw REPLACES the run's
+   * genuine error on its way out — exactly the regression that surfaced a real
+   * failure as `this.runRootSpan.setStatus is not a function`. Two independent
+   * risks are contained:
+   *  - a tracer whose spans do not implement the full OTel `Span` (test doubles
+   *    and partial impls may omit `setStatus` / `end`) — feature-detected here,
+   *    matching the `typeof … === "function"` guard in `tracing/setup.ts`;
+   *  - a real span whose `SpanProcessor.onEnd` throws from `end()` — contained
+   *    by the try/catch, mirroring `voiceSpan`'s `endGuarded`.
+   * Either way we log WARN rather than swallow silently, and the run's own
+   * outcome propagates unchanged.
+   */
+  private endRunRootSpan(span: Span, runError: unknown): void {
+    try {
+      if (runError && typeof span.setStatus === "function") {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: String(runError),
+        });
+      }
+      if (typeof span.end === "function") {
+        span.end();
+      }
+    } catch (teardownErr) {
+      this.logger.warn(
+        `[${this.config.id}] run-root span teardown failed; dropping it so ` +
+          `the run's own outcome propagates unchanged`,
+        teardownErr,
+      );
     }
   }
 
