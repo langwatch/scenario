@@ -30,12 +30,28 @@ os.environ["SCENARIO_CACHE_DIR"] = _TMP_CACHE.name
 
 
 _call_count = 0
+_keyword_call_count = 0
+_normalized_call_count = 0
 
 
 @scenario.cache()
 async def expensive(arg: str) -> str:
     global _call_count
     _call_count += 1
+    return f"computed-{arg}"
+
+
+@scenario.cache()
+async def expensive_keyword(*, arg: str) -> str:
+    global _keyword_call_count
+    _keyword_call_count += 1
+    return f"computed-{arg}"
+
+
+@scenario.cache()
+async def expensive_normalized(arg: str = "default") -> str:
+    global _normalized_call_count
+    _normalized_call_count += 1
     return f"computed-{arg}"
 
 
@@ -46,6 +62,32 @@ class _Agent(AgentAdapter):
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         val = await expensive("shared-arg")
         return {"role": "assistant", "content": f"{self._tag}:{val}"}
+
+
+class _KeywordAgent(AgentAdapter):
+    def __init__(self) -> None:
+        self.values: list[str] = []
+
+    async def call(self, input: AgentInput) -> AgentReturnTypes:
+        self.values = [
+            await expensive_keyword(arg="first"),
+            await expensive_keyword(arg="second"),
+        ]
+        return {"role": "assistant", "content": "|".join(self.values)}
+
+
+class _NormalizedAgent(AgentAdapter):
+    def __init__(self) -> None:
+        self.values: list[str] = []
+
+    async def call(self, input: AgentInput) -> AgentReturnTypes:
+        self.values = [
+            await expensive_normalized("same"),
+            await expensive_normalized(arg="same"),
+            await expensive_normalized(),
+            await expensive_normalized(arg="default"),
+        ]
+        return {"role": "assistant", "content": "|".join(self.values)}
 
 
 class _User(AgentAdapter):
@@ -94,3 +136,54 @@ async def test_scenario_cache_works_under_concurrent_arun():
         f"cache under arun failed to deduplicate — expensive() ran "
         f"{_call_count} times across 5 identical invocations"
     )
+
+
+@pytest.mark.asyncio
+async def test_scenario_cache_distinguishes_keyword_arguments():
+    global _keyword_call_count
+    _keyword_call_count = 0
+    agent = _KeywordAgent()
+
+    result = await scenario.arun(
+        name="cache-keyword-arguments",
+        description="cached calls with distinct keyword arguments",
+        cache_key="arun-cache-keyword-arguments-v1",
+        agents=[agent, _User(), _Judge()],
+        script=[
+            scenario.user("hi"),
+            scenario.agent(),
+            scenario.judge(),
+        ],
+    )
+
+    assert result.success
+    assert agent.values == ["computed-first", "computed-second"]
+    assert _keyword_call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_scenario_cache_normalizes_calling_conventions_and_defaults():
+    global _normalized_call_count
+    _normalized_call_count = 0
+    agent = _NormalizedAgent()
+
+    result = await scenario.arun(
+        name="cache-normalized-arguments",
+        description="equivalent cached calls share an entry",
+        cache_key="arun-cache-normalized-arguments-v1",
+        agents=[agent, _User(), _Judge()],
+        script=[
+            scenario.user("hi"),
+            scenario.agent(),
+            scenario.judge(),
+        ],
+    )
+
+    assert result.success
+    assert agent.values == [
+        "computed-same",
+        "computed-same",
+        "computed-default",
+        "computed-default",
+    ]
+    assert _normalized_call_count == 2
