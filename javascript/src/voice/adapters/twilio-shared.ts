@@ -528,6 +528,12 @@ export class TwilioRESTHelper {
      * they have always been.
      */
     timeLimitSeconds?: number;
+    /**
+     * When true, sends Twilio's `Record=true` on `Calls.create` so the whole
+     * call is recorded server-side. Omitted from the request entirely when
+     * false/undefined — dual-channel recording is not requested.
+     */
+    record?: boolean;
   }): Promise<string> {
     const body = new URLSearchParams({
       To: args.to,
@@ -536,6 +542,9 @@ export class TwilioRESTHelper {
     });
     if (args.timeLimitSeconds !== undefined) {
       body.set("TimeLimit", String(args.timeLimitSeconds));
+    }
+    if (args.record) {
+      body.set("Record", "true");
     }
     const data = (await this._request("POST", `/Calls.json`, body)) as { sid?: string };
     if (!data.sid) {

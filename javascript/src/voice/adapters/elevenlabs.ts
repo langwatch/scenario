@@ -479,6 +479,30 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly logger = new Logger("ElevenLabsAgentAdapter");
 
   /**
+   * EL's own conversation id, captured off `conversation_initiation_metadata`.
+   * Undefined until that event arrives (or the adapter never connected).
+   */
+  private _conversationId?: string;
+
+  /** Whether {@link _conversationId} has been stamped onto a span yet — the
+   * connect span (if still open) or, as a fallback, the first sendAudio. */
+  private _conversationIdStamped = false;
+
+  /** EL's own conversation id for this call, once known. */
+  get conversationId(): string | undefined {
+    return this._conversationId;
+  }
+
+  /** Stamp {@link _conversationId} onto whatever span is active right now, once. */
+  private stampConversationIdIfPending(): void {
+    if (this._conversationId === undefined || this._conversationIdStamped) return;
+    const span = currentSpan();
+    if (!span) return;
+    setSpanAttributes(span, { "voice.elevenlabs.conversation_id": this._conversationId });
+    this._conversationIdStamped = true;
+  }
+
+  /**
    * How many user turns this adapter committed by streaming real PCM. The
    * voice-specific assertion keys on this together with {@link
    * lastUserTranscript}: a non-empty `user_transcript` after `audioCommitCount`
@@ -701,6 +725,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       "voice.elevenlabs.pump.silence_frames_sent": this.pumpStats.silenceFramesSent,
       "voice.elevenlabs.pump.unexpected_errors": this.pumpStats.unexpectedErrors,
     });
+    this._conversationId = undefined;
+    this._conversationIdStamped = false;
     const conversation = this.conversation;
     this.conversation = null;
     this.inputCallback = null;
@@ -814,6 +840,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (!this.isConnected()) {
       throw new Error("ElevenLabsAgentAdapter: not connected");
     }
+    // Fallback stamp: if the conversation id arrived after the connect span
+    // closed, this is the first later span we're guaranteed to see.
+    this.stampConversationIdIfPending();
 
     // Continuous mic: instead of bursting the whole turn's PCM, slice the spoken
     // PCM into 20 ms frames and ENQUEUE them. The always-on pump (running since
@@ -1053,6 +1082,15 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     }
 
     if (etype === "conversation_initiation_metadata") {
+      const meta =
+        (event.conversation_initiation_metadata_event as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      const conversationId = meta.conversation_id as string | undefined;
+      if (conversationId) {
+        this._conversationId = conversationId;
+        this.stampConversationIdIfPending();
+      }
       this.warnOnFormatDrift(event);
     }
 

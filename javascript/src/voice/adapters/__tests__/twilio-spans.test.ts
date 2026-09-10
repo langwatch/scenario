@@ -620,6 +620,20 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       expect(String(dial.attributes["voice.twilio.from"])).toMatch(/1234$/);
     });
 
+    it("stamps voice.twilio.record on the dial span only when record: true was requested", async () => {
+      const { rest } = stubRest(PHONE_NUMBER_SID);
+      const adapter = makeAdapter({ rest });
+      tracked.push(adapter);
+      await adapter.connect();
+      await dialAndConnect(
+        adapter,
+        adapter.placeCall({ to: "+14155557777", record: true }),
+      );
+
+      const dial = byName(exporter.getFinishedSpans())["voice.adapter.dial"];
+      expect(dial.attributes["voice.twilio.record"]).toBe(true);
+    });
+
     it("T5: waitForCall emits voice.adapter.dial, direction=='inbound'", async () => {
       const { rest } = stubRest(PHONE_NUMBER_SID);
       const adapter = makeAdapter({ rest });

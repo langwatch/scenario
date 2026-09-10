@@ -97,6 +97,7 @@ type SpyRest = TwilioRESTHelper & {
     from: string;
     twiml: string;
     timeLimitSeconds?: number;
+    record?: boolean;
   }>;
   resolveError: Error | null;
   priorVoiceUrl: string;
@@ -127,6 +128,7 @@ function spyRest(sid: string): SpyRest {
     from: string;
     twiml: string;
     timeLimitSeconds?: number;
+    record?: boolean;
   }) => {
     stub.placeCallArgs.push(a);
     return "CAtest";
@@ -717,5 +719,28 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
       "B-leg behaviour changed: origination now carries a TimeLimit; the " +
         "duration cap is a-leg-only (b-leg is bounded by <Pause length=120>)",
     ).toBeUndefined();
+  });
+
+  it("record:true is threaded onto rest.placeCall; omitted defaults to undefined; callSid getter reflects the returned SID", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    expect(adapter.callSid).toBeUndefined();
+
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+14155557777", record: true }),
+    );
+    expect(rest.placeCallArgs[0].record).toBe(true);
+    expect(adapter.callSid).toBe("CAtest");
+    await adapter.disconnect();
+  });
+
+  it("record omitted from placeCall args when not requested", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" }));
+    expect(rest.placeCallArgs[0].record).toBeUndefined();
   });
 });

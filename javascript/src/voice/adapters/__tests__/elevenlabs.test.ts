@@ -597,6 +597,21 @@ describe("ElevenLabsAgentAdapter wire-protocol (SDK-routed recv path)", () => {
     await adapter.disconnect();
   });
 
+  it("captures conversationId from conversation_initiation_metadata", async () => {
+    const { adapter, socket } = await makeConnected();
+    expect(adapter.conversationId).toBeUndefined();
+    emit(socket, {
+      type: "conversation_initiation_metadata",
+      conversation_initiation_metadata_event: {
+        conversation_id: "conv_1",
+        agent_output_audio_format: "pcm_24000",
+        user_input_audio_format: "pcm_24000",
+      },
+    });
+    expect(adapter.conversationId).toBe("conv_1");
+    await adapter.disconnect();
+  });
+
   it("swallows interruption and unknown events without error", async () => {
     const { adapter, socket } = await makeConnected();
     emit(socket, { type: "interruption", interruption_event: { event_id: "1" } });

@@ -685,7 +685,19 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           sink.open();
           this.audioPlaybackSink = sink;
         }
-        await startVoiceAdapters(this.voiceAdapters, this);
+        // Parent connect/dial spans under the first turn's span so they land
+        // in the run's own trace — the platform links a run to the traces its
+        // messages carry, and startVoiceAdapters otherwise runs with no
+        // active OTel context, making each adapter span the root of its own
+        // separate trace.
+        const turnSpan = this.currentTurnSpan;
+        if (turnSpan) {
+          await context.with(trace.setSpan(context.active(), turnSpan), () =>
+            startVoiceAdapters(this.voiceAdapters, this)
+          );
+        } else {
+          await startVoiceAdapters(this.voiceAdapters, this);
+        }
       }
 
       // Execute script steps - pass the execution context (this), not just state

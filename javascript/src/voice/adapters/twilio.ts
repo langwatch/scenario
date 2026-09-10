@@ -257,6 +257,19 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   // and at media-stream-loop entry (per-call scope — a second session on the
   // same connected adapter must not inherit the previous session's flag).
   private _streamEnded = false;
+  // Whether the media stream ever went live (a `start` frame adopted the
+  // socket / set a stream sid). Guards `agentHungUp` against a stream that
+  // ends before it ever connected — that's a failed dial, not a far-end
+  // hangup. Reset on connect(), like `_streamEnded`.
+  private _sawLiveStream = false;
+  // Set for the duration of `disconnect()` so the media loop's resulting
+  // socket-close can be told apart from a genuine remote hangup — both land
+  // on the same `_streamEndedReason` ("close") once the socket goes down.
+  // (The max-duration watchdog doesn't need this: it stamps "max_duration"
+  // as the reason BEFORE closing the socket, and `_setStreamEndedReason`
+  // never lets a later reason overwrite it.) Reset on connect() and cleared
+  // at the end of disconnect().
+  private _localDisconnect = false;
   // Call-lifetime counters stamped onto `voice.adapter.disconnect` from inside
   // disconnect() (#775 Tier 2b — mirrors ElevenLabs' pump-counter seam).
   // Accumulated by the media loop (twilio-server.ts) and the `/twilio/voice`
@@ -334,6 +347,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
+    this._sawLiveStream = false;
+    this._localDisconnect = false;
+    this.agentHungUp = false;
     this._framesReceived = 0;
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
@@ -348,13 +364,31 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._connected = true;
   }
 
-  /** Whether the Media Stream transport is open (Gap #11). */
+  /**
+   * Whether the Media Stream transport is open (Gap #11). Also false once the
+   * stream has ended (`_streamEnded`) even if `disconnect()` was never
+   * called — a remote hangup (Twilio `stop` / socket close) must trip the
+   * runtime's `isConnected()` gate on its own, not only after we tear down.
+   *
+   * Exception: while a farewell recorded before the hangup is still sitting
+   * in the inbound queue, this stays `true` so `defaultVoiceCall` drains it
+   * instead of taking the `agentHungUp` early return and dropping it on the
+   * floor. Once the queue holds nothing but the terminal sentinel (or is
+   * empty), later turns see `false` and conclude via `agentHungUp`.
+   */
   override isConnected(): boolean {
-    return this._connected;
+    return this._connected && (!this._streamEnded || this._inboundQueue.hasBufferedAudio());
   }
 
   async disconnect(): Promise<void> {
     if (!this._connected) return;
+
+    // Mark this teardown as ours BEFORE closing anything: `_webhookServer
+    // .stop()` below force-closes the live socket, which the media loop
+    // reports as `_streamEndedReason: "close"` — the same reason a genuine
+    // remote drop produces. This flag is how `_markStreamEnded()` tells the
+    // two apart.
+    this._localDisconnect = true;
 
     // Restore prior voice_url (answer mode only). `restRestoreFailed` tracks
     // whether either restore below threw — previously fully swallowed; now
@@ -431,6 +465,8 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
+    this._sawLiveStream = false;
+    this._localDisconnect = false;
     this._framesReceived = 0;
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
@@ -477,6 +513,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
      * call up via REST and closes the socket.
      */
     maxCallDurationSeconds?: number;
+    /**
+     * Request Twilio-side call recording (`Record=true` on `Calls.create`).
+     * Stamped onto the `voice.adapter.dial` span when set so "was this call
+     * recorded" is answerable from the trace alone.
+     */
+    record?: boolean;
   }): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
@@ -574,8 +616,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           from: this.phoneNumber,
           twiml: originationTwiml,
           timeLimitSeconds: maxCallDuration,
+          record: args.record,
         });
         setSpanAttributes(span, { "voice.twilio.call_sid": this._callSid });
+        if (args.record) {
+          setSpanAttributes(span, { "voice.twilio.record": true });
+        }
 
         if (maxCallDuration !== undefined) {
           this._armMaxDurationTimer(maxCallDuration, this._callSid, args.to);
@@ -880,6 +926,15 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   // ------------------------------------------------------------------ I/O
 
   override async sendAudio(chunk: AudioChunk): Promise<void> {
+    // Defense in depth: once the stream has ended (remote stop/close, or our
+    // own disconnect), there is nobody left to send audio to. The runtime
+    // gate (`isConnected()` / `agentHungUp`, `adapter.runtime.ts`) is what's
+    // supposed to stop `call()` from reaching here at all — but a caller
+    // that talks to the adapter directly (or a scripted turn already in
+    // flight when the far end hangs up) must get a silent no-op, not the
+    // "no live media stream" error, which is reserved for the genuinely
+    // never-connected case below.
+    if (this._streamEnded) return;
     this._assertStreamLive();
     const streamWs = this._streamWs;
     const streamSid = this._streamSid;
@@ -1005,6 +1060,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
   /** @internal */ _setStreamSid(sid: string | undefined): void {
     this._streamSid = sid;
+    if (sid !== undefined) this._sawLiveStream = true;
   }
   /** @internal */ _setCallSid(sid: string | undefined): void {
     if (!this._callSid) this._callSid = sid;
@@ -1022,6 +1078,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   get _callSidForServer(): string | undefined {
     return this._callSid;
   }
+  /** The Twilio call SID for the current/last call, once origination has
+   * returned it. `undefined` before a call is placed or after disconnect. */
+  get callSid(): string | undefined {
+    return this._callSid;
+  }
   /** @internal */ _signalStreamConnected(): void {
     this._streamConnected.resolve();
   }
@@ -1030,6 +1091,20 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
   /** @internal */ _markStreamEnded(): void {
     this._streamEnded = true;
+    // Mirrors ElevenLabs' `agentHungUp` contract (`adapters/elevenlabs.ts`,
+    // the `end_call` tool): a "stop"/"close" that arrives on a stream that
+    // actually went live, and that we didn't ourselves tear down via
+    // `disconnect()`, is the far end hanging up — not a dropped transport.
+    // "max_duration"/"error"/"none" are excluded: the watchdog and genuine
+    // transport errors aren't a remote hangup, and a stream that never
+    // adopted (`_sawLiveStream` false) never had anyone to hang up on.
+    if (
+      (this._streamEndedReason === "stop" || this._streamEndedReason === "close") &&
+      this._sawLiveStream &&
+      !this._localDisconnect
+    ) {
+      this.agentHungUp = true;
+    }
   }
   /**
    * @internal Re-arm per-CALL state at media-stream-loop entry. All three parts
@@ -1239,6 +1314,17 @@ class InboundQueue {
   /** True when no buffered chunk is immediately available to `take()`. */
   isEmpty(): boolean {
     return this._items.length === 0;
+  }
+
+  /**
+   * True when at least one buffered chunk carries real audio — as opposed to
+   * only the zero-length terminal sentinel(s) `_markStreamEnded`'s caller
+   * enqueues. Distinguishes "call ended, nothing left to hand the drain" from
+   * "call ended, but a farewell is still sitting in the queue" for
+   * `isConnected()` below.
+   */
+  hasBufferedAudio(): boolean {
+    return this._items.some((chunk) => chunk.data.length > 0);
   }
 
   /**
