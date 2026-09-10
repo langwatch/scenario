@@ -29,6 +29,31 @@ import {
 
 const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
+/**
+ * Run a dial and fire the stream-connected signal once it has reset and begun
+ * awaiting (#762 P1) — the replacement for pre-firing the signal before the dial.
+ */
+async function dialAndConnect(
+  adapter: TwilioAgentAdapter,
+  dial: Promise<void>,
+): Promise<void> {
+  let settled = false;
+  const done = dial.then(
+    () => {
+      settled = true;
+    },
+    (err) => {
+      settled = true;
+      throw err;
+    },
+  );
+  for (let i = 0; i < 500 && !settled; i++) {
+    await Promise.resolve();
+    adapter._signalStreamConnected();
+  }
+  await done;
+}
+
 /** Build an adapter wired to a stubbed REST helper so connect() can run. */
 function makeAdapter(opts?: {
   publicBaseUrl?: string;
@@ -57,6 +82,69 @@ function stubRest(sid: string): TwilioRESTHelper {
   stub.placeCall = async () => "CAtest";
   stub.sendDtmfOnCall = async () => undefined;
   return stub;
+}
+
+/**
+ * Recording stand-in for TwilioRESTHelper. `restCallLog` captures every
+ * callee-touching call in order (so tests can assert an exact b-leg sequence or
+ * its a-leg absence); `resolveError`, when set, makes resolve throw.
+ */
+type SpyRest = TwilioRESTHelper & {
+  restCallLog: Array<[string, unknown[]]>;
+  writeCalls: Array<[string, string]>;
+  placeCallArgs: Array<{
+    to: string;
+    from: string;
+    twiml: string;
+    timeLimitSeconds?: number;
+  }>;
+  resolveError: Error | null;
+  priorVoiceUrl: string;
+};
+
+function spyRest(sid: string): SpyRest {
+  const stub = new TwilioRESTHelper("ACtest", "secret") as SpyRest;
+  stub.restCallLog = [];
+  stub.writeCalls = [];
+  stub.placeCallArgs = [];
+  stub.resolveError = null;
+  stub.priorVoiceUrl = "https://old-webhook.example.com/previous";
+  stub.resolvePhoneNumberSid = async (number: string) => {
+    stub.restCallLog.push(["resolvePhoneNumberSid", [number]]);
+    if (stub.resolveError) throw stub.resolveError;
+    return sid;
+  };
+  stub.readVoiceUrl = async (s: string) => {
+    stub.restCallLog.push(["readVoiceUrl", [s]]);
+    return stub.priorVoiceUrl;
+  };
+  stub.writeVoiceUrl = async (s: string, url: string) => {
+    stub.writeCalls.push([s, url]);
+    stub.restCallLog.push(["writeVoiceUrl", [s, url]]);
+  };
+  stub.placeCall = async (a: {
+    to: string;
+    from: string;
+    twiml: string;
+    timeLimitSeconds?: number;
+  }) => {
+    stub.placeCallArgs.push(a);
+    return "CAtest";
+  };
+  stub.sendDtmfOnCall = async () => undefined;
+  return stub;
+}
+
+/** Read a private field off the adapter for state assertions. */
+function calleeState(adapter: TwilioAgentAdapter): {
+  sid?: string;
+  prior?: string;
+} {
+  const a = adapter as unknown as {
+    _calleePhoneNumberSid?: string;
+    _priorCalleeVoiceUrl?: string;
+  };
+  return { sid: a._calleePhoneNumberSid, prior: a._priorCalleeVoiceUrl };
 }
 
 /** Lightweight mock WS that captures send() output and feeds receiveText(). */
@@ -290,7 +378,7 @@ describe("twilio-shared codec round-trip", () => {
 describe("validateE164 / validateDtmf", () => {
   it("validateE164 accepts canonical numbers and rejects junk", () => {
     expect(() => validateE164("+14155551234")).not.toThrow();
-    expect(() => validateE164("+447911123456")).not.toThrow();
+    expect(() => validateE164("+447700900123")).not.toThrow();
     expect(() => validateE164("14155551234")).toThrow(/E.164/); // missing +
     expect(() => validateE164("+0155551234")).toThrow(/E.164/); // leading 0
     expect(() => validateE164("+1234")).toThrow(/E.164/); // too short
@@ -441,5 +529,193 @@ describe("TwilioAgentAdapter integration paths", () => {
     const chunk = await adapter.receiveAudio(0.5);
     expect(chunk).toBeInstanceOf(AudioChunk);
     expect(chunk.data.length).toBeGreaterThan(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// A-leg external mode (scenario#762 Slice 1): originate <Connect><Stream> on
+// our own leg so `to` can be any external number, touching nothing on the
+// callee. Mirrors python/tests/voice/test_twilio_adapter.py.
+// ----------------------------------------------------------------------------
+
+/** The exact origination TwiML a-leg mode emits, as a template over the per-call
+ * nonce (Slice 2). Pinned literally so any further TwiML change is a visible
+ * diff. makeAdapter's publicBaseUrl is https://example.test. */
+const aLegTwiml = (nonce: string): string =>
+  `<?xml version="1.0" encoding="UTF-8"?>` +
+  `<Response>` +
+  `<Connect><Stream url="wss://example.test/twilio/stream">` +
+  `<Parameter name="nonce" value="${nonce}"/>` +
+  `</Stream></Connect>` +
+  `</Response>`;
+
+function makeAdapterWithRest(rest: SpyRest): TwilioAgentAdapter {
+  return new TwilioAgentAdapter({
+    accountSid: "ACtest",
+    authToken: "secret",
+    phoneNumber: "+14155551234",
+    publicBaseUrl: "https://example.test",
+    validateSignature: false,
+    // a-leg destinations are deny-by-default (#762 guardrail (c)), so every
+    // a-leg test needs the number it dials on the allowlist. The allowlist
+    // tests build their own adapters instead.
+    allowedCallees: ["+447700900123"],
+    rest,
+  });
+}
+
+describe("TwilioAgentAdapter a-leg external mode", () => {
+  let openAdapter: TwilioAgentAdapter | null = null;
+
+  afterEach(async () => {
+    if (openAdapter) {
+      await openAdapter.disconnect();
+      openAdapter = null;
+    }
+  });
+
+  it("AC1: originates <Connect><Stream> and touches nothing on the callee", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    // connect() resolves the adapter's OWN number; measure callee-zero after it.
+    const baseLog = rest.restCallLog.length;
+    const baseWrites = rest.writeCalls.length;
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" }),
+    );
+
+    expect(rest.placeCallArgs).toHaveLength(1);
+    const twiml = rest.placeCallArgs[0].twiml;
+    expect(twiml).toContain(`<Connect><Stream url="wss://`);
+    expect(twiml).toContain("/twilio/stream");
+    // Zero callee REST: no resolve / read / write against the callee.
+    expect(rest.restCallLog.slice(baseLog)).toEqual([]);
+    expect(rest.writeCalls.slice(baseWrites)).toEqual([]);
+  });
+
+  it("pins the exact a-leg TwiML string, nonce <Parameter> included", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" }),
+    );
+    const nonce = adapter._streamNonceForServer;
+    expect(nonce).toBeDefined();
+    expect(rest.placeCallArgs[0].twiml).toBe(aLegTwiml(nonce as string));
+  });
+
+  it.each([
+    ["404-shaped", new Error("HTTP 404: phone number not found")],
+    ["500-shaped", new Error("HTTP 500: Twilio internal error")],
+  ])(
+    "AC3: b-leg resolve error (%s) surfaces with no a-leg fallback",
+    async (_id, resolveError) => {
+      const rest = spyRest("PN1234567890abcdef");
+      const adapter = makeAdapterWithRest(rest);
+      await adapter.connect();
+      openAdapter = adapter;
+      adapter._signalStreamConnected();
+      rest.resolveError = resolveError as Error;
+      await expect(adapter.placeCall({ to: "+14155557777" })).rejects.toThrow(/HTTP/);
+      // No origination — resolve threw before we dialed. If one had occurred,
+      // its TwiML must contain no <Connect><Stream>.
+      expect(rest.placeCallArgs).toEqual([]);
+      for (const a of rest.placeCallArgs) {
+        expect(a.twiml).not.toContain("<Connect><Stream>");
+      }
+    },
+  );
+
+  it("AC4 (success): disconnect() after an a-leg call is a no-op with callee state unset", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    const baseWrites = rest.writeCalls.length;
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" }),
+    );
+    expect(calleeState(adapter)).toEqual({ sid: undefined, prior: undefined });
+    await adapter.disconnect();
+    expect(rest.writeCalls.slice(baseWrites)).toEqual([]);
+    expect(calleeState(adapter)).toEqual({ sid: undefined, prior: undefined });
+  });
+
+  it("AC4 (failure): disconnect() after an a-leg stream-connect timeout is still a no-op", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    const baseWrites = rest.writeCalls.length;
+    // Never signal — a-leg still waits, so this times out.
+    await expect(
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg", timeoutMs: 20 }),
+    ).rejects.toThrow();
+    expect(calleeState(adapter)).toEqual({ sid: undefined, prior: undefined });
+    await adapter.disconnect();
+    expect(rest.writeCalls.slice(baseWrites)).toEqual([]);
+    expect(calleeState(adapter)).toEqual({ sid: undefined, prior: undefined });
+  });
+
+  it.each([
+    ["a-leg-vs-true", "a-leg" as const, true],
+    ["b-leg-vs-false", "b-leg" as const, false],
+    ["a-leg-vs-false", "a-leg" as const, false],
+  ])(
+    "throws when attachStream (%s) disagrees with an explicit attachStreamToSelf",
+    async (_id, attachStream, attachStreamToSelf) => {
+      const rest = spyRest("PN1234567890abcdef");
+      const adapter = makeAdapterWithRest(rest);
+      await adapter.connect();
+      openAdapter = adapter;
+      adapter._signalStreamConnected();
+      await expect(
+        adapter.placeCall({ to: "+14155557777", attachStream, attachStreamToSelf }),
+      ).rejects.toThrow(/attachStream.*attachStreamToSelf/);
+    },
+  );
+
+  it("b-leg golden: exact Say+Pause TwiML AND callee REST sequence stay byte-identical", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    // connect() resolves the adapter's own number; slice it off the golden.
+    const baseLog = rest.restCallLog.length;
+    await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" })); // default b-leg
+    await adapter.disconnect();
+
+    const expectedBLegTwiml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<Response>` +
+      `<Say voice="Polly.Joanna">` +
+      `Thank you for calling. ` +
+      `I will hold the line while you complete your scenario.` +
+      `</Say>` +
+      `<Pause length="120"/>` +
+      `</Response>`;
+    expect(
+      rest.placeCallArgs[0].twiml,
+      "B-leg behaviour changed: origination TwiML no longer byte-identical",
+    ).toBe(expectedBLegTwiml);
+    const sid = "PN1234567890abcdef";
+    expect(
+      rest.restCallLog.slice(baseLog),
+      "B-leg behaviour changed: callee REST sequence no longer matches golden order",
+    ).toEqual([
+      ["resolvePhoneNumberSid", ["+14155557777"]],
+      ["readVoiceUrl", [sid]],
+      ["writeVoiceUrl", [sid, "https://example.test/twilio/voice"]],
+      ["writeVoiceUrl", [sid, "https://old-webhook.example.com/previous"]],
+    ]);
+    expect(
+      rest.placeCallArgs[0].timeLimitSeconds,
+      "B-leg behaviour changed: origination now carries a TimeLimit; the " +
+        "duration cap is a-leg-only (b-leg is bounded by <Pause length=120>)",
+    ).toBeUndefined();
   });
 });

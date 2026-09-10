@@ -27,16 +27,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from opentelemetry.context import Context
 
 from ..audio_chunk import AudioChunk
 from .._telemetry import voice_span
 from ._twilio_shared import (
+    MediaStreamEvent,
     _redact_e164,
+    escape_xml_attr,
     mulaw8k_to_pcm16_24k,
+    nonce_matches,
     parse_media_stream_frame,
+    stream_ws_url,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +48,10 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("scenario.voice.twilio")
+
+#: Outcome of the a-leg ``start``-frame auth check: adopt the socket, drop this
+#: frame but keep listening, or close the socket.
+StartFrameVerdict = Literal["accept", "ignore", "reject"]
 
 
 class TwilioWebhookServer:
@@ -125,7 +133,7 @@ class TwilioWebhookServer:
 
         Returned lazily so we don't import FastAPI at module load time.
         """
-        from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+        from fastapi import FastAPI, Request, WebSocket
         from fastapi.responses import Response
 
 
@@ -184,15 +192,11 @@ class TwilioWebhookServer:
                 )
 
             assert adapter.public_base_url is not None
-            ws_url = (
-                adapter.public_base_url.replace("https://", "wss://").replace("http://", "ws://")
-                .rstrip("/")
-                + "/twilio/stream"
-            )
+            ws_url = stream_ws_url(adapter.public_base_url)
             twiml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
                 '<Response>'
-                f'<Connect><Stream url="{ws_url}"/></Connect>'
+                f'<Connect><Stream url="{escape_xml_attr(ws_url)}"/></Connect>'
                 '</Response>'
             )
             return Response(content=twiml, media_type="application/xml")
@@ -240,8 +244,15 @@ class TwilioWebhookServer:
         except WebSocketDisconnect:
             logger.debug("TwilioAgentAdapter: WS disconnected")
         finally:
-            adapter._stream_ws = None
-            adapter._stream_sid = None
+            # Only the socket that IS the live transport may clear it. The
+            # route is publicly reachable, so without this identity check any
+            # stranger who opens and closes ``/twilio/stream`` nulls the
+            # GENUINE call's transport — no nonce needed — and every
+            # subsequent send_audio/interrupt/recv_audio raises "no live media
+            # stream" while the PSTN call keeps billing to the cap.
+            if adapter._stream_ws is ws:
+                adapter._stream_ws = None
+                adapter._stream_sid = None
 
     async def media_stream_loop(self, ws: Any) -> None:
         """Per-call Media Streams loop: parse frames, enqueue audio, fire DTMF."""
@@ -249,27 +260,98 @@ class TwilioWebhookServer:
         assert adapter._inbound_queue is not None
         assert adapter._stream_connected is not None
 
-        adapter._stream_ws = ws
-        # ``_stream_ended`` AND the inbound queue are per-CALL state: re-arm and
-        # purge both alongside ``_stream_ws`` so a second media-stream session on
-        # the same connected adapter (Twilio reconnect, back-to-back call) starts
-        # clean.
+        # A-leg WS auth (#762 guardrail (a)): ``_stream_nonce`` is set ONLY by an
+        # "a-leg" ``place_call``, so its presence is what arms enforcement — b-leg
+        # and inbound sockets keep today's un-gated behaviour byte for byte.
+        # Until an armed socket has authenticated, it gets NO adapter state: not
+        # ``_stream_ws`` (which ``send_audio`` writes to — adopting an
+        # unauthenticated socket would hand the attacker our outbound audio) and
+        # not the per-call queue purge (which would drop the live call's audio).
         #
-        # The flag alone is not enough. The previous call's ``finally`` ENQUEUED a
-        # terminal sentinel; if that call ended while no drain was running (the
-        # caller hung up between turns), the sentinel is still sitting in the
-        # queue. ``recv_audio`` drains a non-empty queue without checking
-        # liveness, so the new call's first ``recv_audio`` would hand that stale
-        # empty chunk to ``_drain_agent_response`` as its first chunk — and the
-        # drain breaks on an empty chunk, truncating the new call's first agent
-        # turn to silence and stranding its real audio for the turn after.
-        #
-        # No frame of THIS call has been enqueued yet, so anything present is the
-        # previous session's residue and is safe to drop. Waiters are untouched:
-        # a consumer already parked in ``get()`` stays parked for real audio.
-        adapter._stream_ended = False
-        while not adapter._inbound_queue.empty():
-            adapter._inbound_queue.get_nowait()
+        # The nonce is read WHERE the ``start`` frame is processed, never
+        # snapshotted here at loop entry: a socket that opened before
+        # ``place_call`` armed the nonce would otherwise be adopted un-gated at
+        # entry and grandfather its later ``start`` frame past the check (the
+        # CWE-306 arming race).
+        adopted = False
+        # The call generation captured at ADOPTION (#762 P1). Until this socket
+        # adopts it stays -1 and ``_owns_current_call`` is False by the ``adopted``
+        # guard, so the reference is safe. Once adopted, a bump of
+        # ``adapter._call_generation`` (a new ``place_call``/``wait_for_call``)
+        # makes this socket stale: it is closed on its next frame and none of its
+        # side effects touch the current call.
+        my_generation = -1
+
+        def _owns_current_call() -> bool:
+            """True only while this socket is the adapter's current-gen transport."""
+            return adopted and my_generation == adapter._call_generation
+
+        def _adopt() -> None:
+            """Make ``ws`` the adapter's live transport and re-arm per-call state.
+
+            ``_stream_ended``, ``_stream_ended_reason`` AND the inbound queue
+            are per-CALL state: re-armed and purged alongside ``_stream_ws`` so
+            a second media-stream session on the same connected adapter (Twilio
+            reconnect, back-to-back call) starts clean. The reason matters as
+            much as the flag: ``"max_duration"`` wins every tie by design, so
+            left standing it would report a later, cleanly-stopped session as
+            having hit the cap.
+
+            The flag alone is not enough. The previous call's ``finally``
+            ENQUEUED a terminal sentinel; if that call ended while no drain was
+            running (the caller hung up between turns), the sentinel is still
+            sitting in the queue. ``recv_audio`` drains a non-empty queue without
+            checking liveness, so the new call's first ``recv_audio`` would hand
+            that stale empty chunk to ``_drain_agent_response`` as its first
+            chunk — and the drain breaks on an empty chunk, truncating the new
+            call's first agent turn to silence and stranding its real audio for
+            the turn after.
+
+            No frame of THIS call has been enqueued yet, so anything present is
+            the previous session's residue and is safe to drop. Waiters are
+            untouched: a consumer already parked in ``get()`` stays parked for
+            real audio.
+            """
+            nonlocal adopted, my_generation
+            assert adapter._inbound_queue is not None
+            adopted = True
+            # Capture the generation we are adopting under. Any later dial bumps
+            # ``adapter._call_generation`` and this socket becomes stale.
+            my_generation = adapter._call_generation
+            adapter._stream_ws = ws
+            adapter._stream_ended = False
+            adapter._stream_ended_reason = "none"
+            while not adapter._inbound_queue.empty():
+                adapter._inbound_queue.get_nowait()
+
+        def _authenticate(frame: MediaStreamEvent) -> StartFrameVerdict:
+            """Does this ``start`` frame belong to the call we originated?
+
+            Nonce first (timing-safe, and a missing ``<Parameter>`` is a
+            rejection, not a bypass), then the originated call SID so a stale or
+            probe socket cannot win the race to ``_stream_connected``. Never logs
+            the nonce itself — it is a live credential for the rest of the call.
+            """
+            assert adapter._stream_nonce is not None
+            if not nonce_matches(
+                adapter._stream_nonce, frame.custom_parameters.get("nonce")
+            ):
+                logger.warning(
+                    "TwilioAgentAdapter: media stream rejected — a-leg nonce "
+                    "missing or mismatched (call_sid=%s)",
+                    frame.call_sid,
+                )
+                return "reject"
+            if adapter._call_sid is None or frame.call_sid != adapter._call_sid:
+                logger.warning(
+                    "TwilioAgentAdapter: start frame ignored — call_sid=%s is "
+                    "not the originated call %s",
+                    frame.call_sid,
+                    adapter._call_sid,
+                )
+                return "ignore"
+            return "accept"
+
         # Buffer µ-law for batched decoding — send_audio/recv_audio operate at
         # the AudioChunk level, so we coalesce ~100ms of incoming µ-law per
         # chunk to avoid thousands of tiny AudioChunk objects.
@@ -328,7 +410,59 @@ class TwilioWebhookServer:
                 if frame is None:
                     continue
 
+                # Security (#762 P1): a socket adopted under an OLDER call
+                # generation (it connected — and even adopted — before this dial
+                # armed the nonce) is stale the instant place_call/wait_for_call
+                # bumped the generation. Close it on its next frame so it can
+                # neither inject audio nor connect nor change the current call's
+                # terminal state. The ``finally`` below is generation-gated too,
+                # so this early return does not end the live call.
+                if adopted and my_generation != adapter._call_generation:
+                    with suppress(Exception):
+                        await ws.close()
+                    return
+
+                # Security (#762, CWE-306): only an ADOPTED socket may touch
+                # adapter state. A b-leg/inbound socket adopts un-gated on its
+                # first ``start``; an a-leg socket adopts only after presenting
+                # the nonce. Any other branch (``media``/``dtmf``/``stop``/…) from
+                # a socket that skipped ``start`` — or failed auth and was left
+                # "ignored" — is dropped silently, so a leaked tunnel URL cannot
+                # inject audio or DTMF into the live call. ``start`` is what
+                # adopts, so it is the one branch this cannot gate.
+                if frame.event != "start" and not adopted:
+                    continue
+
                 if frame.event == "start":
+                    # Read the adapter's CURRENT nonce here, when the start frame
+                    # is processed — never a snapshot from loop entry. This is
+                    # what closes the arming race: a socket that connected before
+                    # ``place_call`` armed the nonce is still gated on it the
+                    # moment its start frame arrives.
+                    enforce_auth = adapter._stream_nonce is not None
+                    if enforce_auth:
+                        # A bad nonce closes the socket outright; a good nonce on
+                        # the wrong call is merely ignored (AC5/AC6). Either way
+                        # the socket gets no adapter state and no connected
+                        # signal, so a correct socket arriving later is the one
+                        # that connects.
+                        verdict = _authenticate(frame)
+                        if verdict == "reject":
+                            # No ``_set_stream_ended_reason`` here: a socket
+                            # that failed to authenticate never became this
+                            # adapter's transport, so it must not stamp a
+                            # verdict onto the call it failed to reach — same
+                            # rule the terminal sentinel below already follows.
+                            with suppress(Exception):
+                                await ws.close()
+                            return
+                        if verdict == "ignore":
+                            continue
+                    # Adopt on the first start frame — after auth in a-leg mode,
+                    # always in un-gated (b-leg/inbound) mode. Idempotent: a
+                    # resend must not clobber the live call's state.
+                    if not adopted:
+                        _adopt()
                     adapter._stream_sid = frame.stream_sid
                     if frame.call_sid and adapter._call_sid is None:
                         adapter._call_sid = frame.call_sid
@@ -369,20 +503,23 @@ class TwilioWebhookServer:
                         pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
                         await _enqueue(pcm)
-                    adapter._stream_ended_reason = "stop"
+                    if _owns_current_call():
+                        adapter._set_stream_ended_reason("stop")
                     return
         except WebSocketDisconnect:
             # Socket closed mid-stream. ``run_stream_session`` swallows this
             # type specifically (see its docstring) — tag the outcome BEFORE
             # re-raising so that swallow's caller-visible behavior is
             # unchanged.
-            adapter._stream_ended_reason = "close"
+            if _owns_current_call():
+                adapter._set_stream_ended_reason("close")
             raise
         except Exception:
             # Any OTHER transport error (not a clean disconnect) propagates to
             # ``run_stream_session``'s caller unchanged — tag the outcome
             # before re-raising.
-            adapter._stream_ended_reason = "error"
+            if _owns_current_call():
+                adapter._set_stream_ended_reason("error")
             raise
         finally:
             # Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the
@@ -401,6 +538,17 @@ class TwilioWebhookServer:
             # flag tells ``recv_audio`` to keep draining post-teardown rather
             # than assert liveness. Guard the disconnect race where
             # ``disconnect()`` already nulled the queue.
-            adapter._stream_ended = True
-            if adapter._inbound_queue is not None:
-                await adapter._inbound_queue.put(AudioChunk(data=b""))
+            # A socket rejected before adoption never became this adapter's
+            # transport, so it must not end the call it failed to authenticate
+            # into either: skip the terminal sentinel entirely. A socket adopted
+            # under an OLDER generation (#762 P1) is likewise not the current
+            # call: its teardown must not cancel the live call's watchdog or mark
+            # the live stream ended — hence ``_owns_current_call`` rather than a
+            # bare ``adopted``.
+            if _owns_current_call():
+                # The session that owned the duration cap is over; disarm before
+                # anything else so the watchdog can never hang up a LATER call.
+                adapter._cancel_max_duration_timer()
+                adapter._stream_ended = True
+                if adapter._inbound_queue is not None:
+                    await adapter._inbound_queue.put(AudioChunk(data=b""))

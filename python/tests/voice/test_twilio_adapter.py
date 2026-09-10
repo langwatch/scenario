@@ -11,6 +11,8 @@ import pytest
 
 from scenario.voice import AudioChunk, TwilioAgentAdapter
 
+from .a_leg_harness import _dial_then_connect
+
 
 def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
     kwargs: dict[str, Any] = dict(
@@ -22,6 +24,10 @@ def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
         # signature; signature validation is exercised in dedicated
         # tests below.
         validate_signature=False,
+        # a-leg destinations are deny-by-default (#762 guardrail (c)), so every
+        # a-leg test needs the number it dials on the allowlist. Overridden by
+        # the allowlist tests themselves.
+        allowed_callees=["+447700900123"],
     )
     kwargs.update(overrides)
     return TwilioAgentAdapter(**kwargs)
@@ -61,16 +67,32 @@ class FakeREST:
         self.auth_token = auth_token
         self.write_calls: list[tuple[str, str]] = []
         self.place_call_kwargs: list[dict[str, Any]] = []
+        # Call SIDs passed to end_call — the max-duration watchdog's REST
+        # teardown (#762 guardrail (b)).
+        self.end_calls: list[str] = []
+        # ``(call_sid, tones)`` per send_dtmf_on_call — the TwiML-replacing
+        # POST that a-leg mode must never issue (#762 AC10).
+        self.dtmf_calls: list[tuple[str, str]] = []
+        # Every callee-touching REST call in the order it happened, so tests can
+        # assert an exact sequence (b-leg golden) or its absence (a-leg zero-touch).
+        self.rest_call_log: list[tuple[str, tuple[Any, ...]]] = []
+        # When set, resolve_phone_number_sid raises it (b-leg transient-error test).
+        self.resolve_error: Optional[Exception] = None
         self._prior_voice_url = "https://old-webhook.example.com/previous"
 
     def resolve_phone_number_sid(self, number: str) -> str:
+        self.rest_call_log.append(("resolve_phone_number_sid", (number,)))
+        if self.resolve_error is not None:
+            raise self.resolve_error
         return "PN" + "0" * 32
 
     def read_voice_url(self, sid: str) -> str:
+        self.rest_call_log.append(("read_voice_url", (sid,)))
         return self._prior_voice_url
 
     def write_voice_url(self, sid: str, url: str) -> None:
         self.write_calls.append((sid, url))
+        self.rest_call_log.append(("write_voice_url", (sid, url)))
 
     def place_call(
         self,
@@ -78,17 +100,25 @@ class FakeREST:
         to: str,
         from_: str,
         twiml: str,
+        time_limit: Optional[int] = None,
     ) -> str:
         # Mirrors the real TwilioRESTHelper.place_call signature. The
         # twiml_url parameter was removed (latent SSRF-via-Twilio risk)
         # and the adapter always builds inline TwiML for the A-leg.
+        # ``time_limit`` is Twilio's own max call duration; None means the
+        # emitted request carries no TimeLimit at all.
         self.place_call_kwargs.append(
-            {"to": to, "from_": from_, "twiml": twiml}
+            {"to": to, "from_": from_, "twiml": twiml, "time_limit": time_limit}
         )
         return "CA" + "1" * 32
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
-        pass
+        # Recorded, not ignored: a-leg must issue ZERO of these, and an
+        # assertion needs something to look at (#762 AC10).
+        self.dtmf_calls.append((call_sid, tones))
+
+    def end_call(self, call_sid: str) -> None:
+        self.end_calls.append(call_sid)
 
 
 def _install_fake_rest(monkeypatch: Any) -> list[FakeREST]:
@@ -200,8 +230,7 @@ async def test_place_call_transitions_to_call_mode(monkeypatch):
         # Pre-fire the stream-connected event so place_call returns instead of
         # blocking — we're testing mode transition, not the WS handshake.
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         assert a._mode == "call"
         assert len(rest_instances[0].place_call_kwargs) == 1
     finally:
@@ -216,8 +245,7 @@ async def test_wait_for_call_transitions_to_answer_mode(monkeypatch):
     try:
         assert a._mode == "idle"
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.wait_for_call(timeout=1.0)
+        await _dial_then_connect(a, a.wait_for_call(timeout=1.0))
         assert a._mode == "answer"
     finally:
         await a.disconnect()
@@ -230,8 +258,7 @@ async def test_wait_for_call_then_place_call_raises(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.wait_for_call(timeout=1.0)
+        await _dial_then_connect(a, a.wait_for_call(timeout=1.0))
         with pytest.raises(RuntimeError, match="already in 'answer' mode"):
             await a.place_call(to="+14155557777")
     finally:
@@ -245,8 +272,7 @@ async def test_place_call_then_wait_for_call_raises(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         with pytest.raises(RuntimeError, match="already in 'call' mode"):
             await a.wait_for_call(timeout=1.0)
     finally:
@@ -274,8 +300,7 @@ async def test_place_call_writes_and_restores_callee_voice_url(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         rest = rest_instances[0]
         # Exactly one write on place_call: callee's voice_url → harness.
         assert len(rest.write_calls) == 1
@@ -330,8 +355,7 @@ async def test_wait_for_call_writes_and_restores_voice_url(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.wait_for_call(timeout=1.0)
+        await _dial_then_connect(a, a.wait_for_call(timeout=1.0))
         # Exactly one write on mode entry.
         rest = rest_instances[0]
         assert len(rest.write_calls) == 1
@@ -361,8 +385,7 @@ async def test_place_call_passes_inline_pause_twiml_to_rest(monkeypatch):
     await a.connect()
     try:
         assert a._stream_connected is not None
-        a._stream_connected.set()
-        await a.place_call(to="+14155557777")
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))
         kw = rest_instances[0].place_call_kwargs[0]
         assert kw["to"] == "+14155557777"
         assert kw["from_"] == "+14155551234"
@@ -399,6 +422,212 @@ async def test_place_call_rejects_non_e164_target(monkeypatch):
             await a.place_call(to="4155551234")  # missing leading '+'
     finally:
         await a.disconnect()
+
+
+# ---------------------------------------------------------- a-leg external mode
+
+#: The exact origination TwiML a-leg mode emits, as a template over the per-call
+#: nonce (Slice 2). Pinned literally so any further TwiML change is a visible
+#: diff. `_make_adapter`'s public_base_url is https://example.trycloudflare.com.
+A_LEG_TWIML_TEMPLATE = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    "<Response>"
+    '<Connect><Stream url="wss://example.trycloudflare.com/twilio/stream">'
+    '<Parameter name="nonce" value="{nonce}"/>'
+    "</Stream></Connect>"
+    "</Response>"
+)
+
+
+@pytest.mark.asyncio
+async def test_place_call_a_leg_emits_connect_stream_and_zero_callee_rest(monkeypatch):
+    """AC1: a-leg mode originates <Connect><Stream> and touches nothing on the
+    callee — the whole point of external-number support."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    # connect() resolves the adapter's OWN number; the callee-zero assertion is
+    # measured against everything AFTER connect.
+    rest = rest_instances[0]
+    base_log = len(rest.rest_call_log)
+    base_writes = len(rest.write_calls)
+    try:
+        assert a._stream_connected is not None
+        await _dial_then_connect(
+            a, a.place_call(to="+447700900123", attach_stream="a-leg")
+        )
+        # Origination carries the inline <Connect><Stream> TwiML.
+        assert len(rest.place_call_kwargs) == 1
+        twiml = rest.place_call_kwargs[0]["twiml"]
+        assert '<Connect><Stream url="wss://' in twiml
+        assert "/twilio/stream" in twiml
+        # Zero callee REST: no resolve / read / write against the callee.
+        assert rest.rest_call_log[base_log:] == []
+        assert rest.write_calls[base_writes:] == []
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_place_call_a_leg_twiml_snapshot(monkeypatch):
+    """Pin the exact a-leg TwiML string, nonce <Parameter> included."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        assert a._stream_connected is not None
+        await _dial_then_connect(
+            a, a.place_call(to="+447700900123", attach_stream="a-leg")
+        )
+        assert a._stream_nonce is not None
+        assert rest_instances[0].place_call_kwargs[0][
+            "twiml"
+        ] == A_LEG_TWIML_TEMPLATE.format(nonce=a._stream_nonce)
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "resolve_error",
+    [
+        RuntimeError("HTTP 404: phone number not found"),
+        RuntimeError("HTTP 500: Twilio internal error"),
+    ],
+    ids=["404-shaped", "500-shaped"],
+)
+async def test_place_call_b_leg_resolve_error_surfaces_no_a_leg_fallback(
+    monkeypatch, resolve_error
+):
+    """AC3: a transient resolve failure (404 OR 500) surfaces to the caller and
+    NEVER silently falls back to the a-leg branch."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        assert a._stream_connected is not None
+        a._stream_connected.set()
+        rest_instances[0].resolve_error = resolve_error
+        with pytest.raises(RuntimeError, match="HTTP"):
+            await a.place_call(to="+14155557777")  # default b-leg
+        rest = rest_instances[0]
+        # No origination at all — resolve raised before we dialed. (If one had
+        # occurred, its TwiML must contain no <Connect><Stream>.)
+        assert rest.place_call_kwargs == []
+        for kw in rest.place_call_kwargs:
+            assert "<Connect><Stream>" not in kw["twiml"]
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_place_call_a_leg_disconnect_is_noop_on_success(monkeypatch):
+    """AC4 (success path): after an a-leg call, disconnect() issues zero
+    write_voice_url and the callee state was never set."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        assert a._stream_connected is not None
+        await _dial_then_connect(
+            a, a.place_call(to="+447700900123", attach_stream="a-leg")
+        )
+        assert a._callee_phone_number_sid is None
+        assert a._prior_callee_voice_url is None
+    finally:
+        await a.disconnect()
+    assert rest_instances[0].write_calls == []
+    assert a._callee_phone_number_sid is None
+    assert a._prior_callee_voice_url is None
+
+
+@pytest.mark.asyncio
+async def test_place_call_a_leg_disconnect_is_noop_on_failure(monkeypatch):
+    """AC4 (failure path): a-leg placeCall that times out on stream-connect still
+    leaves disconnect() a no-op with callee state unset."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        # Don't set _stream_connected — a-leg still waits, so this times out.
+        with pytest.raises(asyncio.TimeoutError):
+            await a.place_call(to="+447700900123", attach_stream="a-leg", timeout=0.05)
+        assert a._callee_phone_number_sid is None
+        assert a._prior_callee_voice_url is None
+    finally:
+        await a.disconnect()
+    assert rest_instances[0].write_calls == []
+    assert a._callee_phone_number_sid is None
+    assert a._prior_callee_voice_url is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "attach_stream,attach_stream_to_self",
+    [("a-leg", True), ("b-leg", False), ("a-leg", False)],
+    ids=["a-leg-vs-True", "b-leg-vs-False", "a-leg-vs-False"],
+)
+async def test_place_call_conflicting_stream_params_raises(
+    monkeypatch, attach_stream, attach_stream_to_self
+):
+    """attach_stream disagreeing with an explicit attach_stream_to_self is a
+    caller error naming both parameters."""
+    _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        assert a._stream_connected is not None
+        a._stream_connected.set()
+        with pytest.raises(ValueError, match="attach_stream.*attach_stream_to_self"):
+            await a.place_call(
+                to="+14155557777",
+                attach_stream=attach_stream,
+                attach_stream_to_self=attach_stream_to_self,
+            )
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_place_call_b_leg_golden_twiml_and_rest_sequence(monkeypatch):
+    """Byte-identical B-leg regression guard every later slice leans on: the
+    exact Say+Pause origination TwiML AND the exact callee REST call sequence
+    across place_call + disconnect. If this fails, B-leg behaviour changed."""
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    rest = rest_instances[0]
+    # connect() resolves the adapter's own number; slice it off the golden.
+    base_log = len(rest.rest_call_log)
+    try:
+        await _dial_then_connect(a, a.place_call(to="+14155557777"))  # default b-leg
+    finally:
+        await a.disconnect()
+
+    expected_b_leg_twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        '<Say voice="Polly.Joanna">'
+        "Thank you for calling. "
+        "I will hold the line while you complete your scenario."
+        "</Say>"
+        '<Pause length="120"/>'
+        "</Response>"
+    )
+    assert rest.place_call_kwargs[0]["twiml"] == expected_b_leg_twiml, (
+        "B-leg behaviour changed: origination TwiML no longer byte-identical"
+    )
+    sid = "PN" + "0" * 32
+    assert rest.rest_call_log[base_log:] == [
+        ("resolve_phone_number_sid", ("+14155557777",)),
+        ("read_voice_url", (sid,)),
+        ("write_voice_url", (sid, "https://example.trycloudflare.com/twilio/voice")),
+        ("write_voice_url", (sid, "https://old-webhook.example.com/previous")),
+    ], "B-leg behaviour changed: callee REST sequence no longer matches golden order"
+    assert rest.place_call_kwargs[0]["time_limit"] is None, (
+        "B-leg behaviour changed: origination now carries a TimeLimit; the "
+        "duration cap is a-leg-only (b-leg is bounded by <Pause length=120>)"
+    )
 
 
 # ---------------------------------------------------------------- TwiML shape

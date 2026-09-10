@@ -49,7 +49,9 @@ export {
 } from "./adapters/gemini-live";
 
 export {
+  TunnelNotReadyError,
   TwilioAgentAdapter,
+  type TunnelReadiness,
   type TwilioAdapterMode,
   type TwilioAgentAdapterOptions,
 } from "./adapters/twilio";

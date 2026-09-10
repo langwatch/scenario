@@ -2,19 +2,27 @@
  * TwilioTunnel — wraps a local server with a publicly-reachable tunnel so
  * Twilio's webhooks can reach a dev machine.
  *
- * Two providers, picked at runtime:
+ * Three providers, picked at runtime:
  * - `@ngrok/ngrok` (preferred when `NGROK_AUTHTOKEN` is set) — stable URLs,
  *   per-account quota, native binary ~20 MB.
- * - `localtunnel` (fallback) — no auth required, less reliable, public
+ * - `localtunnel` (default fallback) — no auth required, less reliable, public
  *   subdomain.
+ * - `cloudflared` (explicit opt-in) — no npm dep and no account: shells out to
+ *   the `cloudflared` binary for a `*.trycloudflare.com` quick tunnel. This is
+ *   the direct twin of Python's `scenario.voice.testing.CloudflareTunnel`, so
+ *   the JS a-leg live e2e (#762 AC11) can open the same kind of tunnel the
+ *   Python one does. Only selected when `provider: "cloudflared"` is passed,
+ *   so it never changes the default ngrok/localtunnel selection.
  *
- * Both packages are **optional peer dependencies**. The tunnel is only used
- * by the env-gated e2e test; runtime callers who don't need a tunnel never
+ * The two npm packages are **optional peer dependencies**. The tunnel is only
+ * used by the env-gated e2e test; runtime callers who don't need a tunnel never
  * pull these into the bundle. We dynamic-import inside `open()` so the
  * module is importable on machines that don't have them installed.
  */
 
-export type TunnelProvider = "ngrok" | "localtunnel";
+import { spawn } from "node:child_process";
+
+export type TunnelProvider = "ngrok" | "localtunnel" | "cloudflared";
 
 export interface OpenedTunnel {
   /** Public HTTPS URL that proxies to the local port. */
@@ -49,7 +57,102 @@ export async function openTwilioTunnel(opts: OpenTunnelOptions): Promise<OpenedT
   if (provider === "ngrok") {
     return openNgrokTunnel(opts.port, authToken, opts.region);
   }
+  if (provider === "cloudflared") {
+    return openCloudflaredTunnel(opts.port);
+  }
   return openLocaltunnelTunnel(opts.port);
+}
+
+/** How long to wait for cloudflared to announce its quick-tunnel hostname. */
+const CLOUDFLARED_STARTUP_TIMEOUT_MS = 30_000;
+/** The trycloudflare hostname cloudflared prints on stdout/stderr at startup. */
+const TRYCLOUDFLARE_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/;
+
+/**
+ * Spawn a `cloudflared` quick tunnel and resolve once it announces its public
+ * `*.trycloudflare.com` URL. Twin of Python's `CloudflareTunnel.__aenter__`:
+ * read the child's merged stdout/stderr for the hostname, fail fast if the
+ * binary is missing or exits before printing one.
+ *
+ * The announced URL is reachable only after Cloudflare's edge has propagated
+ * it, so a-leg callers must still gate origination on a readiness probe
+ * (`TwilioAgentAdapterOptions.tunnelReadiness`) — the same contract Python's
+ * harness satisfies with `wait_until_edge_reachable()`.
+ */
+async function openCloudflaredTunnel(port: number): Promise<OpenedTunnel> {
+  const proc = spawn(
+    "cloudflared",
+    ["tunnel", "--url", `http://localhost:${port}`, "--no-autoupdate"],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+
+  const url = await new Promise<string>((resolve, reject) => {
+    let buf = "";
+    const timer = setTimeout(() => {
+      cleanup();
+      proc.kill("SIGTERM");
+      reject(
+        new Error(
+          `TwilioTunnel: cloudflared did not announce a trycloudflare.com URL ` +
+            `within ${CLOUDFLARED_STARTUP_TIMEOUT_MS / 1000}s. Check that ` +
+            `cloudflared is installed and its output for errors.`,
+        ),
+      );
+    }, CLOUDFLARED_STARTUP_TIMEOUT_MS);
+
+    const onData = (chunk: Buffer): void => {
+      buf += chunk.toString("utf-8");
+      const match = TRYCLOUDFLARE_RE.exec(buf);
+      if (match) {
+        cleanup();
+        resolve(match[0]);
+      }
+    };
+    const onError = (err: Error): void => {
+      cleanup();
+      reject(
+        new Error(
+          `TwilioTunnel: failed to spawn cloudflared (${err.message}). Install ` +
+            `it — Linux: https://developers.cloudflare.com/cloudflared/install/ ; ` +
+            `macOS: brew install cloudflared.`,
+        ),
+      );
+    };
+    const onExit = (code: number | null): void => {
+      cleanup();
+      reject(
+        new Error(
+          `TwilioTunnel: cloudflared exited (code ${code}) before announcing a URL.`,
+        ),
+      );
+    };
+    function cleanup(): void {
+      clearTimeout(timer);
+      proc.stdout?.off("data", onData);
+      proc.stderr?.off("data", onData);
+      proc.off("error", onError);
+      proc.off("exit", onExit);
+      // Keep draining the child's pipes for the tunnel's lifetime. cloudflared
+      // logs continuously; a paused (undrained) pipe fills its ~64 KB buffer
+      // within seconds and blocks the process, silently killing the tunnel —
+      // the readiness probe then times out with "fetch failed" forever.
+      proc.stdout?.resume();
+      proc.stderr?.resume();
+    }
+
+    proc.stdout?.on("data", onData);
+    proc.stderr?.on("data", onData);
+    proc.on("error", onError);
+    proc.on("exit", onExit);
+  });
+
+  return {
+    url,
+    provider: "cloudflared",
+    async close() {
+      proc.kill("SIGTERM");
+    },
+  };
 }
 
 interface NgrokListener {

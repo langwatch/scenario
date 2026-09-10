@@ -16,7 +16,7 @@ from .gemini_live import GeminiLiveAgentAdapter
 from .livekit import LiveKitAgentAdapter
 from .openai_realtime import OpenAIRealtimeAgentAdapter
 from .pipecat import PipecatAgentAdapter, PipecatRecvError
-from .twilio import TwilioAgentAdapter
+from .twilio import TunnelNotReadyError, TunnelReadiness, TwilioAgentAdapter
 from .vapi import VapiAgentAdapter
 from .webrtc import WebRTCAgentAdapter
 from .websocket import WebSocketAgentAdapter, WebSocketProtocol
@@ -31,6 +31,8 @@ __all__ = [
     "PendingTransportError",
     "PipecatAgentAdapter",
     "PipecatRecvError",
+    "TunnelNotReadyError",
+    "TunnelReadiness",
     "TwilioAgentAdapter",
     "VapiAgentAdapter",
     "WebRTCAgentAdapter",
