@@ -14,7 +14,7 @@ function fakeFetch(): {
   lastBody: () => URLSearchParams;
 } {
   let last = "";
-  const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+  const fetchImpl = (async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
     last = typeof init?.body === "string" ? init.body : "";
     return new Response(JSON.stringify({ sid: "CAtest" }), { status: 200 });
   }) as typeof fetch;
