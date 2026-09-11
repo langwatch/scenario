@@ -493,11 +493,31 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     return this._conversationId;
   }
 
-  /** Stamp {@link _conversationId} onto whatever span is active right now, once. */
+  /**
+   * Stamp {@link _conversationId} onto whatever span is active right now, once
+   * it has actually landed on a span.
+   *
+   * The `isRecording()` check is what makes the retry work, and it is load
+   * bearing. `conversation_initiation_metadata` arrives asynchronously and
+   * routinely lands *after* `connect()` resolved and the connect span was
+   * ended in its `finally`. The async callback still carries that ended span
+   * in its captured context, so `currentSpan()` returns a non-null but dead
+   * span, and `setSpanAttributes` silently drops the write on a span that is
+   * no longer recording.
+   *
+   * Marking the id stamped on that dropped write is what used to make the loss
+   * permanent rather than merely late: it poisoned the guard flag, so the
+   * `sendAudio` fallback below — which runs inside a reliably open span on the
+   * first turn carrying user audio — returned early and never retried. The
+   * conversation id then never reached any span, and the whole-call recording
+   * could not be resolved for that run at all.
+   *
+   * So only count it stamped when the span was live enough to take it.
+   */
   private stampConversationIdIfPending(): void {
     if (this._conversationId === undefined || this._conversationIdStamped) return;
     const span = currentSpan();
-    if (!span) return;
+    if (!span?.isRecording()) return;
     setSpanAttributes(span, { "voice.elevenlabs.conversation_id": this._conversationId });
     this._conversationIdStamped = true;
   }
