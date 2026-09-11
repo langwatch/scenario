@@ -458,3 +458,78 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     client.close();
   }, 15_000);
 });
+
+describe("Twilio far-end hangup (agentHungUp contract)", () => {
+  it("remote stop after a live stream: isConnected() false, agentHungUp true, sendAudio is a no-op", async () => {
+    const adapter = await connectedAdapter();
+    // A `start` frame adopts the socket (the call went live), then Twilio
+    // sends `stop` and the socket closes — the real-PSTN-hangup shape.
+    await driveTwilioProduction(adapter, scriptedSocket([startFrame(), stopFrame()]));
+
+    expect(adapter.isConnected()).toBe(false);
+    expect(adapter.agentHungUp).toBe(true);
+
+    // sendAudio must resolve quietly, not throw "no live media stream" —
+    // that's the error that killed the run pre-fix.
+    await expect(
+      adapter.sendAudio(new AudioChunk({ data: new Uint8Array(320) })),
+    ).resolves.toBeUndefined();
+  });
+
+  it("local disconnect(): agentHungUp stays false even though the media loop reports a close", async () => {
+    const adapter = await connectedAdapter();
+    const sock = controllableSocket();
+    const session = driveTwilioProduction(adapter, sock);
+    sock.push(startFrame());
+    await vi.waitFor(() => expect(adapter._streamWsForServer).not.toBeNull());
+
+    // disconnect() sets `_localDisconnect` synchronously (before its first
+    // `await`), so it lands before the loop observes the close below —
+    // mirrors production, where `_webhookServer.stop()` is what force-closes
+    // the live socket in the first place.
+    const disconnectP = adapter.disconnect();
+    sock.push(null); // the wrapper's own teardown closing our side
+    await session;
+    await disconnectP;
+
+    expect(adapter.isConnected()).toBe(false);
+    expect(adapter.agentHungUp).toBe(false);
+  });
+
+  it("buffered farewell survives the hangup and drains, then the next turn concludes via agentHungUp", async () => {
+    const adapter = await connectedAdapter();
+    // Trailing audio (the agent's farewell) flushed by the "stop" branch,
+    // then Twilio's stop frame ends the call.
+    const mulaw = new Uint8Array(160).fill(0x7f);
+    await driveTwilioProduction(
+      adapter,
+      scriptedSocket([startFrame(), buildMediaFrame(STREAM_SID, mulaw), stopFrame()]),
+    );
+    expect(adapter.agentHungUp).toBe(true);
+    // Farewell still queued: isConnected() must stay true so the drain runs
+    // instead of `defaultVoiceCall` taking the early `agentHungUp` return and
+    // dropping the audio on the floor.
+    expect(adapter.isConnected()).toBe(true);
+
+    const farewell = await driveCall(adapter);
+    expect(extractAudio(farewell)?.data.length ?? 0).toBeGreaterThan(0);
+
+    // Queue now holds nothing left to drain: isConnected() flips, and a
+    // scripted turn left over concludes gracefully instead of failing.
+    expect(adapter.isConnected()).toBe(false);
+    const next = await driveCall(adapter);
+    expect(next).toEqual([]);
+  });
+
+  it("never placed/answered a call: sendAudio still throws the no-live-media-stream error", async () => {
+    // Connected, but placeCall()/waitForCall() never ran — genuinely no live
+    // stream, distinct from the "stream ended" no-op case above.
+    const adapter = await connectedAdapter();
+
+    await expect(
+      adapter.sendAudio(new AudioChunk({ data: new Uint8Array(320) })),
+    ).rejects.toThrow(
+      "TwilioAgentAdapter: no live media stream. Call placeCall() or waitForCall() first.",
+    );
+  });
+});

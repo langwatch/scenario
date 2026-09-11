@@ -97,6 +97,7 @@ type SpyRest = TwilioRESTHelper & {
     from: string;
     twiml: string;
     timeLimitSeconds?: number;
+    record?: boolean;
   }>;
   resolveError: Error | null;
   priorVoiceUrl: string;
@@ -127,6 +128,7 @@ function spyRest(sid: string): SpyRest {
     from: string;
     twiml: string;
     timeLimitSeconds?: number;
+    record?: boolean;
   }) => {
     stub.placeCallArgs.push(a);
     return "CAtest";
@@ -544,7 +546,7 @@ describe("TwilioAgentAdapter integration paths", () => {
 const aLegTwiml = (nonce: string): string =>
   `<?xml version="1.0" encoding="UTF-8"?>` +
   `<Response>` +
-  `<Connect><Stream url="wss://example.test/twilio/stream">` +
+  `<Connect><Stream url="wss://example.test/twilio/${nonce}">` +
   `<Parameter name="nonce" value="${nonce}"/>` +
   `</Stream></Connect>` +
   `</Response>`;
@@ -590,7 +592,7 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     expect(rest.placeCallArgs).toHaveLength(1);
     const twiml = rest.placeCallArgs[0].twiml;
     expect(twiml).toContain(`<Connect><Stream url="wss://`);
-    expect(twiml).toContain("/twilio/stream");
+    expect(twiml).toContain(`/twilio/${adapter._streamNonceForServer}`);
     // Zero callee REST: no resolve / read / write against the callee.
     expect(rest.restCallLog.slice(baseLog)).toEqual([]);
     expect(rest.writeCalls.slice(baseWrites)).toEqual([]);
@@ -608,6 +610,44 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     const nonce = adapter._streamNonceForServer;
     expect(nonce).toBeDefined();
     expect(rest.placeCallArgs[0].twiml).toBe(aLegTwiml(nonce as string));
+  });
+
+  it("honours a caller-supplied streamNonce instead of minting one", async () => {
+    // A host platform (LangWatch's phone transport) that runs its media
+    // listener in a separate process must know the nonce BEFORE placeCall,
+    // so it can register it with that listener first. This is the contract
+    // that makes that possible: an injected nonce rides the TwiML unchanged.
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    const injectedNonce = "caller-supplied-nonce-0123456789abcdef";
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({
+        to: "+447700900123",
+        attachStream: "a-leg",
+        streamNonce: injectedNonce,
+      }),
+    );
+
+    expect(adapter._streamNonceForServer).toBe(injectedNonce);
+    expect(rest.placeCallArgs[0].twiml).toBe(aLegTwiml(injectedNonce));
+  });
+
+  it("still mints its own nonce when none is supplied", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+447700900123", attachStream: "a-leg" }),
+    );
+
+    const nonce = adapter._streamNonceForServer;
+    expect(nonce).toBeDefined();
+    expect(nonce).not.toBe("");
   });
 
   it.each([
@@ -717,5 +757,28 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
       "B-leg behaviour changed: origination now carries a TimeLimit; the " +
         "duration cap is a-leg-only (b-leg is bounded by <Pause length=120>)",
     ).toBeUndefined();
+  });
+
+  it("record:true is threaded onto rest.placeCall; omitted defaults to undefined; callSid getter reflects the returned SID", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    expect(adapter.callSid).toBeUndefined();
+
+    await dialAndConnect(
+      adapter,
+      adapter.placeCall({ to: "+14155557777", record: true }),
+    );
+    expect(rest.placeCallArgs[0].record).toBe(true);
+    expect(adapter.callSid).toBe("CAtest");
+    await adapter.disconnect();
+  });
+
+  it("record omitted from placeCall args when not requested", async () => {
+    const rest = spyRest("PN1234567890abcdef");
+    const adapter = makeAdapterWithRest(rest);
+    await adapter.connect();
+    await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" }));
+    expect(rest.placeCallArgs[0].record).toBeUndefined();
   });
 });

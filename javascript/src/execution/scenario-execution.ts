@@ -1,4 +1,4 @@
-import { context, type Span } from "@opentelemetry/api";
+import { context, type Span, SpanStatusCode } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
 import { getLangWatchTracer } from "langwatch";
@@ -348,6 +348,19 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   /** Current turn span for trace context management */
   private currentTurnSpan?: Span;
 
+  /**
+   * Run-level root span for the whole scenario run.
+   *
+   * WHY: a scenario run — especially a phone call — must surface as exactly ONE
+   * trace, not one trace per turn. `newTurn()` used to mint each "Scenario Turn"
+   * span as a parentless root, so OpenTelemetry gave every turn its own traceId
+   * (a 2-turn call produced 3 traces incl. the STT back-fill). This single root,
+   * started once at the top of the run, is the parent every turn span and the
+   * STT back-fill hang from, so all of a run's spans share one traceId. Turn
+   * spans are therefore children, not roots.
+   */
+  private runRootSpan?: Span;
+
   /** Timestamp when execution started (for total time calculation) */
   private totalStartTime: number = 0;
 
@@ -635,6 +648,23 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     this.scenarioRunId = scenarioRunId;
     this.finishedEmitted = false;
 
+    // Start the run-level root span BEFORE the first turn so every turn span
+    // and the STT back-fill hang from it and the whole run is one trace (see
+    // the runRootSpan field comment). Correlation attrs mirror the set
+    // newTurn() stamps on "Scenario Turn", minus the per-turn scenario.turn, so
+    // the run root is at least as identifiable as the turn root it replaces.
+    this.runRootSpan = this.tracer.startSpan("Scenario Run", {
+      attributes: {
+        "langwatch.origin": "simulation",
+        [ATTR_SCENARIO_SDK_NAME]: SCENARIO_SDK_NAME,
+        [ATTR_SCENARIO_SDK_VERSION]: SCENARIO_SDK_VERSION,
+        "scenario.run_id": this.scenarioRunId ?? "",
+        "scenario.name": this.config.name,
+        "scenario.id": this.config.id,
+        [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+      },
+    });
+
     // Create the initial turn span via newTurn() and then reset the counter
     // back to 0. This matches the original reset() behavior — newTurn() creates
     // the span and sets currentTurn=1, then we override to 0 so the first
@@ -662,6 +692,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     this.voiceAdapters = pickVoiceAdapters(this.agents);
 
     let checkFailure: Error | null = null;
+    // Tracks an exception that propagated out of the run so the finally block
+    // can stamp an ERROR status on the run root before ending it.
+    let runError: unknown = null;
 
     try {
       if (this.voiceAdapters.length > 0) {
@@ -685,7 +718,19 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           sink.open();
           this.audioPlaybackSink = sink;
         }
-        await startVoiceAdapters(this.voiceAdapters, this);
+        // Parent connect/dial spans under the first turn's span so they land
+        // in the run's own trace — the platform links a run to the traces its
+        // messages carry, and startVoiceAdapters otherwise runs with no
+        // active OTel context, making each adapter span the root of its own
+        // separate trace.
+        const turnSpan = this.currentTurnSpan;
+        if (turnSpan) {
+          await context.with(trace.setSpan(context.active(), turnSpan), () =>
+            startVoiceAdapters(this.voiceAdapters, this)
+          );
+        } else {
+          await startVoiceAdapters(this.voiceAdapters, this);
+        }
       }
 
       // Execute script steps - pass the execution context (this), not just state
@@ -764,6 +809,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
       return await this.finishRun({ scenarioRunId, result });
     } catch (error) {
+      runError = checkFailure ?? error;
       // Report the run as finished before propagating. The exactly-once guard
       // covers the case where the finished event was already emitted above
       // but its emit path raised afterwards (#922).
@@ -806,8 +852,53 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         });
         this.audioPlaybackSink = null;
       }
+      // End the run-level root span exactly once, AFTER the last turn span and
+      // after the STT back-fill has hung its span under it, on every completion
+      // path (success / failure / error / abort — finally always runs). The
+      // undefined-guard makes a second end impossible; reset() clears a leftover
+      // root from a run that crashed before reaching here.
+      if (this.runRootSpan) {
+        this.endRunRootSpan(this.runRootSpan, runError);
+        this.runRootSpan = undefined;
+      }
       // Clean up the subscription when execution is done
       subscription.unsubscribe();
+    }
+  }
+
+  /**
+   * Tear down the run-level root span without ever propagating out of
+   * {@link execute}'s `finally`.
+   *
+   * WHY guarded: this runs in the `finally`, where a throw REPLACES the run's
+   * genuine error on its way out — exactly the regression that surfaced a real
+   * failure as `this.runRootSpan.setStatus is not a function`. Two independent
+   * risks are contained:
+   *  - a tracer whose spans do not implement the full OTel `Span` (test doubles
+   *    and partial impls may omit `setStatus` / `end`) — feature-detected here,
+   *    matching the `typeof … === "function"` guard in `tracing/setup.ts`;
+   *  - a real span whose `SpanProcessor.onEnd` throws from `end()` — contained
+   *    by the try/catch, mirroring `voiceSpan`'s `endGuarded`.
+   * Either way we log WARN rather than swallow silently, and the run's own
+   * outcome propagates unchanged.
+   */
+  private endRunRootSpan(span: Span, runError: unknown): void {
+    try {
+      if (runError && typeof span.setStatus === "function") {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: String(runError),
+        });
+      }
+      if (typeof span.end === "function") {
+        span.end();
+      }
+    } catch (teardownErr) {
+      this.logger.warn(
+        `[${this.config.id}] run-root span teardown failed; dropping it so ` +
+          `the run's own outcome propagates unchanged`,
+        teardownErr,
+      );
     }
   }
 
@@ -837,30 +928,41 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (targets.length === 0) return;
     // voice.stt.backfill — a per-RUN batch span parenting one
     // voice.stt.transcribe child per segment (#776). TS transcribes per-run in
-    // this finally (no per-turn STT, unlike Python's _ensure_transcript), and
-    // there is no run-root span here to nest under — so the batch span groups
-    // the otherwise-orphaned per-run spans into one coherent trace and encodes
-    // "per-run, not per-turn" in the trace SHAPE. Python's mirror is per-turn
-    // under voice.turn; the shared voice.stt.transcribe span carries the same
-    // attributes at each language's position, disambiguated by voice.stt.scope.
+    // this finally (no per-turn STT, unlike Python's _ensure_transcript). It is
+    // parented under the run-level root span so the back-fill lands on the
+    // run's single trace instead of forming a third orphan trace of its own —
+    // voiceSpan reads context.active() for its parent, so we make the run root
+    // the active span here. Python's mirror is per-turn under voice.turn; the
+    // shared voice.stt.transcribe span carries the same attributes at each
+    // language's position, disambiguated by voice.stt.scope.
     //
-    // Correlation attrs mirror newTurn()'s "Scenario Turn" root (scenario.run_id
-    // / thread_id / origin) so this per-run batch — its own trace, since it has
-    // no run-root parent — is attributable to the run in the dashboard (grouped
-    // by scenario.run_id), not an anonymous orphan trace.
-    await voiceSpan(
-      "voice.stt.backfill",
-      {
-        "voice.stt.scope": "run",
-        "voice.stt.segment_count": targets.length,
-        "langwatch.origin": "simulation",
-        "scenario.run_id": this.scenarioRunId ?? "",
-        [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
-      },
-      async () => {
-        await Promise.all(targets.map((seg) => this.transcribeSegment(seg, stt)));
-      },
-    );
+    // Correlation attrs mirror the run root (scenario.run_id / thread_id /
+    // origin) so the batch is attributable to the run in the dashboard even if
+    // it ever runs without an active run root to nest under.
+    const runBackfill = () =>
+      voiceSpan(
+        "voice.stt.backfill",
+        {
+          "voice.stt.scope": "run",
+          "voice.stt.segment_count": targets.length,
+          "langwatch.origin": "simulation",
+          "scenario.run_id": this.scenarioRunId ?? "",
+          [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+        },
+        async () => {
+          await Promise.all(
+            targets.map((seg) => this.transcribeSegment(seg, stt)),
+          );
+        },
+      );
+    if (this.runRootSpan) {
+      await context.with(
+        trace.setSpan(context.active(), this.runRootSpan),
+        runBackfill,
+      );
+    } else {
+      await runBackfill();
+    }
   }
 
   /**
@@ -2420,6 +2522,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       this.currentTurnSpan.end();
       this.currentTurnSpan = undefined;
     }
+    // Defensively end a run root left over from a previous run that crashed
+    // before execute()'s finally could close it, so a new run starts clean.
+    if (this.runRootSpan) {
+      this.runRootSpan.end();
+      this.runRootSpan = undefined;
+    }
 
     this.state = new ScenarioExecutionState(this.config);
     // Re-establish the voice runtime's back-reference — the new state
@@ -2533,8 +2641,13 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       agentCount: this.agents.length,
     });
 
-    // Create new turn trace context (equivalent to Python's langwatch.trace())
-    this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
+    // Create new turn trace context (equivalent to Python's langwatch.trace()).
+    // The turn span is a CHILD of the run-level root so the whole run is one
+    // trace (see the runRootSpan field comment); it used to be a parentless
+    // root, which gave each turn its own traceId. Guard for a missing run root
+    // (a code path that reached newTurn() without execute() starting one) and
+    // fall back to today's root behaviour so nothing throws.
+    const turnSpanOptions = {
       attributes: {
         "langwatch.origin": "simulation",
         // Identify which @langwatch/scenario build produced this run so a
@@ -2547,7 +2660,14 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
         "scenario.turn": this.state.currentTurn,
       },
-    });
+    };
+    this.currentTurnSpan = this.runRootSpan
+      ? this.tracer.startSpan(
+          "Scenario Turn",
+          turnSpanOptions,
+          trace.setSpan(context.active(), this.runRootSpan),
+        )
+      : this.tracer.startSpan("Scenario Turn", turnSpanOptions);
   }
 
   private removePendingRole(role: AgentRole): void {

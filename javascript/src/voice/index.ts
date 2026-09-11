@@ -56,6 +56,10 @@ export {
   type TwilioAgentAdapterOptions,
 } from "./adapters/twilio";
 
+export type { ExternalUpgradeRequest } from "./adapters/twilio-server";
+
+export { DEFAULT_STREAM_CONNECT_TIMEOUT_MS } from "./adapters/twilio-shared";
+
 export {
   openTwilioTunnel,
   type OpenedTunnel,
