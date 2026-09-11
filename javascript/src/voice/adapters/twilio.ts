@@ -18,6 +18,8 @@
  * codec live in `./twilio-shared.ts`.
  */
 
+import type { Socket } from "node:net";
+
 import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
@@ -26,8 +28,13 @@ import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { sleep } from "../utils";
 
 import { twilioLogger } from "./twilio-logger";
-import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
 import {
+  TwilioWebhookServer,
+  type ExternalUpgradeRequest,
+  type MediaStreamWebSocket,
+} from "./twilio-server";
+import {
+  DEFAULT_STREAM_CONNECT_TIMEOUT_MS,
   TWILIO_FRAME_MS,
   TunnelNotReadyError,
   type TunnelReadiness,
@@ -519,6 +526,18 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
      * recorded" is answerable from the trace alone.
      */
     record?: boolean;
+    /**
+     * Caller-supplied a-leg stream nonce, overriding this adapter's own
+     * {@link mintStreamNonce} call. Exists for a host platform that runs the
+     * media listener Twilio actually dials back in a SEPARATE process from
+     * the one placing this call (e.g. a parent worker process fronting a pool
+     * of scenario-execution child processes): that platform must register the
+     * nonce with its own listener BEFORE Twilio can possibly connect, which
+     * means it must know the nonce before `placeCall` runs — impossible if
+     * this adapter mints it internally. Ignored outside a-leg mode, the only
+     * mode a stream nonce means anything in.
+     */
+    streamNonce?: string;
   }): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
@@ -532,7 +551,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     // Resolve the effective stream-attach mode BEFORE any REST call so a
     // conflicting-parameter caller error surfaces before we dial.
     const mode = resolveStreamMode(args.attachStream, args.attachStreamToSelf);
-    const timeoutMs = args.timeoutMs ?? 120_000;
+    const timeoutMs = args.timeoutMs ?? DEFAULT_STREAM_CONNECT_TIMEOUT_MS;
     // Only a-leg loses <Pause>'s implicit ceiling, so only a-leg carries a
     // duration cap. Naming one in another mode is rejected rather than ignored:
     // silently dropping it would leave the caller believing the call is bounded
@@ -601,11 +620,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         // Other modes: play a short deterministic <Say> anchor (Whisper
         // hallucinates on bare <Pause> silence, #465), then hold the bridge open
         // while B's webhook attaches the Media Stream.
-        const nonce = mode === "a-leg" ? mintStreamNonce() : undefined;
+        const nonce =
+          mode === "a-leg" ? (args.streamNonce ?? mintStreamNonce()) : undefined;
         this._streamNonce = nonce;
         const originationTwiml =
           nonce !== undefined
-            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl), { nonce })
+            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl, nonce), { nonce })
             : `<?xml version="1.0" encoding="UTF-8"?>` +
               `<Response>` +
               `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
@@ -736,7 +756,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     }
   }
 
-  async waitForCall(timeoutMs = 120_000): Promise<void> {
+  async waitForCall(timeoutMs = DEFAULT_STREAM_CONNECT_TIMEOUT_MS): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
     const publicBaseUrl = this.publicBaseUrl;
@@ -1018,6 +1038,34 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       throw new Error("TwilioAgentAdapter: not connected; localBaseUrl unavailable.");
     }
     return this._webhookServer.baseUrl;
+  }
+
+  /**
+   * Production entry for a host platform that accepts Twilio's public
+   * connection in a SEPARATE process from the one this adapter runs in (an
+   * a-leg call whose parent worker process owns the public listener and
+   * routes by nonce to the child that placed the call). That parent accepts
+   * the raw TCP upgrade, does NOT complete the WebSocket handshake, and hands
+   * the still-unhandshaked socket to this process over IPC — this method is
+   * where it arrives. Delegates to
+   * {@link TwilioWebhookServer.receiveExternalUpgrade}, which re-enters this
+   * adapter's ordinary upgrade path, so the a-leg nonce check and the media
+   * loop behave identically to a locally-received upgrade.
+   *
+   * A call placed with no host-supplied `placeCall({ streamNonce })` never
+   * needs this: this adapter's own local server receives Twilio's dial-back
+   * directly, the ordinary way.
+   */
+  receiveExternalMediaSocket(params: {
+    req: ExternalUpgradeRequest;
+    socket: Socket;
+    head: Buffer;
+  }): void {
+    if (!this._webhookServer) {
+      params.socket.destroy();
+      return;
+    }
+    this._webhookServer.receiveExternalUpgrade(params);
   }
 
   /**
