@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { run, type RunOptions } from "../run";
 import { AgentRole, type AgentAdapter, type AgentInput, type ScenarioConfig } from "../../domain";
 import type { ScenarioEvent } from "../../events/schema";
+import { run, type RunOptions } from "../run";
 
 // Mock the EventBus - must use function keyword for constructor
 vi.mock("../../events/event-bus", () => ({
@@ -75,6 +75,20 @@ class TestJudgeAgent implements AgentAdapter {
   }
 }
 
+class FailingJudgeAgent implements AgentAdapter {
+  name = "FailingJudge";
+  role = AgentRole.JUDGE;
+
+  async call(_input: AgentInput) {
+    return {
+      success: false,
+      reasoning: "The response did not satisfy the requested constraints",
+      metCriteria: ["The agent responded"],
+      unmetCriteria: ["The answer is accurate", "The answer cites its source"],
+    };
+  }
+}
+
 function createScenarioConfig(name = "Test Scenario"): ScenarioConfig {
   return {
     name,
@@ -116,6 +130,30 @@ describe("run", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe("failure output", () => {
+    it("prints the judge reasoning and unmet criteria without verbose output", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const config = createScenarioConfig();
+      config.agents = [new TestAgent(), new FailingJudgeAgent()];
+      config.script = [
+        async (_state, executor) => {
+          await executor.judge();
+        },
+      ];
+
+      await run(config);
+
+      expect(log).toHaveBeenCalledWith("Scenario failed: Test Scenario");
+      expect(log).toHaveBeenCalledWith(
+        "Reasoning: The response did not satisfy the requested constraints"
+      );
+      expect(log).toHaveBeenCalledWith(
+        "Unmet criteria: The answer is accurate\n- The answer cites its source"
+      );
+      expect(log).not.toHaveBeenCalledWith("Met criteria: The agent responded");
+    });
   });
 
   describe("runId", () => {
