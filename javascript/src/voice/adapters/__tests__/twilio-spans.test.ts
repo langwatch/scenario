@@ -194,6 +194,12 @@ function makeAdapter(opts?: {
     validateSignature: opts?.validateSignature ?? false,
     httpPort: opts?.httpPort ?? 0,
     rest: opts?.rest ?? stubRest(PHONE_NUMBER_SID).rest,
+    // Span-shape tests only: the µ-law fixtures here are constant bytes that
+    // decode to near-silence, which the inbound speech gate would (correctly)
+    // drop before the drain. The gate has its own suite
+    // (`twilio-speech-gate*.test.ts`); its disconnect counters are stamped
+    // (as zeros / enabled=false) regardless.
+    speechGate: false,
   });
 }
 

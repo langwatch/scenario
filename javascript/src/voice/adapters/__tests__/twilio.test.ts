@@ -69,6 +69,10 @@ function makeAdapter(opts?: {
     validateSignature: opts?.validateSignature ?? false,
     onDtmf: opts?.onDtmf,
     rest,
+    // These are protocol tests: their µ-law fixtures are constant bytes that
+    // decode to near-silence, which the inbound speech gate would (correctly)
+    // drop. The gate has its own suite (`twilio-speech-gate*.test.ts`).
+    speechGate: false,
   });
 }
 

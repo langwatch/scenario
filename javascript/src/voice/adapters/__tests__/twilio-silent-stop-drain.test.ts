@@ -141,6 +141,10 @@ async function connectedAdapter(): Promise<TwilioAgentAdapter> {
     phoneNumber: "+14155556959",
     publicBaseUrl: "https://example695.test",
     rest: stubRest(),
+    // Queue/sentinel mechanics only: the µ-law fixtures here are constant
+    // bytes that decode to near-silence, which the inbound speech gate would
+    // (correctly) drop. The gate has its own suite (`twilio-speech-gate*.test.ts`).
+    speechGate: false,
   });
   await adapter.connect();
   tracked.push(adapter);

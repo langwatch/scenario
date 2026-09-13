@@ -51,6 +51,7 @@ import {
   streamWsUrl,
   validateE164,
 } from "./twilio-shared";
+import { TwilioSpeechGate, type TwilioSpeechGateOptions } from "./twilio-speech-gate";
 
 export { TunnelNotReadyError, type TunnelReadiness } from "./twilio-shared";
 
@@ -183,6 +184,17 @@ export interface TwilioAgentAdapterOptions {
    * inject a fully-stubbed REST surface.
    */
   rest?: TwilioRESTHelper;
+  /**
+   * Energy gate on INBOUND call audio (see `./twilio-speech-gate.ts`). On by
+   * default with the measured phone-line thresholds: Twilio streams a media
+   * frame every 20 ms for the life of the call, silence included, so without
+   * the gate the drain's tail-silence turn end (`responseTailSilence`) can
+   * never fire and the callee's turn only ends on hangup or the hard ceiling.
+   * Pass an object to tune the thresholds, or `false` to admit every frame
+   * (the pre-gate behaviour — only sensible for a transport that already
+   * stops sending during silence).
+   */
+  speechGate?: TwilioSpeechGateOptions | false;
 }
 
 export class TwilioAgentAdapter extends VoiceAgentAdapter {
@@ -253,6 +265,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   private _maxDurationTimeout: ReturnType<typeof setTimeout> | null = null;
   private _streamConnected = makeDeferred<void>();
   private _inboundQueue: InboundQueue = new InboundQueue();
+  // Sits between the media loop and `_inboundQueue` (see `_enqueueInbound`).
+  // `null` when constructed with `speechGate: false`. Per-call state is reset
+  // wherever the queue's buffered audio is cleared; the lifetime counters are
+  // stamped onto the disconnect span next to the frame counters.
+  private readonly _speechGate: TwilioSpeechGate | null;
   private _connected = false;
   // Set true by the media-stream loop's terminal path (stop / socket close /
   // throw) the moment it enqueues the end-of-call sentinel. Once the call has
@@ -310,6 +327,8 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this.validateSignature = options.validateSignature ?? true;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this._rest = options.rest ?? null;
+    this._speechGate =
+      options.speechGate === false ? null : new TwilioSpeechGate(options.speechGate ?? {});
   }
 
   // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
@@ -353,6 +372,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._callGeneration += 1;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
+    this._speechGate?.resetCounters();
     this._streamEnded = false;
     this._sawLiveStream = false;
     this._localDisconnect = false;
@@ -454,6 +474,13 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       "voice.twilio.webhook_invocations": this._webhookInvocations,
       "voice.twilio.webhook_rejected": this.rejectedCount,
       "voice.twilio.rest_restore_failed": restRestoreFailed,
+      // Speech-gate lifetime counters: how much inbound audio never reached
+      // the drain, and how many callee utterances the gate heard. `enabled`
+      // false stamps zeros so a trace still says the gate was off.
+      "voice.twilio.speech_gate.enabled": this._speechGate !== null,
+      "voice.twilio.speech_gate.dropped_chunks": this._speechGate?.droppedChunks ?? 0,
+      "voice.twilio.speech_gate.dropped_ms": Math.round(this._speechGate?.droppedMs ?? 0),
+      "voice.twilio.speech_gate.onsets": this._speechGate?.onsets ?? 0,
     });
 
     this._connected = false;
@@ -471,6 +498,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._cancelMaxDurationTimer();
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
+    this._speechGate?.resetCounters();
     this._streamEnded = false;
     this._sawLiveStream = false;
     this._localDisconnect = false;
@@ -1134,8 +1162,22 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   /** @internal */ _signalStreamConnected(): void {
     this._streamConnected.resolve();
   }
-  /** @internal */ _enqueueInbound(chunk: AudioChunk): void {
-    this._inboundQueue.put(chunk);
+  /** @internal Single inbound entry point for the media loop. With the speech
+   * gate on, only chunks the gate admits (speech, hangover, pre-roll, the
+   * terminal sentinel) reach the queue — that arrival gap during the callee's
+   * silence is what lets the drain's tail-silence path end the turn. */
+  _enqueueInbound(chunk: AudioChunk): void {
+    if (!this._speechGate) {
+      this._inboundQueue.put(chunk);
+      return;
+    }
+    for (const admitted of this._speechGate.admit(chunk)) {
+      this._inboundQueue.put(admitted);
+    }
+  }
+  /** @internal Test-only view of the inbound speech gate (`null` when off). */
+  get _speechGateForTest(): TwilioSpeechGate | null {
+    return this._speechGate;
   }
   /** @internal */ _markStreamEnded(): void {
     this._streamEnded = true;
@@ -1177,6 +1219,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamEnded = false;
     this._streamEndedReason = "none";
     this._inboundQueue.clearBuffered();
+    // Same per-call scope: held pre-roll and a speaking flag from the previous
+    // session must not leak into this call's first turn.
+    this._speechGate?.reset();
   }
   /**
    * @internal The call generation captured by the media loop at adoption (#762
@@ -1208,6 +1253,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamSid = undefined;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.clearBuffered();
+    this._speechGate?.reset();
     this._streamEnded = false;
     this._streamEndedReason = "none";
     this._framesReceived = 0;
