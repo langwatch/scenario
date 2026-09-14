@@ -26,6 +26,7 @@ import type { Span } from "@opentelemetry/api";
 import type { VoiceAgentAdapter } from "./adapter";
 import { PendingTransportError } from "./adapters/pending-transport-error";
 import { AudioChunk, silentChunk } from "./audio-chunk";
+import { resolveVoiceConfig } from "./config";
 import { createAudioMessage, extractAudio } from "./messages";
 import { VoiceRecordingRuntime } from "./recording.runtime";
 import type {
@@ -451,7 +452,7 @@ async function runVoiceTurn(
     "voice.turn.agent_audio_bytes":
       merged.data.length > 0 ? merged.data.length : undefined,
   });
-  const spoken = attachAgentTurnTranscript(adapter, merged);
+  const spoken = await attachAgentTurnTranscript(adapter, merged, input);
   recorder.recordAgent(spoken);
   // Single shared encoder (messages.ts) — the canonical AI-SDK `file` audio
   // part (EDR §4.2). createAudioMessage returns AudioMessage (= ModelMessage),
@@ -460,20 +461,29 @@ async function runVoiceTurn(
 }
 
 /**
- * Return a chunk carrying the agent turn's transcript: the chunk's own
- * transcript if present, else the adapter's `lastAgentTranscript` (the live
- * voice agent's native turn text — EL `agent_response`, Gemini/Realtime
- * transcript events). Returns the input chunk unchanged when neither is
- * available (the recording's STT back-fill then fills the on-disk manifest).
+ * Return a chunk carrying the agent turn's transcript, in tiers:
+ *   1. the chunk's own transcript, if present;
+ *   2. else the adapter's `lastAgentTranscript` (the live voice agent's
+ *      native turn text — EL `agent_response`, Gemini/Realtime transcript
+ *      events);
+ *   3. else an STT fallback (#994) — for a callee adapter (e.g. Twilio) with
+ *      no native transcript signal, transcribe the turn's own audio via the
+ *      resolved `voice.stt` provider so the turn still reaches LangWatch with
+ *      text, not audio-only.
+ * Returns the input chunk unchanged when none of the tiers produce a
+ * transcript (the recording's STT back-fill then fills the on-disk manifest),
+ * and never throws — an STT failure degrades to audio-only rather than
+ * failing the run.
  *
  * Duck-typed on `lastAgentTranscript` rather than a base-class field so it
  * composes with every adapter that follows the harness convention
  * (see `voice/adapters/composable.ts`) without widening the base contract.
  */
-function attachAgentTurnTranscript(
+async function attachAgentTurnTranscript(
   adapter: VoiceAgentAdapter,
   chunk: AudioChunk,
-): AudioChunk {
+  input: AgentInput,
+): Promise<AudioChunk> {
   // A turn that produced NO audio must not be labeled with a spoken transcript:
   // that would let a no-audio turn (e.g. the #708 "text arrived, audio did not"
   // case) masquerade as a real spoken turn downstream. Audio-presence gates the
@@ -484,6 +494,25 @@ function attachAgentTurnTranscript(
     .lastAgentTranscript;
   if (typeof native === "string" && native.length > 0) {
     return new AudioChunk({ data: chunk.data, transcript: native });
+  }
+  // #994: no chunk transcript, no native transcript (e.g. Twilio, which has
+  // no `lastAgentTranscript` signal at all) — fall back to STT on the turn's
+  // own audio rather than let the callee's turn reach LangWatch audio-only.
+  const stt = resolveVoiceConfig(undefined, input.scenarioConfig?.voice).stt;
+  try {
+    const text = await stt.transcribe(chunk);
+    if (text && text.length > 0) {
+      return new AudioChunk({
+        data: chunk.data,
+        transcript: text,
+        startTime: chunk.startTime,
+        endTime: chunk.endTime,
+      });
+    }
+  } catch (e) {
+    logger.warn(
+      `STT fallback for callee turn transcript failed; continuing audio-only: ${(e as Error)?.message ?? e}`,
+    );
   }
   return chunk;
 }
