@@ -95,10 +95,15 @@ scenario.user("I'm really upset!", voice_style="angry")
 ```
 
 <Callout type="info">
-When `voice_style` is set, the SDK emits a warning if the active TTS backend
-does not yet wire prosody — the audio is still synthesized, but the style hint
-is not applied. `audio_effects` post-processing is always applied regardless of
-the backend.
+In **TypeScript**, `voiceStyle` reaches the TTS provider: ElevenLabs prepends an
+inline `[angry]` marker (honoured by the pinned `eleven_v3` model) and OpenAI
+passes it as `instructions` on `gpt-4o-mini-tts`. A provider that has not
+declared style support warns once and synthesizes unstyled.
+
+In **Python**, `voice_style` is accepted but not yet routed to a provider — the
+SDK emits a warning and the audio is synthesized without the style hint.
+
+`audio_effects` post-processing is always applied regardless of the backend.
 </Callout>
 
 ## Worked example
