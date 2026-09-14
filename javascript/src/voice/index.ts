@@ -56,6 +56,22 @@ export {
   type TwilioAgentAdapterOptions,
 } from "./adapters/twilio";
 
+export type { ExternalUpgradeRequest } from "./adapters/twilio-server";
+
+// Inbound speech gate for the Twilio transport — exported so a caller can
+// reuse the measured defaults (or the gate itself) when tuning
+// `twilioAgent({ speechGate })` for a different line.
+export {
+  DEFAULT_SPEECH_GATE_HANGOVER_MS,
+  DEFAULT_SPEECH_GATE_PREROLL_MS,
+  DEFAULT_SPEECH_GATE_RMS_THRESHOLD,
+  TwilioSpeechGate,
+  pcm16Rms,
+  type TwilioSpeechGateOptions,
+} from "./adapters/twilio-speech-gate";
+
+export { DEFAULT_STREAM_CONNECT_TIMEOUT_MS } from "./adapters/twilio-shared";
+
 export {
   openTwilioTunnel,
   type OpenedTunnel,

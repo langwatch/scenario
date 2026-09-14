@@ -479,6 +479,50 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly logger = new Logger("ElevenLabsAgentAdapter");
 
   /**
+   * EL's own conversation id, captured off `conversation_initiation_metadata`.
+   * Undefined until that event arrives (or the adapter never connected).
+   */
+  private _conversationId?: string;
+
+  /** Whether {@link _conversationId} has been stamped onto a span yet — the
+   * connect span (if still open) or, as a fallback, the first sendAudio. */
+  private _conversationIdStamped = false;
+
+  /** EL's own conversation id for this call, once known. */
+  get conversationId(): string | undefined {
+    return this._conversationId;
+  }
+
+  /**
+   * Stamp {@link _conversationId} onto whatever span is active right now, once
+   * it has actually landed on a span.
+   *
+   * The `isRecording()` check is what makes the retry work, and it is load
+   * bearing. `conversation_initiation_metadata` arrives asynchronously and
+   * routinely lands *after* `connect()` resolved and the connect span was
+   * ended in its `finally`. The async callback still carries that ended span
+   * in its captured context, so `currentSpan()` returns a non-null but dead
+   * span, and `setSpanAttributes` silently drops the write on a span that is
+   * no longer recording.
+   *
+   * Marking the id stamped on that dropped write is what used to make the loss
+   * permanent rather than merely late: it poisoned the guard flag, so the
+   * `sendAudio` fallback below — which runs inside a reliably open span on the
+   * first turn carrying user audio — returned early and never retried. The
+   * conversation id then never reached any span, and the whole-call recording
+   * could not be resolved for that run at all.
+   *
+   * So only count it stamped when the span was live enough to take it.
+   */
+  private stampConversationIdIfPending(): void {
+    if (this._conversationId === undefined || this._conversationIdStamped) return;
+    const span = currentSpan();
+    if (!span?.isRecording()) return;
+    setSpanAttributes(span, { "voice.elevenlabs.conversation_id": this._conversationId });
+    this._conversationIdStamped = true;
+  }
+
+  /**
    * How many user turns this adapter committed by streaming real PCM. The
    * voice-specific assertion keys on this together with {@link
    * lastUserTranscript}: a non-empty `user_transcript` after `audioCommitCount`
@@ -701,6 +745,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       "voice.elevenlabs.pump.silence_frames_sent": this.pumpStats.silenceFramesSent,
       "voice.elevenlabs.pump.unexpected_errors": this.pumpStats.unexpectedErrors,
     });
+    this._conversationId = undefined;
+    this._conversationIdStamped = false;
     const conversation = this.conversation;
     this.conversation = null;
     this.inputCallback = null;
@@ -814,6 +860,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (!this.isConnected()) {
       throw new Error("ElevenLabsAgentAdapter: not connected");
     }
+    // Fallback stamp: if the conversation id arrived after the connect span
+    // closed, this is the first later span we're guaranteed to see.
+    this.stampConversationIdIfPending();
 
     // Continuous mic: instead of bursting the whole turn's PCM, slice the spoken
     // PCM into 20 ms frames and ENQUEUE them. The always-on pump (running since
@@ -1053,6 +1102,15 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     }
 
     if (etype === "conversation_initiation_metadata") {
+      const meta =
+        (event.conversation_initiation_metadata_event as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      const conversationId = meta.conversation_id as string | undefined;
+      if (conversationId) {
+        this._conversationId = conversationId;
+        this.stampConversationIdIfPending();
+      }
       this.warnOnFormatDrift(event);
     }
 

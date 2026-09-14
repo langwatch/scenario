@@ -19,6 +19,7 @@
 import { Buffer } from "node:buffer";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
+import type { Duplex } from "node:stream";
 
 import type { Context } from "@opentelemetry/api";
 import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
@@ -64,6 +65,29 @@ export interface MediaStreamWebSocket {
  */
 type StartFrameVerdict = "accept" | "ignore" | "reject";
 
+/**
+ * The minimal request shape {@link TwilioWebhookServer.receiveExternalUpgrade}
+ * needs to complete a WebSocket handshake: `ws`'s own `handleUpgrade` reads
+ * only `.headers` and `.method` on the no-`verifyClient` path this server
+ * uses (it never touches `.socket`, `.url` beyond what this class itself
+ * parses). A REAL `http.IncomingMessage` cannot travel across a process
+ * boundary — only the raw `net.Socket` handle can (via
+ * `ChildProcess.send(msg, socket)`) — so a host platform that accepts the
+ * upgrade in a separate process reconstructs this minimal shape from the
+ * request line + headers it read before handing the socket off.
+ */
+export interface ExternalUpgradeRequest {
+  /**
+   * `method` and `url` are optional so a real `http.IncomingMessage` is
+   * assignable to this shape: Node declares both as optional on that class,
+   * and the one upgrade path here already tolerates a missing url. A host
+   * platform reconstructing this shape by hand should still set both.
+   */
+  method?: string;
+  url?: string;
+  headers: Record<string, string | string[] | undefined>;
+}
+
 const BATCH_MS = 100;
 const TWILIO_FRAME_MS = 20;
 
@@ -97,21 +121,7 @@ export class TwilioWebhookServer {
     if (this._http) return;
     const http = createServer((req, res) => this._handleRequest(req, res));
     const wss = new WebSocketServer({ noServer: true });
-
-    http.on("upgrade", (req, socket, head) => {
-      const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      if (url.pathname !== "/twilio/stream") {
-        socket.destroy();
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit("connection", ws, req);
-      });
-    });
-
-    wss.on("connection", (ws) => {
-      void this._handleStreamSocket(ws);
-    });
+    http.on("upgrade", (req, socket, head) => this._handleUpgrade(req, socket, head));
 
     // Track raw sockets so stop() can force-close keep-alive connections
     // (otherwise `server.close()` blocks until each socket idles out).
@@ -133,6 +143,76 @@ export class TwilioWebhookServer {
 
     this._http = http;
     this._wss = wss;
+  }
+
+  /**
+   * Complete a WebSocket handshake this server did NOT itself receive on its
+   * own bound port. A host platform running a separate public-facing process
+   * (a parent worker fronting a pool of child processes running this server)
+   * accepts Twilio's raw TCP upgrade there, resolves the routing nonce in the
+   * PATH to find the owning child, and hands off the still-unhandshaked
+   * socket over IPC — see the LangWatch platform's `voice-nonce-handoff.ts` /
+   * `voice-socket-handoff.ts`. This method re-enters the exact same upgrade
+   * path ({@link _handleUpgrade}) a locally-received upgrade takes, so the
+   * a-leg nonce `<Parameter>`/`start`-frame check downstream behaves
+   * identically either way — there is exactly one upgrade code path, not two
+   * that could drift apart.
+   *
+   * No-ops (destroys the socket) if this server has not been `start()`ed —
+   * there is no `WebSocketServer` to hand the upgrade to yet.
+   */
+  receiveExternalUpgrade(params: {
+    req: ExternalUpgradeRequest;
+    socket: Socket;
+    head: Buffer;
+  }): void {
+    if (!this._wss) {
+      params.socket.destroy();
+      return;
+    }
+    this._handleUpgrade(params.req, params.socket, params.head);
+  }
+
+  /**
+   * The one upgrade code path, reached either from this server's own bound
+   * port (`start()`'s `http.on("upgrade", ...)`) or from
+   * {@link receiveExternalUpgrade}. Validates the path nonce, then hands off
+   * to `ws`'s `WebSocketServer.handleUpgrade`, which on this no-`verifyClient`
+   * configuration reads only `req.headers` and `req.method` — a minimal
+   * {@link ExternalUpgradeRequest} satisfies it exactly as well as a real
+   * `http.IncomingMessage` does.
+   */
+  private _handleUpgrade(
+    req: ExternalUpgradeRequest,
+    // `Duplex`, not `Socket`: that is what Node hands an "upgrade" listener,
+    // and `net.Socket` extends it, so the external handoff path still fits.
+    socket: Duplex,
+    head: Buffer,
+  ): void {
+    const wss = this._wss;
+    if (!wss) {
+      socket.destroy();
+      return;
+    }
+    const url = new URL(req.url || "/", "http://127.0.0.1");
+    const match = /^\/twilio\/([^/]+)$/.exec(url.pathname);
+    if (!match) {
+      socket.destroy();
+      return;
+    }
+    const token = match[1];
+    const pathNonce = token === "stream" ? undefined : token;
+    if (pathNonce !== undefined) {
+      const expected = this._adapter._streamNonceForServer;
+      if (expected !== undefined && !nonceMatches(expected, pathNonce)) {
+        twilioLogger.warn("media stream upgrade rejected -- path nonce mismatch");
+        socket.destroy();
+        return;
+      }
+    }
+    wss.handleUpgrade(req as unknown as IncomingMessage, socket, head, (ws) => {
+      void this._handleStreamSocket(ws);
+    });
   }
 
   async stop(): Promise<void> {
