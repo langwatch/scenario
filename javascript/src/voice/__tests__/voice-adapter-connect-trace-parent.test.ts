@@ -63,6 +63,7 @@ describe("voice.adapter.connect trace parenting", () => {
   afterEach(async () => {
     await provider.shutdown();
     trace.disable();
+    context.disable();
   });
 
   it("nests voice.adapter.connect under the turn-1 Scenario Turn span, not a separate trace", async () => {

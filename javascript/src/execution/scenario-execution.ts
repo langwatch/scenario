@@ -841,9 +841,21 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       }
       // Voice adapter lifecycle close — matches the connect at the top of
       // execute(). Errors swallowed inside stopVoiceAdapters so cleanup
-      // never masks the primary scenario result.
+      // never masks the primary scenario result. Runs under the run root
+      // span (when one exists) so voiceSpan()'s disconnect spans nest under
+      // the run's trace instead of becoming their own roots — currentTurnSpan
+      // has already ended by this point in `finally`.
       if (this.voiceAdapters.length > 0) {
-        await stopVoiceAdapters(this.voiceAdapters);
+        const stopAdapters = (): Promise<void> =>
+          stopVoiceAdapters(this.voiceAdapters);
+        if (this.runRootSpan) {
+          await context.with(
+            trace.setSpan(context.active(), this.runRootSpan),
+            stopAdapters,
+          );
+        } else {
+          await stopAdapters();
+        }
       }
       // Close the playback sink after adapters are stopped (no more chunks).
       if (this.audioPlaybackSink) {

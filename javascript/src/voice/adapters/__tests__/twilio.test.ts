@@ -784,5 +784,6 @@ describe("TwilioAgentAdapter a-leg external mode", () => {
     await adapter.connect();
     await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" }));
     expect(rest.placeCallArgs[0].record).toBeUndefined();
+    await adapter.disconnect();
   });
 });

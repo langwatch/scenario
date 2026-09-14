@@ -129,7 +129,10 @@ describe("receiveExternalMediaSocket — split-process handoff", () => {
                   string | string[] | undefined
                 >,
               },
-              socket,
+              // Node's "upgrade" event types this as `Duplex`, but a raw
+              // `http.Server` always hands a real `net.Socket` here — the
+              // same thing IPC handoff carries in production.
+              socket: socket as net.Socket,
               head,
             });
             resolve();
