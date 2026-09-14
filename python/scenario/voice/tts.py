@@ -2,9 +2,9 @@
 Text-to-speech router and cache.
 
 The TTS side uses litellm-style ``provider/voice_name`` routing (e.g.
-``openai/nova``, ``elevenlabs/rachel``). Per the TTS cache key locked decision
-the cache key is ``(text, voice)`` only; audio effects are applied AFTER a
-cache hit and are never baked into the cached audio.
+``openai/nova``, ``elevenlabs/rachel``). The cache key includes the text,
+voice, and a credential digest; audio effects are applied AFTER a cache hit and
+are never baked into the cached audio.
 
 Security note: joblib serialises function arguments to disk as part of its
 caching fingerprint. To keep raw user-supplied text out of the cache payload,
@@ -21,24 +21,24 @@ from __future__ import annotations
 
 import hashlib
 from collections import OrderedDict
-from typing import Awaitable, Callable, Dict, Tuple
+from typing import Awaitable, Callable, Dict, Optional, Tuple
 
 from ..config.voice_models import OPENAI_TTS_MODEL
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
-
 
 TTSCallable = Callable[[str, str], Awaitable[bytes]]
 """(text, voice_name) -> PCM16 @ 24kHz mono bytes"""
 
 
 _PROVIDERS: Dict[str, TTSCallable] = {}
-# In-process LRU cache keyed on (sha256(text), voice) → PCM16 bytes. Keeping
-# the raw text out of the key avoids persisting user-supplied strings in any
-# future on-disk layer (security review finding). Bounded to prevent
+# In-process LRU cache keyed on (sha256(text), voice, sha256(api_key)) → PCM16
+# bytes. Keeping text and credentials out of the key avoids persisting either
+# value in any future on-disk layer, while credential partitioning prevents one
+# account's output crossing into another account's run. Bounded to prevent
 # unbounded memory growth in long-running processes — a 5-minute clip is
 # ~14 MB, so 64 entries caps the cache at ~900 MB even for long utterances.
 _CACHE_MAX_ENTRIES = 64
-_CACHE: "OrderedDict[Tuple[str, str], bytes]" = OrderedDict()
+_CACHE: "OrderedDict[Tuple[str, str, str], bytes]" = OrderedDict()
 
 
 def clear_cache() -> None:
@@ -63,7 +63,7 @@ def _split_voice(voice: str) -> Tuple[str, str]:
 # ---------------------------------------------------------------- default TTS
 
 
-async def _openai_tts(text: str, voice: str) -> bytes:
+async def _openai_tts(text: str, voice: str, *, api_key: Optional[str] = None) -> bytes:
     """Default OpenAI TTS provider. Uses OPENAI_TTS_MODEL for short clips.
 
     OpenAI's ``response_format="pcm"`` is documented as raw PCM16 @ 24kHz mono
@@ -74,7 +74,7 @@ async def _openai_tts(text: str, voice: str) -> bytes:
     """
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI()
+    client = AsyncOpenAI(api_key=api_key) if api_key else AsyncOpenAI()
     response = await client.audio.speech.create(
         model=OPENAI_TTS_MODEL,
         voice=voice,
@@ -88,10 +88,12 @@ async def _openai_tts(text: str, voice: str) -> bytes:
     return data
 
 
-async def _elevenlabs_tts(text: str, voice: str) -> bytes:
+async def _elevenlabs_tts(
+    text: str, voice: str, *, api_key: Optional[str] = None
+) -> bytes:
     from elevenlabs.client import AsyncElevenLabs  # type: ignore
 
-    client = AsyncElevenLabs()
+    client = AsyncElevenLabs(api_key=api_key) if api_key else AsyncElevenLabs()
     # The convert() call returns an async iterator of PCM chunks directly —
     # do NOT `await` it (that's a TypeError on async_generator).
     #
@@ -163,11 +165,21 @@ register_tts_provider("cartesia", _cartesia_tts)
 # ------------------------------------------------------------ cached synthesis
 
 
-async def _synthesize_raw(text: str, voice: str) -> bytes:
+async def _synthesize_raw(
+    text: str, voice: str, *, api_key: Optional[str] = None
+) -> bytes:
     provider, name = _split_voice(voice)
     if provider not in _PROVIDERS:
         raise ValueError(
             f"Unknown TTS provider {provider!r}. Known: {sorted(_PROVIDERS)}"
+        )
+    if api_key:
+        if provider == "openai":
+            return await _openai_tts(text, name, api_key=api_key)
+        if provider == "elevenlabs":
+            return await _elevenlabs_tts(text, name, api_key=api_key)
+        raise ValueError(
+            f"TTS provider {provider!r} does not support a per-run api_key."
         )
     return await _PROVIDERS[provider](text, name)
 
@@ -176,21 +188,23 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-async def synthesize(text: str, voice: str) -> AudioChunk:
+async def synthesize(
+    text: str, voice: str, *, api_key: Optional[str] = None
+) -> AudioChunk:
     """
     Synthesize ``text`` into an AudioChunk using the voice provider.
 
-    Cache key is ``(sha256(text), voice)`` — equivalent to keying on
-    ``(text, voice)`` but without pinning the raw text in the cache payload.
-    Effects must be applied by the caller on the returned chunk; they are
-    never part of the cache key.
+    Cache key is ``(sha256(text), voice, sha256(api_key))`` so the cache never
+    stores raw text or credentials, and credentials cannot share audio. Effects
+    must be applied by the caller on the returned chunk; they are never part of
+    the cache key.
     """
-    cache_key = (_hash_text(text), voice)
+    cache_key = (_hash_text(text), voice, _hash_text(api_key or ""))
     cached = _CACHE.get(cache_key)
     if cached is not None:
         _CACHE.move_to_end(cache_key)  # LRU touch
         return AudioChunk(data=cached, transcript=text)
-    pcm = await _synthesize_raw(text, voice)
+    pcm = await _synthesize_raw(text, voice, api_key=api_key)
     _CACHE[cache_key] = pcm
     _CACHE.move_to_end(cache_key)
     while len(_CACHE) > _CACHE_MAX_ENTRIES:
