@@ -13,12 +13,12 @@ import {
   AgentRole,
   type AgentInput,
 } from "../../domain";
-import { AudioChunk } from "../audio-chunk";
-import { AdapterCapabilities } from "../capabilities";
 import { VoiceAgentAdapter } from "../adapter";
 import { defaultVoiceCall } from "../adapter.runtime";
-import { PendingTransportError } from "../adapters/pending-transport-error";
 import { OpenAIRealtimeAgentAdapter } from "../adapters/openai-realtime";
+import { PendingTransportError } from "../adapters/pending-transport-error";
+import { AudioChunk } from "../audio-chunk";
+import { AdapterCapabilities } from "../capabilities";
 
 /** Adapter that flips isConnected() on connect()/disconnect(). */
 class GatedAdapter extends VoiceAgentAdapter {
