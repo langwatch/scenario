@@ -259,6 +259,7 @@ async def test_text_simulator_strips_audio_with_placeholders():
 @pytest.mark.asyncio
 async def test_user_simulator_uses_per_run_tts_config():
     """A run-level voice config reaches the simulator instead of a global."""
+    previous_default = ScenarioConfig.default_config
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4.1-mini")
     simulator = UserSimulatorAgent()
     scenario_state = MagicMock()
@@ -283,12 +284,13 @@ async def test_user_simulator_uses_per_run_tts_config():
             await simulator.call(agent_input)
         synthesize.assert_awaited_once_with("hello", "openai/nova")
     finally:
-        ScenarioConfig.default_config = None
+        ScenarioConfig.default_config = previous_default
 
 
 @pytest.mark.asyncio
 async def test_user_simulator_uses_the_per_run_tts_credential():
     """A run-level TTS key is forwarded to synthesis rather than the environment."""
+    previous_default = ScenarioConfig.default_config
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4.1-mini")
     simulator = UserSimulatorAgent()
     scenario_state = MagicMock()
@@ -313,4 +315,4 @@ async def test_user_simulator_uses_the_per_run_tts_credential():
             await simulator.call(agent_input)
         synthesize.assert_awaited_once_with("hello", "openai/nova", api_key="tts-key")
     finally:
-        ScenarioConfig.default_config = None
+        ScenarioConfig.default_config = previous_default

@@ -31,12 +31,9 @@ TTSCallable = Callable[[str, str], Awaitable[bytes]]
 
 
 _PROVIDERS: Dict[str, TTSCallable] = {}
-# In-process LRU cache keyed on (sha256(text), voice, sha256(api_key)) → PCM16
-# bytes. Keeping text and credentials out of the key avoids persisting either
-# value in any future on-disk layer, while credential partitioning prevents one
-# account's output crossing into another account's run. Bounded to prevent
-# unbounded memory growth in long-running processes — a 5-minute clip is
-# ~14 MB, so 64 entries caps the cache at ~900 MB even for long utterances.
+# LRU keyed on (sha256(text), voice, sha256(api_key)): no raw text or
+# credentials in the key, and one account's audio cannot cross into another's
+# run. 64 entries bounds a 5-minute clip (~14 MB each) to ~900 MB.
 _CACHE_MAX_ENTRIES = 64
 _CACHE: "OrderedDict[Tuple[str, str, str], bytes]" = OrderedDict()
 

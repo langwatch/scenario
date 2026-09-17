@@ -153,8 +153,6 @@ class ElevenLabsSTTProvider(STTProvider):
             return response.json().get("text", "")
 
 
-# ---------------------------------------------------------- legacy convenience
-
 _legacy_provider: Optional[STTProvider] = None
 _default_legacy_provider: STTProvider = OpenAISTTProvider()
 
