@@ -13,6 +13,7 @@ from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResu
 from scenario.voice import (
     AudioChunk,
     VoiceConfig,
+    VoiceAgentAdapter,
     create_audio_message,
     get_stt_provider,
     set_stt_provider,
@@ -154,3 +155,63 @@ async def test_arun_without_voice_snapshots_the_legacy_stt_provider() -> None:
     assert provider.calls == 1
     assert replacement.calls == 0
     assert judge.transcript == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_audio_only_adapter_transcribes_with_the_runs_provider() -> None:
+    """Per-turn adapter STT resolves the run's provider, never the global default.
+
+    A successful global-provider transcript would also make the judge's
+    ``only_missing`` backfill skip the segment, so the run's provider would
+    never see the audio at all.
+    """
+    previous = get_stt_provider()
+    run_provider = _STT("run", _MeetingPoint(parties=1))
+    forbidden = _STT("global", _MeetingPoint(parties=1))
+    set_stt_provider(forbidden)
+
+    class _AudioOnlyAgent(VoiceAgentAdapter):
+        """Uses the base ``call()``: drains recv_audio, transcribes per turn."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.response_tail_silence = 0.05
+            self._served = False
+
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def send_audio(self, chunk: AudioChunk) -> None:
+            pass
+
+        async def recv_audio(self, timeout: float) -> AudioChunk:
+            if not self._served:
+                self._served = True
+                return AudioChunk(data=b"\x00\x01" * 1200)
+            return AudioChunk(data=b"")
+
+    class _OkJudge(JudgeAgent):
+        def __init__(self) -> None:
+            super().__init__(
+                criteria=[], model="openai/gpt-4.1-mini", include_audio=False
+            )
+
+        async def call(self, input: AgentInput) -> AgentReturnTypes:
+            return ScenarioResult(success=True, messages=[], reasoning="ok")
+
+    try:
+        result = await scenario.arun(
+            name="voice-adapter-per-turn-stt",
+            description="adapter per-turn STT resolves the run provider",
+            agents=[_AudioOnlyAgent(), _User(), _OkJudge()],
+            script=[scenario.user("hello"), scenario.agent(), scenario.judge()],
+            voice=VoiceConfig(stt=run_provider),
+        )
+        assert result.success
+        assert run_provider.calls >= 1
+        assert forbidden.calls == 0
+    finally:
+        set_stt_provider(previous)
