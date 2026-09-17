@@ -8,6 +8,7 @@ and judge agents to determine test success or failure.
 
 import json
 import sys
+from collections.abc import Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,6 +26,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from .voice.config import VoiceConfig
     from .voice.playback import FfmpegPlayback
 import logging
 import time
@@ -202,7 +204,6 @@ class ScenarioExecutor:
         debug: Optional[bool] = None,
         fetch_remote_traces: Optional[bool] = None,
         trace_wait_timeout: Optional[float] = None,
-        voice: Optional[Any] = None,
         event_bus: Optional[ScenarioEventBus] = None,
         set_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -211,6 +212,8 @@ class ScenarioExecutor:
         audio_playback: bool = False,
         fields: Optional[Dict[str, Any]] = None,
         evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
+        *,
+        voice: Optional[Union["VoiceConfig", Mapping]] = None,
     ):
         """
         Initialize a scenario executor.
@@ -2283,7 +2286,6 @@ async def arun(
     debug: Optional[bool] = None,
     fetch_remote_traces: Optional[bool] = None,
     trace_wait_timeout: Optional[float] = None,
-    voice: Optional[Any] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
@@ -2293,6 +2295,8 @@ async def arun(
     parameters: Optional[Dict[str, Any]] = None,
     fields: Optional[Dict[str, Any]] = None,
     evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
+    *,
+    voice: Optional[Union["VoiceConfig", Mapping]] = None,
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
@@ -2355,7 +2359,6 @@ async def run(
     debug: Optional[bool] = None,
     fetch_remote_traces: Optional[bool] = None,
     trace_wait_timeout: Optional[float] = None,
-    voice: Optional[Any] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
@@ -2365,6 +2368,8 @@ async def run(
     parameters: Optional[Dict[str, Any]] = None,
     fields: Optional[Dict[str, Any]] = None,
     evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
+    *,
+    voice: Optional[Union["VoiceConfig", Mapping]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.

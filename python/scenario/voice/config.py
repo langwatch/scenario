@@ -104,8 +104,12 @@ def resolve_voice_config(
 
 
 def _as_voice_config(value: Any) -> Optional[VoiceConfig]:
+    if value is None:
+        return None
     if isinstance(value, VoiceConfig):
         return value
     if isinstance(value, Mapping):
         return VoiceConfig.model_validate(value)
-    return None
+    raise TypeError(
+        f"voice expects a VoiceConfig, a mapping, or None; got {type(value).__name__}."
+    )
