@@ -40,6 +40,7 @@ from ._tracing import (
 from ._tracing.remote_trace_fetcher import DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 from .voice._transcribe import transcribe_segments
+from .voice.config import resolve_voice_config
 from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
@@ -764,7 +765,12 @@ class JudgeAgent(AgentAdapter):
         if conversation_has_audio and not self.effective_include_audio(conversation_has_audio):
             recording = self._extract_recording(input)
             if recording is not None:
-                await transcribe_segments(recording)
+                config = input.scenario_state.config
+                if isinstance(config, ScenarioConfig):
+                    resolved_voice = resolve_voice_config(scenario_level=config.voice)
+                    await transcribe_segments(recording, provider=resolved_voice.stt)
+                else:
+                    await transcribe_segments(recording)
                 working_messages = _enrich_messages_with_transcripts(
                     input.messages, recording
                 )

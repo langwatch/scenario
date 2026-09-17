@@ -8,6 +8,7 @@ and judge agents to determine test success or failure.
 
 import json
 import sys
+from collections.abc import Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,6 +26,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from .voice.config import VoiceConfig
     from .voice.playback import FfmpegPlayback
 import logging
 import time
@@ -209,6 +211,8 @@ class ScenarioExecutor:
         audio_playback: bool = False,
         fields: Optional[Dict[str, Any]] = None,
         evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
+        *,
+        voice: Optional[Union["VoiceConfig", Mapping]] = None,
     ):
         """
         Initialize a scenario executor.
@@ -243,6 +247,7 @@ class ScenarioExecutor:
             trace_wait_timeout: Maximum seconds the judge waits at verdict
                   time for remote traces to arrive and stabilize (default: 30).
                   Overrides global configuration for this scenario.
+            voice: Per-run voice configuration passed to judge and simulator calls.
             event_bus: Optional event bus that will subscribe to this executor's events
             set_id: Optional set identifier for grouping related scenarios
             metadata: Optional metadata to attach to the scenario run.
@@ -275,8 +280,25 @@ class ScenarioExecutor:
             headless=None,
             fetch_remote_traces=fetch_remote_traces,
             trace_wait_timeout=trace_wait_timeout,
+            voice=voice,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
+        from .voice.config import VoiceConfig
+        from .voice.stt import get_stt_provider
+
+        carrier = self.config.voice
+        # Snapshot the caller's carrier in both input forms: stamping the
+        # run's default below must not write into a VoiceConfig the caller
+        # shares across runs, and validation alone returns already-model
+        # nested values as the same objects.
+        voice_config = (
+            carrier
+            if isinstance(carrier, VoiceConfig)
+            else VoiceConfig.model_validate(carrier or {})
+        ).snapshot()
+        if voice_config.stt is None:
+            voice_config.stt = get_stt_provider()
+        self.config.voice = voice_config
 
         effective_max_turns = self.config.max_turns or 10
         if (
@@ -1254,7 +1276,11 @@ class ScenarioExecutor:
             # (OpenAIRealtime, ElevenLabs hosted, Pipecat, etc.) see no audio
             # when the scenario script emits `scenario.user("...")`.
             sim = self._find_user_sim()
-            if sim is not None and getattr(sim, "voice", None):
+            if sim is not None:
+                resolved_voice, api_key = sim._effective_tts(self.config.voice)
+            else:
+                resolved_voice, api_key = None, None
+            if sim is not None and resolved_voice:
                 # Apply per-step overrides if supplied — without this, callers
                 # using scenario.user("text", voice_style=..., audio_effects=...)
                 # would silently have those dropped on the voice-sim branch.
@@ -1263,11 +1289,15 @@ class ScenarioExecutor:
                         voice_style=voice_style, audio_effects=audio_effects
                     ):
                         voiced = await sim._voiceify(
-                            {"role": "user", "content": content}
+                            {"role": "user", "content": content},
+                            voice=resolved_voice,
+                            api_key=api_key,
                         )
                 else:
                     voiced = await sim._voiceify(
-                        {"role": "user", "content": content}
+                        {"role": "user", "content": content},
+                        voice=resolved_voice,
+                        api_key=api_key,
                     )
                 self.add_message(voiced)  # type: ignore[arg-type]
                 # Interruption path: when a wait=False agent turn is in flight,
@@ -2167,6 +2197,7 @@ def _build_scenario(
     debug: Optional[bool],
     fetch_remote_traces: Optional[bool],
     trace_wait_timeout: Optional[float],
+    voice: Optional[Any],
     script: Optional[List[ScriptStep]],
     set_id: Optional[str],
     metadata: Optional[Dict[str, Any]],
@@ -2194,6 +2225,7 @@ def _build_scenario(
         debug=debug,
         fetch_remote_traces=fetch_remote_traces,
         trace_wait_timeout=trace_wait_timeout,
+        voice=voice,
         script=script,
         set_id=set_id,
         metadata=metadata,
@@ -2236,6 +2268,8 @@ async def arun(
     parameters: Optional[Dict[str, Any]] = None,
     fields: Optional[Dict[str, Any]] = None,
     evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
+    *,
+    voice: Optional[Union["VoiceConfig", Mapping]] = None,
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
@@ -2264,6 +2298,7 @@ async def arun(
         debug=debug,
         fetch_remote_traces=fetch_remote_traces,
         trace_wait_timeout=trace_wait_timeout,
+        voice=voice,
         script=script,
         set_id=set_id,
         metadata=metadata,
@@ -2306,6 +2341,8 @@ async def run(
     parameters: Optional[Dict[str, Any]] = None,
     fields: Optional[Dict[str, Any]] = None,
     evaluators: Optional[Sequence[ScenarioEvaluator]] = None,
+    *,
+    voice: Optional[Union["VoiceConfig", Mapping]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -2342,6 +2379,7 @@ async def run(
                  ``AgentInput.propagation_headers`` to the remote agent.
         trace_wait_timeout: Maximum seconds the judge waits at verdict time
                  for remote traces to arrive and stabilize (default: 30)
+        voice: Per-run STT and TTS configuration for this scenario.
         script: Optional script steps to control scenario flow
         set_id: Optional set identifier for grouping related scenarios
         metadata: Optional metadata to attach to the scenario run.
@@ -2415,6 +2453,7 @@ async def run(
         debug=debug,
         fetch_remote_traces=fetch_remote_traces,
         trace_wait_timeout=trace_wait_timeout,
+        voice=voice,
         script=script,
         set_id=set_id,
         metadata=metadata,
