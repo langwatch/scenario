@@ -16,9 +16,9 @@ import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect } from "vitest";
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");
 // Capability matrix is sourced from the published docs page (single
 // source-of-truth across Python + TS). The wrapper page documents the
 // adapters; the per-capability table itself is auto-generated from the
@@ -49,7 +49,7 @@ const GENERATED_MATRIX_PATH = resolve(
   "capability-matrix.mdx",
 );
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

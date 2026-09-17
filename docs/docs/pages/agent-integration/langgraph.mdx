@@ -51,6 +51,8 @@ from langchain_core.messages import (
 )
 
 class LangGraphAgentAdapter(scenario.AgentAdapter):
+    name = "LangGraphAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         result = []
 

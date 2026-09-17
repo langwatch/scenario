@@ -291,6 +291,19 @@ else
   fail "policy path wrong — expected 'cat .github/LOW_RISK_PULL_REQUESTS.md'"
 fi
 
+# The checks either side of this one read the REFERENCE. None of them read the
+# file, so deleting the policy outright left every check green and the
+# workflow `cat`-ing a path that is not there: the same staleness this script
+# exists to catch, one level down.
+# `-s`, not `-f`, to match what the workflow itself enforces: it refuses an
+# empty policy at run time (`[ ! -s ... ]`), so a check that accepted one would
+# report green over a state the workflow rejects.
+if [ -s "$REPO_ROOT/.github/LOW_RISK_PULL_REQUESTS.md" ]; then
+  pass "the policy document the workflow reads exists and is not empty"
+else
+  fail "policy document missing or empty at .github/LOW_RISK_PULL_REQUESTS.md (the workflow cats it at run time)"
+fi
+
 if grep -q 'dev/docs/' "$WF"; then
   fail "old dev/docs/ path still present"
 else

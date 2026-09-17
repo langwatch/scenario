@@ -5,7 +5,9 @@
  * --verbose`) to the Scenario {@link AgentAdapter} interface. Each `call`
  * formats the conversation into a single prompt, spawns the CLI in a working
  * directory, parses the stream-json stdout (see {@link parseStreamJson}), and
- * returns the concatenated assistant-visible text as a `string`.
+ * returns the turn either as the concatenated assistant-visible text (the
+ * default) or as AI SDK messages with `tool-call` and `tool-result` parts
+ * (`output: "messages"`).
  *
  * Session continuation (multiturn): `claude -p` is one-shot — each turn exits
  * on its own — but the CLI keeps server-side session state keyed by a
@@ -34,6 +36,12 @@
  *        `call()` throws, aborting the run, so a rejected turn has no successor
  *        to rebuild on.
  *
+ * Process lifecycle: the CLI runs as the leader of its own process group, a
+ * detached watchdog kills that group if this process dies first, and the
+ * group gets SIGKILL on this process's `exit`. A turn never leaves a Claude,
+ * or anything Claude spawned, running after the harness is gone. See
+ * `process-lifecycle.ts`.
+ *
  * Hardening over the install-orchard reference helper this is ported from:
  *  a. Structured `tool_result` content is rendered readably, never
  *     `[object Object]` (in {@link parseStreamJson}).
@@ -59,10 +67,21 @@
  */
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 import type { ModelMessage } from "ai";
 
-import { parseStreamJson, safeStringify } from "./stream-json.js";
+import {
+  guardAgainstOrphaning,
+  killProcessTree,
+  ownProcessGroup,
+} from "./process-lifecycle.js";
+import {
+  DEFAULT_TRANSCRIPT_LIMITS,
+  parseStreamJson,
+  safeStringify,
+  type TranscriptLimits,
+} from "./stream-json.js";
 import { AgentAdapter, AgentRole } from "../../domain/agents/index.js";
 import type { AgentInput, AgentReturnTypes } from "../../domain/agents/index.js";
 
@@ -270,6 +289,45 @@ export interface ClaudeCodeAgentAdapterConfig {
    * `claudeBin` → `process.env.CLAUDE_BIN` → `"claude"`.
    */
   claudeBin?: string;
+
+  /**
+   * Environment of the CLI process, applied over this process's environment.
+   * A key set to `undefined` is removed, which is how a test keeps a provider
+   * key for its judge while hiding it from the agent, or keeps the batch id
+   * of the harness out of the scenario runs the agent writes itself. `PATH`
+   * set here replaces the inherited one, so prefix it to put a local binary
+   * in front. `FORCE_COLOR=0` is always set last.
+   */
+  env?: Record<string, string | undefined>;
+
+  /**
+   * What `call` returns for a turn.
+   *
+   * - `"text"` (default): the assistant-visible text, with tool calls and
+   *   results rendered inline as readable lines.
+   * - `"messages"`: AI SDK messages, one text part plus a `tool-call` part per
+   *   tool the agent called, and a `tool` message with a `tool-result` part
+   *   per result. The judge and the user simulator then read the calls
+   *   structurally, and the LangWatch run view renders them as tool calls.
+   * @default "text"
+   */
+  output?: "text" | "messages";
+
+  /**
+   * How many characters of one tool result reach the conversation. The judge
+   * reads the whole conversation on every step, and one exported trace can
+   * hold hundreds of kilobytes.
+   * @default 8000
+   */
+  maxToolResultChars?: number;
+
+  /**
+   * How many characters of one string inside a tool call input reach the
+   * conversation. A call carries what the agent wrote, which is the work
+   * under judgement, so it keeps more room than a result.
+   * @default 30000
+   */
+  maxToolInputChars?: number;
 }
 
 /**
@@ -314,6 +372,29 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
     return this.config.claudeBin ?? process.env.CLAUDE_BIN ?? "claude";
   }
 
+  /** The transcript caps, from config over the defaults. */
+  private get limits(): TranscriptLimits {
+    return {
+      maxToolResultChars:
+        this.config.maxToolResultChars ?? DEFAULT_TRANSCRIPT_LIMITS.maxToolResultChars,
+      maxToolInputChars:
+        this.config.maxToolInputChars ?? DEFAULT_TRANSCRIPT_LIMITS.maxToolInputChars,
+    };
+  }
+
+  /**
+   * The environment the CLI runs with: this process's, then `config.env` on
+   * top with `undefined` removing a key, then `FORCE_COLOR=0`.
+   */
+  private buildEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env, ...(this.config.env ?? {}) };
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) delete env[key];
+    }
+    env.FORCE_COLOR = "0";
+    return env;
+  }
+
   /**
    * Build the CLI argv. Order is fixed:
    * `-p --output-format stream-json --verbose [--model M] [--dangerously-skip-permissions] [--resume <id>] [...extraArgs] <prompt>`.
@@ -338,7 +419,8 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Process the conversation and return Claude Code's assistant text.
+   * Process the conversation and return Claude Code's turn, as text or as
+   * messages per `config.output`.
    *
    * A thread's first turn sends the FULL history and lets the CLI mint a
    * session; later turns `--resume` it and send only the delta.
@@ -358,7 +440,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
    * turn has no successor to rebuild on.
    *
    * @param input - Scenario agent input (conversation history etc.).
-   * @returns The concatenated assistant-visible text as a string.
+   * @returns The turn as text, or as AI SDK messages with `output: "messages"`.
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
     // Validate before anything is spawned or any timer is scheduled, so a bad
@@ -377,17 +459,13 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
       try {
         // Continuation turn: the resumed session already holds the prior
         // transcript, so send ONLY the delta (`newMessages`).
-        const { text, sessionId } = await this.runTurn(
-          input.newMessages,
-          resumeSessionId,
-          timeoutMs,
-        );
-        if (sessionId) this.sessions.set(threadId, sessionId);
+        const turn = await this.runTurn(input.newMessages, resumeSessionId, timeoutMs);
+        if (turn.sessionId) this.sessions.set(threadId, turn.sessionId);
         // LOAD-BEARING return: without it a successful resume would fall through
         // to the shared full-history rebuild below (a second spawn). See the
         // fall-through INVARIANT note and its "successful resume spawns exactly
         // once" regression test.
-        return text;
+        return this.turnOutput(turn);
       } catch (error) {
         // A non-stale failure surfaces AS-IS and leaves the session cached: it
         // may still be valid (a rate limit, a signal, a timeout, or the
@@ -421,7 +499,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         );
         // INVARIANT (regression-guarded): only a stale-session catch that opted
         // into replay may fall through to the shared full-history rebuild below.
-        // The SUCCESS path above returns `text` before it can reach here, so a
+        // The SUCCESS path above returns before it can reach here, so a
         // successful resume must NOT run the rebuild. The "successful resume
         // spawns exactly once" test pins this, failing the moment that
         // load-bearing `return` is dropped.
@@ -431,27 +509,28 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
     // First turn for this thread, or the opt-in rebuild after a vanished
     // session: send the full history and let the CLI mint a fresh session id to
     // resume next.
-    const { text, sessionId } = await this.runTurn(
-      input.messages,
-      undefined,
-      timeoutMs,
-    );
-    if (sessionId) this.sessions.set(threadId, sessionId);
-    return text;
+    const turn = await this.runTurn(input.messages, undefined, timeoutMs);
+    if (turn.sessionId) this.sessions.set(threadId, turn.sessionId);
+    return this.turnOutput(turn);
+  }
+
+  /** The turn in the shape `config.output` asks for. */
+  private turnOutput(turn: { text: string; messages: ModelMessage[] }): AgentReturnTypes {
+    return this.config.output === "messages" ? turn.messages : turn.text;
   }
 
   /**
-   * Run exactly ONE `claude -p` invocation and resolve its assistant text plus
-   * the session id it reported. PURE w.r.t. instance state: it reads config but
+   * Run exactly ONE `claude -p` invocation and resolve its transcript plus the
+   * session id it reported. PURE w.r.t. instance state: it reads config but
    * mutates nothing on `this` — the caller ({@link call}) owns all session-map
    * policy. It therefore neither reads nor evicts `this.sessions`.
    *
    * @param promptMessages - The messages to serialize into the prompt. The
    *   empty-prompt guard is computed against this SAME set, so an empty resume
    *   delta fails loudly rather than degenerating to `claude -p --resume <id> ""`.
-   * @returns `{ text, sessionId }` on success. `sessionId` is only ever set from
-   *   a SUCCESSFUL run (the failure paths reject first), so the caller never
-   *   persists an id minted by a failed turn.
+   * @returns `{ text, messages, sessionId }` on success. `sessionId` is only
+   *   ever set from a SUCCESSFUL run (the failure paths reject first), so the
+   *   caller never persists an id minted by a failed turn.
    * @throws {ClaudeCodeCliError} when the child dies on a signal, exits non-zero,
    *   or fields `is_error: true` on its terminal `result` envelope.
    */
@@ -459,7 +538,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
     promptMessages: ModelMessage[],
     resumeSessionId: string | undefined,
     timeoutMs: number,
-  ): Promise<{ text: string; sessionId?: string }> {
+  ): Promise<{ text: string; messages: ModelMessage[]; sessionId?: string }> {
     const prompt = formatMessagesAsPrompt(promptMessages);
 
     // Agent-first / empty-input guard. The realtime sibling handles a missing
@@ -482,15 +561,18 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
     const args = this.buildArgs(prompt, resumeSessionId);
     const cwd = this.config.workingDirectory;
     const logger = this.logger;
+    const limits = this.limits;
 
     logger.log(`Starting claude in: ${cwd}`);
 
-    return new Promise<{ text: string; sessionId?: string }>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const child = spawn(bin, args, {
         cwd,
-        env: { ...process.env, FORCE_COLOR: "0" },
+        env: this.buildEnv(),
         stdio: ["ignore", "pipe", "pipe"],
+        ...ownProcessGroup(),
       });
+      const disarm = guardAgainstOrphaning(child);
 
       // Accumulate raw stdout chunks and decode ONCE at close: a multibyte
       // UTF-8 character split across two `data` events would corrupt if each
@@ -503,11 +585,11 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        // Graceful terminate first…
-        child.kill();
+        // Graceful terminate first, the whole tree, not only the CLI…
+        killProcessTree(child, "SIGTERM");
         // …then a hard SIGKILL shortly after so a wedged child can't leak.
         // Cleared in `finish` if the child exits on its own first.
-        sigkillTimer = setTimeout(() => child.kill("SIGKILL"), 2000);
+        sigkillTimer = setTimeout(() => killProcessTree(child, "SIGKILL"), 2000);
         sigkillTimer.unref?.();
         reject(
           new Error(
@@ -524,16 +606,29 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         fn();
       };
 
+      // The live diagnostics decode through a `StringDecoder` rather than
+      // `chunk.toString()`: a multibyte UTF-8 character split across two `data`
+      // events would otherwise reach the logger as replacement characters. The
+      // decoder holds the incomplete tail back and emits it with the next
+      // chunk, so what is logged is what the CLI wrote. A chunk that ends
+      // mid-character yields an empty string, which is not worth a log line.
+      const stdoutDecoder = new StringDecoder("utf8");
+      const stderrDecoder = new StringDecoder("utf8");
+
       child.stdout?.on("data", (data: Buffer) => {
         stdoutChunks.push(data);
+        const decoded = stdoutDecoder.write(data);
+        if (decoded) logger.log(`Claude Code stdout: ${decoded}`);
       });
 
       child.stderr?.on("data", (data: Buffer) => {
         stderrChunks.push(data);
-        logger.warn(`Claude Code stderr: ${data.toString()}`);
+        const decoded = stderrDecoder.write(data);
+        if (decoded) logger.warn(`Claude Code stderr: ${decoded}`);
       });
 
       child.on("error", (err: NodeJS.ErrnoException) => {
+        disarm();
         if (err.code === "ENOENT") {
           finish(() =>
             reject(
@@ -548,6 +643,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
       });
 
       child.on("close", (exitCode, signal) => {
+        disarm();
         finish(() => {
           const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
           // Parse stdout FIRST: the CLI's terminal `result` envelope fields the
@@ -556,7 +652,11 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
           // `is_error: true`. Trusting the exit code alone would resolve such a
           // run as a silent empty-text success and even store its session id.
           const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-          const { text, sessionId, result } = parseStreamJson(stdout, logger);
+          const { text, modelMessages, sessionId, result } = parseStreamJson(
+            stdout,
+            logger,
+            limits,
+          );
 
           // A turn FAILS if it died on a signal, exited non-zero, or the CLI's
           // own envelope says so. Failures reject with the structured error
@@ -601,7 +701,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
           // an id from a run that SUCCEEDED (the failure paths above rejected
           // first), so a failed or partially-created session can never be left
           // behind for a later `--resume` to trip over.
-          resolve({ text, sessionId });
+          resolve({ text, messages: modelMessages, sessionId });
         });
       });
     });

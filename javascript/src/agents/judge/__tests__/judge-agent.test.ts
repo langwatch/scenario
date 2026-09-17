@@ -115,8 +115,11 @@ describe("JudgeAgent", () => {
 
       expect(capturedParams).toBeDefined();
       const toolNames = Object.keys(capturedParams!.tools ?? {});
+      // A mid-conversation call is the decision phase: argument-free
+      // continue_test / make_verdict, never the verdict schema.
       expect(toolNames).toContain("continue_test");
-      expect(toolNames).toContain("finish_test");
+      expect(toolNames).toContain("make_verdict");
+      expect(toolNames).not.toContain("finish_test");
       expect(toolNames).not.toContain("expand_trace");
       expect(toolNames).not.toContain("grep_trace");
 
@@ -142,27 +145,37 @@ describe("JudgeAgent", () => {
 
       const agent = judgeAgent(config);
 
-      let capturedParams: InvokeLLMParams | undefined;
+      const capturedParams: InvokeLLMParams[] = [];
       agent.invokeLLM = async (params) => {
-        capturedParams = params;
-        return mockLLMResult("finish_test", {
-          criteria: { agent_uses_the_correct_tool: "true" },
-          reasoning: "The tool was used correctly",
-          verdict: "success",
-        });
+        capturedParams.push(params);
+        return capturedParams.length === 1
+          ? mockLLMResult("make_verdict", {})
+          : mockLLMResult("finish_test", {
+              criteria: { agent_uses_the_correct_tool: "true" },
+              reasoning: "The tool was used correctly",
+              verdict: "success",
+            });
       };
 
       await agent.call(createBaseInput());
 
-      expect(capturedParams).toBeDefined();
-      const toolNames = Object.keys(capturedParams!.tools ?? {});
-      expect(toolNames).toContain("expand_trace");
-      expect(toolNames).toContain("grep_trace");
-      expect(toolNames).toContain("continue_test");
-      expect(toolNames).toContain("finish_test");
+      expect(capturedParams).toHaveLength(2);
+      const decisionTools = Object.keys(capturedParams[0]!.tools ?? {});
+      expect(decisionTools).toContain("expand_trace");
+      expect(decisionTools).toContain("grep_trace");
+      expect(decisionTools).toContain("continue_test");
+      expect(decisionTools).toContain("make_verdict");
+      expect(decisionTools).not.toContain("finish_test");
 
-      // Should set stopWhen for multi-turn tool execution (AI SDK v6)
-      expect(capturedParams!.stopWhen).toBeDefined();
+      const verdictTools = Object.keys(capturedParams[1]!.tools ?? {});
+      expect(verdictTools).toContain("expand_trace");
+      expect(verdictTools).toContain("grep_trace");
+      expect(verdictTools).toContain("finish_test");
+      expect(verdictTools).not.toContain("continue_test");
+
+      // Both phases set stopWhen for multi-turn tool execution (AI SDK v6)
+      expect(capturedParams[0]!.stopWhen).toBeDefined();
+      expect(capturedParams[1]!.stopWhen).toBeDefined();
     });
 
     it("renders structure-only digest with usage hint in the user message", async () => {
@@ -681,7 +694,7 @@ describe("JudgeAgent", () => {
       agent.invokeLLM = async () => {
         callCount++;
         // AI SDK v6 surfaces only the last step in `toolCalls`, but an
-        // earlier step did emit finish_test. discoveryExhausted should
+        // earlier step did emit finish_test. completionCalledTool should
         // spot it via `steps` and skip the force path.
         return {
           text: "",
@@ -734,7 +747,13 @@ describe("JudgeAgent", () => {
         } as unknown as InvokeLLMResult;
       };
 
-      await agent.call(createBaseInput());
+      // Last turn: the call goes straight to the verdict phase, where the
+      // finish_test emitted mid-loop counts.
+      await agent.call(
+        createBaseInput({
+          scenarioState: { currentTurn: 4 } as never, // maxTurns 5 -> last message
+        })
+      );
       // Only one LLM call — forceVerdict must not have fired.
       expect(callCount).toBe(1);
     });
@@ -833,11 +852,7 @@ describe("JudgeAgent", () => {
       let capturedParams: InvokeLLMParams | undefined;
       agent.invokeLLM = async (params) => {
         capturedParams = params;
-        return mockLLMResult("finish_test", {
-          criteria: { agent_responded: "true" },
-          reasoning: "ok",
-          verdict: "success",
-        });
+        return mockLLMResult("continue_test", {});
       };
 
       await agent.call(createBaseInput());
@@ -1033,7 +1048,15 @@ describe("JudgeAgent", () => {
 
     it("treats the finish as continue and returns null", async () => {
       const agent = createJudge();
-      agent.invokeLLM = async () => inconclusiveFinish();
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        // The decision volunteers make_verdict; the verdict answers
+        // inconclusive. The verdict was voluntary, so it continues.
+        return callCount === 1
+          ? mockLLMResult("make_verdict", {})
+          : inconclusiveFinish();
+      };
 
       // currentTurn 1 of maxTurns 5, no judgmentRequest — nothing forces a verdict.
       const result = await agent.call(createBaseInput());
@@ -1043,13 +1066,19 @@ describe("JudgeAgent", () => {
 
     it("treats a finish with an omitted verdict as continue too", async () => {
       const agent = createJudge();
-      agent.invokeLLM = async () =>
-        mockLLMResult("finish_test", {
-          criteria: {
-            agent_requests_approval_before_applying_the_change: "inconclusive",
-          },
-          reasoning: "No verdict field supplied.",
-        });
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        return callCount === 1
+          ? mockLLMResult("make_verdict", {})
+          : mockLLMResult("finish_test", {
+              criteria: {
+                agent_requests_approval_before_applying_the_change:
+                  "inconclusive",
+              },
+              reasoning: "No verdict field supplied.",
+            });
+      };
 
       const result = await agent.call(createBaseInput());
 
@@ -1089,7 +1118,7 @@ describe("JudgeAgent", () => {
       expect(result!.success).toBe(false);
     });
 
-    it("continues on an unforced inconclusive finish during large-trace discovery", async () => {
+    it("continues on a voluntary inconclusive verdict on the large-trace path", async () => {
       const largeTrace = createLargeTrace();
       const collector = createMockSpanCollector(largeTrace);
       for (const span of largeTrace) {
@@ -1101,10 +1130,16 @@ describe("JudgeAgent", () => {
         criteria: ["Agent requests approval before applying the change"],
         spanCollector: collector,
       });
-      agent.invokeLLM = async () => inconclusiveFinish();
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        return callCount === 1
+          ? mockLLMResult("make_verdict", {})
+          : inconclusiveFinish();
+      };
 
-      // Mid-conversation, no judgmentRequest: the discovery loop leaves
-      // continue_test available, so an inconclusive finish must continue.
+      // Mid-conversation, no judgmentRequest: the verdict was volunteered
+      // via make_verdict, so an inconclusive verdict must continue.
       const result = await agent.call(createBaseInput());
 
       expect(result).toBeNull();

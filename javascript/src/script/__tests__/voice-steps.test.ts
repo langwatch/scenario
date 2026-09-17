@@ -11,13 +11,13 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import type { ModelMessage } from "ai";
 import { expect } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
 import { AgentRole } from "../../domain/agents";
 import {
   AdapterCapabilities,
@@ -35,9 +35,6 @@ import {
   sleep,
   voiceAgent,
 } from "../index";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");
 
 /**
  * Minimal voice-aware adapter used by these scenarios. Each instance
@@ -147,7 +144,7 @@ function makeStateStub() {
   return {} as never;
 }
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

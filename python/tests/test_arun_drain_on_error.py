@@ -33,7 +33,7 @@ class _CountingReporter(EventReporter):
         super().__init__(endpoint="http://localhost", api_key="test")
         self.received: List[ScenarioEvent] = []
 
-    async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+    async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
         self.received.append(event)
         return {}
 

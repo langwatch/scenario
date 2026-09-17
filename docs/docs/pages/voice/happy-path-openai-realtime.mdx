@@ -18,7 +18,11 @@ description: Step-by-step guide to test an OpenAI Realtime voice model with Scen
 
 > **All-in-one key**: unlike the ElevenLabs path, everything here runs on OpenAI: the Realtime model itself, the user simulator TTS, the judge LLM, and the default STT. One key, one provider.
 
-> **Routing through an OpenAI-compatible gateway?** TTS, STT, and the judge LLM follow `OPENAI_BASE_URL` (and `OPENAI_API_BASE` for litellm), so they work with a gateway virtual key. The Realtime websocket always connects directly to OpenAI; set `OPENAI_REALTIME_API_KEY` to a real provider key for it, and the adapter prefers that variable over `OPENAI_API_KEY`.
+> **Routing through an OpenAI-compatible gateway?** TTS, STT, and the judge LLM follow `OPENAI_BASE_URL` (and `OPENAI_API_BASE` for litellm), so they work with a gateway virtual key.
+>
+> In TypeScript the Realtime session follows the same two variables. Before the websocket opens, the adapter posts to `${OPENAI_BASE_URL}/realtime/client_secrets`, which is OpenAI's own mint path, and dials with the ephemeral secret it gets back. Point the variables at OpenAI and OpenAI mints. Point them at a LangWatch AI Gateway and the gateway checks the virtual key's budget and open-session cap, mints the secret, and bills the call. The media websocket still runs to `api.openai.com` either way, so latency and the wire protocol do not change, and no long-lived key ever reaches the socket. If the base URL answers 404 for that path it is not a gateway, so the adapter dials OpenAI directly with `OPENAI_REALTIME_API_KEY` (or `OPENAI_API_KEY`) and logs a warning naming the variable it used. If the mint is refused with any other error status, the adapter raises rather than dialling around the refusal.
+>
+> In Python the Realtime websocket still connects directly to OpenAI. Set `OPENAI_REALTIME_API_KEY` to a real provider key there, and the adapter prefers that variable over `OPENAI_API_KEY`.
 
 ---
 

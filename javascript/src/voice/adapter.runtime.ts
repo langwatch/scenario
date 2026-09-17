@@ -111,7 +111,8 @@ export class AgentSpeakingEvent {
   }
 }
 
-const SAFE_DEFAULT_RESPONSE_TIMEOUT_S = 30;
+/** Mirrors `VoiceAgentAdapter.responseTimeout` for an adapter that nulls it out. */
+const SAFE_DEFAULT_RESPONSE_TIMEOUT_S = 60;
 const SAFE_DEFAULT_TAIL_SILENCE_S = 0.6;
 const SAFE_DEFAULT_MAX_DURATION_S = 30;
 /**

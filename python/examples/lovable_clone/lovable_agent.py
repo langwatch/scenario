@@ -26,7 +26,7 @@ class LovableAgent:
 
         You will be given a basic React, TypeScript, Vite, Tailwind and Radix UI template and will work on top of that. Use the components from the "@/components/ui" folder.
 
-        On the first user request for building the application, start by the src/index.css and tailwind.config.ts files to define the colors and general application style.
+        On the first user request for building the application, read src/index.css and tailwind.config.ts, then UPDATE src/index.css with the colors and general application style for this site. Do that before you create any page. A site that keeps the template's default palette is not finished work.
         Then, start building the website, you can call tools in sequence as much as you want.
 
         You will be given tools to read file, create file and update file to carry on your work.
@@ -35,8 +35,9 @@ class LovableAgent:
 
         <execution_flow>
         1. Call the read_file tool to understand the current files before updating them or creating new ones
-        2. Start building the website, you can call tools in sequence as much as you want
-        3. Ask the user for next steps
+        2. Call update_file on src/index.css to set this site's colors and style
+        3. Start building the website, you can call tools in sequence as much as you want
+        4. Ask the user for next steps
         </execution_flow>
 
         <files>

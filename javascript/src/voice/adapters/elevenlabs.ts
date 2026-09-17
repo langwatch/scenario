@@ -69,11 +69,6 @@ import { openai } from "@ai-sdk/openai";
 // map, so Node resolves these deep paths as literal files. Extensionless they
 // only resolve under bundler semantics (vitest/tsx/webpack) and crash plain
 // `node` consumers of the published dist/index.mjs with ERR_MODULE_NOT_FOUND.
-import { AudioInterface } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/AudioInterface.js";
-import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation.js";
-import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/ConversationClient";
-import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client.js";
 import type { LanguageModel } from "ai";
 
 import { AgentRole } from "../../domain/agents";
@@ -81,6 +76,18 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import {
+  resolveElevenLabsBaseUrl,
+  resolveElevenLabsConvAIApiKey,
+} from "../elevenlabs-base-url";
+import {
+  type ElevenLabsAudioInterface,
+  type ElevenLabsAudioInterfaceCtor,
+  type ElevenLabsConversation,
+  type ElevenLabsConversationClient,
+  type ElevenLabsWebSocketFactory,
+  loadElevenLabsConversationRuntime,
+} from "../elevenlabs-sdk";
 import { currentSpan, setSpanAttributes } from "../telemetry";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
@@ -129,6 +136,48 @@ const PUMP_INTERVAL_MS = 20;
  */
 const KEEPALIVE_HARD_CEILING_S = 45;
 
+/** Deep link to the section that expands on both receiveAudio timeouts. */
+const RECEIVE_TIMEOUT_DOCS_URL =
+  "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs";
+
+/**
+ * Rejection text for the IDLE deadline: nothing at all reached the socket, not
+ * even a keepalive ping, for `timeoutS` seconds. A fully silent agent.
+ *
+ * Distinct from {@link ceilingTimeoutMessage} on purpose: silence and
+ * pings-but-no-audio are different diagnoses with different remedies, so one
+ * shared message would send the reader to check the wrong things.
+ */
+function idleTimeoutMessage(timeoutS: number): string {
+  return (
+    `ElevenLabsAgentAdapter: receiveAudio timed out. The idle deadline of ${timeoutS}s ` +
+    "elapsed with no message of any kind from the hosted agent, not even a keepalive " +
+    "ping. For a scripted multi-turn run this usually means the agent ended or " +
+    "transferred its turn (e.g. an escalation/handoff request), or the user turn did " +
+    "not commit. If the agent is only slower than that, raise the adapter's " +
+    `responseTimeout, currently ${timeoutS}s, for example agent.responseTimeout = 180. ` +
+    `See ${RECEIVE_TIMEOUT_DOCS_URL}`
+  );
+}
+
+/**
+ * Rejection text for the ABSOLUTE ceiling: the agent kept sending frames, which
+ * re-arm the idle deadline, but never sent audio.
+ */
+function ceilingTimeoutMessage(timeoutS: number, ceilingS: number): string {
+  return (
+    `ElevenLabsAgentAdapter: receiveAudio timed out. The absolute ceiling of ${ceilingS}s ` +
+    "elapsed while the hosted agent kept sending frames, keepalive pings or transcripts, " +
+    "but never audio. Every inbound frame re-arms the idle deadline, so this ceiling, " +
+    `max(responseTimeout, ${KEEPALIVE_HARD_CEILING_S}s), is what bounds the wait. It usually ` +
+    "means a wedged server tool or retrieval call, or an agent that ended or " +
+    "transferred its turn. If the agent is only slower than that, raise the adapter's " +
+    `responseTimeout, currently ${timeoutS}s, past ${KEEPALIVE_HARD_CEILING_S}s and the ceiling rises with it, ` +
+    "for example agent.responseTimeout = 180. " +
+    `See ${RECEIVE_TIMEOUT_DOCS_URL}`
+  );
+}
+
 /**
  * EL system tools whose successful invocation means the AGENT ended the call, so
  * the socket close that follows is deliberate rather than a dropped transport
@@ -164,33 +213,41 @@ const SILENCE_FRAME = Buffer.alloc(PUMP_FRAME_BYTES);
  * members private — the closures are created inside the adapter and close over
  * `this`.
  */
-class BridgeAudioInterface extends AudioInterface {
-  constructor(
-    private readonly hooks: {
-      onStart: (inputCallback: (audio: Buffer) => void) => void;
-      onStop: () => void;
-      onOutput: (audio: Buffer) => void;
-      onInterrupt: () => void;
-    },
-  ) {
-    super();
-  }
+interface BridgeAudioHooks {
+  onStart: (inputCallback: (audio: Buffer) => void) => void;
+  onStop: () => void;
+  onOutput: (audio: Buffer) => void;
+  onInterrupt: () => void;
+}
 
-  override start(inputCallback: (audio: Buffer) => void): void {
-    this.hooks.onStart(inputCallback);
-  }
+/**
+ * Built rather than declared, because the base class arrives with the SDK and
+ * the SDK is only loaded once a session actually starts. A module-scope
+ * `class ... extends AudioInterface` would need it at import time, which is
+ * what used to put 4,549 ElevenLabs modules into every consumer's graph.
+ */
+function createBridgeAudioInterface(
+  AudioInterfaceBase: ElevenLabsAudioInterfaceCtor,
+  hooks: BridgeAudioHooks,
+): ElevenLabsAudioInterface {
+  class BridgeAudioInterface extends AudioInterfaceBase {
+    start(inputCallback: (audio: Buffer) => void): void {
+      hooks.onStart(inputCallback);
+    }
 
-  override stop(): void {
-    this.hooks.onStop();
-  }
+    stop(): void {
+      hooks.onStop();
+    }
 
-  override output(audio: Buffer): void {
-    this.hooks.onOutput(audio);
-  }
+    output(audio: Buffer): void {
+      hooks.onOutput(audio);
+    }
 
-  override interrupt(): void {
-    this.hooks.onInterrupt();
+    interrupt(): void {
+      hooks.onInterrupt();
+    }
   }
+  return new BridgeAudioInterface();
 }
 
 /** A non-null, non-array object — the only value kind {@link deepMerge} recurses into. */
@@ -230,8 +287,32 @@ function deepMerge(
 export interface ElevenLabsAgentAdapterOptions {
   /** ID of the ElevenLabs Conversational AI agent (provisioned in the EL dashboard). */
   agentId: string;
-  /** ElevenLabs API key (`xi-api-key`). */
-  apiKey: string;
+  /**
+   * The key sent as `xi-api-key`. Falls back to `ELEVENLABS_CONVAI_API_KEY`,
+   * then `ELEVENLABS_API_KEY`.
+   *
+   * Against a gateway this carries a LangWatch virtual key rather than an
+   * ElevenLabs one, which is why it has its own variable. See
+   * {@link resolveElevenLabsConvAIApiKey}.
+   */
+  apiKey?: string;
+  /**
+   * Base URL for the ElevenLabs REST API, passed straight to the SDK client's
+   * own `baseUrl` option. Falls back to `ELEVENLABS_BASE_URL`.
+   *
+   * Points the signed-URL handshake at a LangWatch AI Gateway, which mirrors
+   * the vendor's own mint path: the gateway checks the virtual key's budget
+   * and session cap, mints the signed URL, and bills the call as one spend
+   * record. The websocket the URL names still belongs to ElevenLabs, so the
+   * media stream runs client to vendor and nothing about latency or the wire
+   * protocol changes.
+   *
+   * Unset here and in the environment, the SDK talks to ElevenLabs directly as
+   * it always has. The variable covers this adapter only; see
+   * {@link resolveElevenLabsBaseUrl} for why the speech-to-text and
+   * text-to-speech leaves take an explicit option instead.
+   */
+  baseUrl?: string;
   /**
    * Per-session system prompt override applied via the SDK's
    * `conversationConfigOverride.agent.prompt.prompt`. Lets demos use a different
@@ -290,14 +371,14 @@ export interface ElevenLabsAgentAdapterOptions {
    * runs against an in-memory socket (no network). Production callers leave this
    * unset; the SDK's `DefaultWebSocketFactory` (the `ws` package) is used.
    */
-  webSocketFactory?: WebSocketFactory;
+  webSocketFactory?: ElevenLabsWebSocketFactory;
   /**
    * SDK conversation client used ONLY for the `requiresAuth` signed-URL handshake
    * — injected for unit tests so `startSession()` does not make a real
    * `getSignedUrl` HTTP call. Production callers leave this unset; the adapter's
-   * authenticated {@link ElevenLabsClient} is used.
+   * own authenticated `ElevenLabsClient` is used.
    */
-  conversationClient?: ConversationClient;
+  conversationClient?: ElevenLabsConversationClient;
 }
 
 /**
@@ -307,6 +388,7 @@ export interface ElevenLabsAgentAdapterOptions {
  * {@link AudioInterface} and start the session), stream PCM16 audio chunks at
  * real-mic cadence, and drain agent audio the SDK pushes via `output()`.
  */
+
 export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   override role = AgentRole.AGENT;
 
@@ -320,15 +402,16 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   readonly agentId: string;
   private readonly apiKey: string;
+  private readonly baseUrl?: string;
   private readonly systemPromptOverride?: string;
   private readonly firstMessageOverride?: string;
   private readonly dynamicVariables?: Record<string, string | number | boolean>;
   private readonly overrides?: Record<string, unknown>;
-  private readonly webSocketFactory?: WebSocketFactory;
-  private readonly conversationClient?: ConversationClient;
+  private readonly webSocketFactory?: ElevenLabsWebSocketFactory;
+  private readonly conversationClient?: ElevenLabsConversationClient;
 
   /** Live SDK session; null whenever disconnected (or before the first connect). */
-  private conversation: Conversation | null = null;
+  private conversation: ElevenLabsConversation | null = null;
   /**
    * The SDK's mic-input sink, captured when the SDK calls `AudioInterface.start`
    * on session open. The continuous mic pump feeds it one frame per tick; the SDK
@@ -408,7 +491,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   constructor(options: ElevenLabsAgentAdapterOptions) {
     super();
     this.agentId = options.agentId;
-    this.apiKey = options.apiKey;
+    this.apiKey = resolveElevenLabsConvAIApiKey(options.apiKey);
+    this.baseUrl = resolveElevenLabsBaseUrl(options.baseUrl);
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
     this.dynamicVariables = options.dynamicVariables;
@@ -432,7 +516,15 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     setSpanAttributes(currentSpan(), {
       "voice.elevenlabs.agent_id": this.agentId,
     });
-    const client = new ElevenLabsClient({ apiKey: this.apiKey });
+    const { AudioInterface, Conversation, ElevenLabsClient } =
+      await loadElevenLabsConversationRuntime();
+    // `baseUrl` is the SDK's documented custom-URL option. Undefined leaves
+    // the SDK on its own default host, so an unconfigured adapter is
+    // byte-for-byte the request it sent before.
+    const client = new ElevenLabsClient({
+      apiKey: this.apiKey,
+      ...(this.baseUrl ? { baseUrl: this.baseUrl } : {}),
+    });
 
     // The adapter's NARROW prompt/first-message knobs build an `agent` override
     // that is always sent (an empty `agent` object is a no-op) so the handshake
@@ -455,7 +547,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       agent: agentOverride,
     });
 
-    const audioInterface = new BridgeAudioInterface({
+    const audioInterface = createBridgeAudioInterface(AudioInterface, {
       onStart: (inputCallback) => this.onAudioStart(inputCallback),
       onStop: () => this.onAudioStop(),
       onOutput: (audio) => this.onAgentAudio(audio),
@@ -483,10 +575,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // and to `client` for getSignedUrl. Set only by unit tests.
       webSocketFactory: this.webSocketFactory,
       conversationClient: this.conversationClient,
-      callbackUserTranscript: (transcript) => {
+      callbackUserTranscript: (transcript: string) => {
         this.lastUserTranscript = transcript;
       },
-      callbackAgentResponse: (response) => {
+      callbackAgentResponse: (response: string) => {
         // #734 (AC4) — measure how far this transcript event lags the audio it
         // describes. A lag exceeding `responseTailSilence` is a turn whose
         // transcript would have LOST the drain-close race pre-fix; the grace-wait
@@ -502,13 +594,13 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         });
         this.lastAgentTranscript = response;
       },
-      callbackAgentResponseCorrection: (_original, corrected) => {
+      callbackAgentResponseCorrection: (_original: string, corrected: string) => {
         // Post-barge-in correction replaces the agent transcript.
         this.lastAgentTranscript = corrected;
       },
       // Fires for EVERY inbound message (ping included) AFTER the SDK has routed it
       // — our universal liveness + terminal-turn hook. See onMessage.
-      callbackMessageReceived: (message) => this.onMessage(message),
+      callbackMessageReceived: (message: unknown) => this.onMessage(message),
     });
 
     // The SDK re-emits WS errors as an `error` event on the Conversation itself; an
@@ -805,13 +897,19 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // and unwedges a pings-but-no-audio receive. Sized as max(timeout, 45s): never
       // below the caller's own idle budget (so it does not pre-empt a legitimately
       // slow-but-responding agent), but at least 45s even for sub-second tail-probe
-      // calls. In the real drain `timeout` is the 30s response budget or the 0.6s
-      // tail probe, so the ceiling is 45s.
+      // calls. In the real drain `timeout` is the 60s response budget or the 0.6s
+      // tail probe, so the ceiling is 60s on the first chunk and 45s on the probes.
       // Must stay `let`: the cleanup() closure below captures hardTimer before
       // it is assigned, so declaration and assignment cannot be merged (const).
       // eslint-disable-next-line prefer-const
       let hardTimer: ReturnType<typeof setTimeout>;
-      const hardCeilingMs = Math.max(timeout, KEEPALIVE_HARD_CEILING_S) * 1000;
+      const ceilingS = Math.max(timeout, KEEPALIVE_HARD_CEILING_S);
+      // Whether ANY inbound frame reached this parked receive. It is what tells the
+      // two rejections apart when both deadlines land on the same instant, which is
+      // the default case: idle 60s, ceiling max(60, 45) = 60s. Nothing received
+      // means the socket was silent throughout, so the idle diagnosis is the true
+      // one however the two timers happen to be ordered.
+      let sawInboundFrame = false;
 
       const cleanup = () => {
         clearTimeout(timer);
@@ -822,19 +920,18 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         if (waiterIdx >= 0) this.waiters.splice(waiterIdx, 1);
       };
 
-      const onTimeout = () => {
+      const onIdleTimeout = () => {
         cleanup();
-        reject(
-          new Error(
-            "ElevenLabsAgentAdapter: receiveAudio timed out (no agent audio " +
-              "within the deadline — the hosted agent produced no audio, whether " +
-              "fully silent or only keepalive-pinging). For a scripted multi-turn " +
-              "run this usually means the agent ended or transferred its turn " +
-              "(e.g. an escalation/handoff request), or the user turn did not " +
-              "commit. See " +
-              "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
-          ),
-        );
+        reject(new Error(idleTimeoutMessage(timeout)));
+      };
+
+      const onCeilingTimeout = () => {
+        if (!sawInboundFrame) {
+          onIdleTimeout();
+          return;
+        }
+        cleanup();
+        reject(new Error(ceilingTimeoutMessage(timeout, ceilingS)));
       };
 
       // Re-arm the IDLE deadline on every received message (pings included) so a
@@ -842,8 +939,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // the timer. Matches the Python recv_audio sliding-idle-deadline. The hard
       // ceiling is deliberately NOT reset here.
       const resetTimer = () => {
+        sawInboundFrame = true;
         clearTimeout(timer);
-        timer = setTimeout(onTimeout, timeout * 1000);
+        timer = setTimeout(onIdleTimeout, timeout * 1000);
       };
 
       const waiter = (chunk: AudioChunk) => {
@@ -851,8 +949,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         resolve(chunk);
       };
 
-      timer = setTimeout(onTimeout, timeout * 1000);
-      hardTimer = setTimeout(onTimeout, hardCeilingMs);
+      timer = setTimeout(onIdleTimeout, timeout * 1000);
+      hardTimer = setTimeout(onCeilingTimeout, ceilingS * 1000);
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
     });

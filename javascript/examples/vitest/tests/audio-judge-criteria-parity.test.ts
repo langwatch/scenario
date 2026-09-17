@@ -1,12 +1,14 @@
-// Cross-language parity guard for the audio example judge criteria (#680).
+// Cross-language parity guard for the audio example judge criteria (#680, #682).
 //
-// The three audio example siblings (JS audio-to-audio, JS audio-to-text, Python
-// audio-to-text) must judge against byte-identical criteria — #655/#612 aligned
-// them by copy-paste, and #680 found two latent gaps that had to be fixed in all
-// three at once. The JS pair now shares one constant, so only the Python copy
-// can drift; this test is the mechanism that stops it. It is fully deterministic
-// (file read + parse, no API keys, no network), so it runs in CI unlike its
-// live-only siblings.
+// The four audio example siblings (JS audio-to-audio, JS audio-to-text, Python
+// audio-to-text, Python audio-to-audio) must judge against byte-identical
+// criteria. #655/#612 aligned three of them by copy-paste, #680 found two
+// latent gaps that had to be fixed in all three at once, and #682 found the
+// fourth still carrying the pre-alignment criteria a year later. There is now
+// one constant per language and this test holds the two together, so no copy
+// can drift and no sibling can fall out of the set unnoticed. It is fully
+// deterministic (file read + parse, no API keys, no network), so it runs in CI
+// unlike the live-only examples it guards.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -15,8 +17,11 @@ import { describe, it, expect } from "vitest";
 
 import { AUDIO_JUDGE_CRITERIA } from "./helpers/audio-judge-criteria";
 
-const PYTHON_SIBLING = fileURLToPath(
-  new URL("../../../../python/examples/test_audio_to_text.py", import.meta.url),
+const PYTHON_CRITERIA_MODULE = fileURLToPath(
+  new URL(
+    "../../../../python/examples/helpers/audio_judge_criteria.py",
+    import.meta.url,
+  ),
 );
 
 const JS_SIBLINGS = [
@@ -24,19 +29,28 @@ const JS_SIBLINGS = [
   "multimodal-audio-to-text.test.ts",
 ];
 
+// Whether the Python siblings actually USE their constant is checked where it
+// can be checked properly: python/tests/test_audio_example_judge_criteria.py
+// walks each example's AST and inspects every JudgeAgent call. Text matching
+// from here could not see a second judge with an inline list, a local rebinding
+// that shadows the import, or an import that stopped coming from `helpers`.
+
 /**
- * Extract the `AUDIO_JUDGE_CRITERIA = [...]` literal from the Python sibling.
+ * Extract the `AUDIO_JUDGE_CRITERIA = (...)` literal from the Python module.
  *
- * The Python list is written as double-quoted string literals precisely so it
- * parses as JSON once the trailing comma is dropped — see the ⚠ note next to the
- * declaration in that file.
+ * The Python tuple is written as double-quoted string literals precisely so it
+ * parses as JSON once the parentheses are swapped for brackets and the trailing
+ * comma is dropped. See the warning in that module's docstring. The annotation
+ * between the name and the `=` is deliberately not pinned here: what this guard
+ * is about is the criteria, and a stricter pattern would fail as a rename of the
+ * type rather than as the drift it exists to catch.
  */
 function readPythonCriteria(): string[] {
-  const source = readFileSync(PYTHON_SIBLING, "utf8");
-  const match = /^AUDIO_JUDGE_CRITERIA = \[\n(.*?)^\]$/ms.exec(source);
+  const source = readFileSync(PYTHON_CRITERIA_MODULE, "utf8");
+  const match = /^AUDIO_JUDGE_CRITERIA[^=\n]*= \(\n(.*?)^\)$/ms.exec(source);
   expect(
     match,
-    `could not find an 'AUDIO_JUDGE_CRITERIA = [' list literal in ${PYTHON_SIBLING} — ` +
+    `could not find an 'AUDIO_JUDGE_CRITERIA = (' tuple literal in ${PYTHON_CRITERIA_MODULE}. ` +
       "if it was renamed or reformatted, update this parity guard rather than deleting it",
   ).not.toBeNull();
 
@@ -45,7 +59,7 @@ function readPythonCriteria(): string[] {
     return JSON.parse(`[${body}]`) as string[];
   } catch (error) {
     throw new Error(
-      `AUDIO_JUDGE_CRITERIA in ${PYTHON_SIBLING} is not JSON-parseable — the criteria ` +
+      `AUDIO_JUDGE_CRITERIA in ${PYTHON_CRITERIA_MODULE} is not JSON-parseable. The criteria ` +
         "must be plain double-quoted Python string literals (no single quotes, no " +
         `concatenation, no f-strings) so this parity guard can read them. Cause: ${String(error)}`,
     );
@@ -53,7 +67,7 @@ function readPythonCriteria(): string[] {
 }
 
 describe("audio example judge criteria — cross-language parity", () => {
-  it("keeps the Python sibling byte-identical to the shared JS constants", () => {
+  it("keeps the Python constant byte-identical to the shared JS one", () => {
     expect(readPythonCriteria()).toEqual([...AUDIO_JUDGE_CRITERIA]);
   });
 

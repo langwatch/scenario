@@ -113,7 +113,9 @@ from ._tracing.live import RealtimeLangWatchSession as realtime_langwatch_sessio
 # Then import modules with dependencies
 from .scenario_executor import run, arun
 from .scenario_state import ScenarioState
+from ._state_views import ToolCall, ToolCalls, TraceView, TurnView
 from .agent_adapter import AgentAdapter
+from .connected_agent import ConnectedAgentAdapter, ConnectedAgentCall
 from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
@@ -129,25 +131,42 @@ from ._red_team import (
 )
 from .cache import scenario_cache
 from .script import message, user, agent, judge, proceed, succeed, fail
+from .evaluators import (
+    EvaluationResult,
+    EvaluatorMapping,
+    ScenarioEvaluator,
+    StateMapping,
+    conversation,
+    evaluator,
+    field,
+    scenario_source,
+    trace,
+    value,
+)
 
 # Voice support (issue #350) — sits alongside the text-based script steps.
 # Per the proposal (§1): same scenario.run(), same script DSL, same judge;
 # what changes is the medium, not the paradigm.
 from .voice import (
     AdapterCapabilities,
+    AgentStreamEndedError,
     AudioChunk,
     AudioSegment,
     ComposableVoiceAgent,
     ElevenLabsAgentAdapter,
     ElevenLabsSTTProvider,
     ElevenLabsVoiceAgent,
+    FirstChunkTimeoutError,
     GeminiLiveAgentAdapter,
     LatencyMetrics,
     LiveKitAgentAdapter,
+    ModalityNegotiationError,
     OpenAIRealtimeAgentAdapter,
     OpenAISTTProvider,
     PipecatAgentAdapter,
+    PipecatRecvError,
     STTProvider,
+    TunnelNotReadyError,
     TwilioAgentAdapter,
     UnsupportedCapabilityError,
     VapiAgentAdapter,
@@ -200,6 +219,16 @@ __all__ = [
     "judge",
     "agent",
     "user",
+    # Evaluators on scenario runs
+    "evaluator",
+    "field",
+    "value",
+    "conversation",
+    "trace",
+    "scenario_source",
+    "EvaluationResult",
+    "EvaluatorMapping",
+    "ScenarioEvaluator",
     # Voice script steps
     "audio",
     "dtmf",
@@ -219,6 +248,14 @@ __all__ = [
     "OpenAISTTProvider",
     "STTProvider",
     "UnsupportedCapabilityError",
+    # Voice errors, catchable from the package root. `raise` sites live in
+    # scenario.voice, but a caller writing `except scenario.<Error>` should
+    # not have to know that.
+    "AgentStreamEndedError",
+    "FirstChunkTimeoutError",
+    "ModalityNegotiationError",
+    "PipecatRecvError",
+    "TunnelNotReadyError",
     "VoiceAgentAdapter",
     "VoiceEvent",
     "VoiceRecording",
@@ -249,6 +286,8 @@ __all__ = [
     # Classes
     "ScenarioState",
     "AgentAdapter",
+    "ConnectedAgentAdapter",
+    "ConnectedAgentCall",
     "UserSimulatorAgent",
     "RedTeamAgent",
     "AttackerOutput",

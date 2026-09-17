@@ -2,6 +2,37 @@ import { EventAlertMessageLogger } from "./event-alert-message-logger";
 import { ScenarioEventType, type ScenarioEvent } from "./schema";
 import { Logger } from "../utils/logger";
 
+/** Long base64 runs in a log line are audio payloads, never useful text. */
+const B64_RUN = /[A-Za-z0-9+/]{200,}={0,2}/g;
+
+/** How much of an event body a failure log keeps. */
+const EVENT_LOG_MAX_CHARS = 2_000;
+
+/**
+ * Summary of an event for a failure log, with audio payloads stripped.
+ *
+ * A MESSAGE_SNAPSHOT carries the whole conversation, and a voice message
+ * carries inline base64 audio. Each retry logs the failure, so an endpoint
+ * that stays down would write megabytes of user content to the console.
+ * Base64 runs are replaced by a placeholder and the rest is truncated. The
+ * Python reporter does the same in `_redacted_event_repr`.
+ */
+export function redactedEventSummary(event: unknown): string {
+  let text: string;
+  try {
+    text = JSON.stringify(event) ?? String(event);
+  } catch {
+    text = String(event);
+  }
+  const redacted = text.replace(
+    B64_RUN,
+    (run) => `<audio:${run.length} b64 chars elided>`,
+  );
+  return redacted.length > EVENT_LOG_MAX_CHARS
+    ? `${redacted.slice(0, EVENT_LOG_MAX_CHARS)}... (${redacted.length} chars, truncated)`
+    : redacted;
+}
+
 /**
  * Handles HTTP posting of scenario events to external endpoints.
  *
@@ -28,7 +59,11 @@ export class EventReporter {
 
   /**
    * Posts an event to the configured endpoint.
-   * Logs success/failure but doesn't throw - event posting shouldn't break scenario execution.
+   *
+   * Throws on network failures and non-2xx responses (with the HTTP status
+   * attached as `status`) so the event bus can retry delivery. A reporter
+   * that is not configured still returns `{}` silently: that is a setup
+   * state, not a delivery failure.
    */
   async postEvent(event: ScenarioEvent): Promise<{ setUrl?: string }> {
     /**
@@ -48,40 +83,58 @@ export class EventReporter {
       headers["X-Project-Id"] = this.projectId;
     }
 
+    let response: Response;
     try {
-      const response = await fetch(this.eventsEndpoint.href, {
+      response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
         body: JSON.stringify(processedEvent),
         headers,
       });
-
-      this.logger.debug(
-        `[${event.type}] Event POST response status: ${response.status}`
-      );
-
-      if (response.ok) {
-        const data = (await response.json()) as { url: string };
-        this.logger.debug(`[${event.type}] Event POST response:`, data);
-        result.setUrl = data.url;
-      } else {
-        const errorText = await response.text();
-        this.logger.error(`[${event.type}] Event POST failed:`, {
-          endpoint: this.eventsEndpoint.href,
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-          event: JSON.stringify(processedEvent),
-        });
-      }
     } catch (error) {
       this.logger.error(`[${event.type}] Event POST error:`, {
         error,
-        event: JSON.stringify(processedEvent),
+        scenarioRunId: event.scenarioRunId,
+        event: redactedEventSummary(processedEvent),
         endpoint: this.eventsEndpoint.href,
       });
+      throw error;
     }
 
-    return result;
+    this.logger.debug(
+      `[${event.type}] Event POST response status: ${response.status}`
+    );
+
+    if (response.ok) {
+      try {
+        const data = (await response.json()) as { url?: string };
+        this.logger.debug(`[${event.type}] Event POST response:`, data);
+        result.setUrl = data.url;
+      } catch (parseError) {
+        // The server accepted the event. A body that does not parse is not a
+        // delivery failure, and retrying it would post the event twice.
+        this.logger.debug(
+          `[${event.type}] Event POST response body was not JSON`,
+          parseError,
+        );
+      }
+      return result;
+    }
+
+    const errorText = await response.text();
+    this.logger.error(`[${event.type}] Event POST failed:`, {
+      endpoint: this.eventsEndpoint.href,
+      status: response.status,
+      statusText: response.statusText,
+      error: errorText,
+      scenarioRunId: event.scenarioRunId,
+      event: redactedEventSummary(processedEvent),
+    });
+    throw Object.assign(
+      new Error(
+        `[${event.type}] Event POST failed with status ${response.status}`
+      ),
+      { status: response.status }
+    );
   }
 
   /**
@@ -102,10 +155,10 @@ export class EventReporter {
    *   - other   → JSON.stringify-ed defensively (kept from PR #42's original
    *     coercion for AG-UI's string-typed content).
    *
-   *   AG-UI's `MessagesSnapshotEventSchema` types message `content` as
-   *   `string`, but post-180bab4 it carries arrays at runtime — the same
-   *   mismatch 180bab4 bridges with a cast at the conversion boundary. We cast
-   *   back here.
+   *   AG-UI declares a `content` type per message role: a string for most of
+   *   them, a record for an activity message. Normalisation answers the
+   *   wire-safe value for every role, which no single role's declared type
+   *   covers, so the rebuilt list is cast back to the event's own type once.
    */
   private processEventForApi(event: ScenarioEvent): ScenarioEvent {
     if (event.type === ScenarioEventType.MESSAGE_SNAPSHOT) {
@@ -113,12 +166,8 @@ export class EventReporter {
         ...event,
         messages: event.messages.map((message) => ({
           ...message,
-          // AG-UI types `content` as `string`; the normalised value may be an
-          // array (runtime audio content) or `undefined` (optional assistant
-          // content). Cast at the boundary like 180bab4's converter — the
-          // ingest schema accepts the union via `chatMessageSchema.content`.
-          content: normalizeMessageContent(message.content) as unknown as string,
-        })),
+          content: normalizeMessageContent(message.content),
+        })) as typeof event.messages,
       };
     }
     return event;
@@ -132,23 +181,19 @@ export class EventReporter {
  * ingest extractor can walk them and externalise inline `input_audio` — see
  * `processEventForApi`). Any other runtime shape is JSON.stringify-ed.
  *
- * AG-UI types `content` as `string`; arrays only appear at runtime
- * (post-180bab4), so the return is cast back to `string` at this boundary. The
- * runtime payload is valid per the ingest `chatMessageSchema.content` union of
- * string and array.
+ * The parameter and the return are `unknown` because the value crosses roles:
+ * AG-UI declares a string for most message roles and a record for an activity
+ * message, and arrays appear at runtime (post-180bab4). The runtime payload is
+ * valid per the ingest `chatMessageSchema.content` union of string and array.
  */
-function normalizeMessageContent(
-  content: string | undefined
-): string | undefined {
-  const runtimeContent = content as unknown;
-
+function normalizeMessageContent(content: unknown): unknown {
   if (
-    runtimeContent == null ||
-    typeof runtimeContent === "string" ||
-    Array.isArray(runtimeContent)
+    content == null ||
+    typeof content === "string" ||
+    Array.isArray(content)
   ) {
-    return runtimeContent as string | undefined;
+    return content;
   }
 
-  return JSON.stringify(runtimeContent);
+  return JSON.stringify(content);
 }

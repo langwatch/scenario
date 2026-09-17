@@ -1,4 +1,4 @@
-import { SpanProcessor, ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { SpanProcessor, ReadableSpan, Span } from "@opentelemetry/sdk-trace-base";
 import { attributes } from "langwatch/observability";
 
 /**
@@ -7,8 +7,35 @@ import { attributes } from "langwatch/observability";
  */
 export class JudgeSpanCollector implements SpanProcessor {
   private spans: ReadableSpan[] = [];
+  /**
+   * Every span id this process ever STARTED, keyed by trace id. The remote
+   * trace fetcher uses it to recognize the scenario process's own spans when
+   * the platform echoes them back. The per-thread view below cannot serve
+   * that: it walks ancestor attributes, and the walk breaks on spans whose
+   * ancestor chain crosses a still-open span (the current turn's spans) or
+   * whose instrumentation never tags the thread id (the judge's own model
+   * calls via instrumented SDKs).
+   */
+  private processSpanIds = new Map<string, Set<string>>();
+  /**
+   * Trace ids the remote trace fetcher settled, per thread. Clearing a
+   * thread by ended-span discovery cannot reach every registry entry: a
+   * fetched trace's local echoes may never end, or never associate with the
+   * thread (an instrumented SDK's model call carries no thread id). The
+   * fetcher claims the trace ids it touches, and `clearSpansForThread`
+   * releases the claims with the thread.
+   */
+  private threadTraceIds = new Map<string, Set<string>>();
 
-  onStart(): void {}
+  onStart(span: Span): void {
+    const ctx = span.spanContext();
+    let ids = this.processSpanIds.get(ctx.traceId);
+    if (!ids) {
+      ids = new Set();
+      this.processSpanIds.set(ctx.traceId, ids);
+    }
+    ids.add(ctx.spanId);
+  }
 
   onEnd(span: ReadableSpan): void {
     this.spans.push(span);
@@ -20,7 +47,42 @@ export class JudgeSpanCollector implements SpanProcessor {
 
   shutdown(): Promise<void> {
     this.spans = [];
+    this.processSpanIds = new Map();
+    this.threadTraceIds = new Map();
     return Promise.resolve();
+  }
+
+  /**
+   * Marks the given trace ids as owned by a thread, so
+   * `clearSpansForThread` can release their process-span registry entries
+   * even when no ended span ties the trace to the thread.
+   */
+  claimTraces(threadId: string, traceIds: string[]): void {
+    let owned = this.threadTraceIds.get(threadId);
+    if (!owned) {
+      owned = new Set();
+      this.threadTraceIds.set(threadId, owned);
+    }
+    for (const traceId of traceIds) {
+      owned.add(traceId);
+    }
+  }
+
+  /**
+   * True when this process started the given span itself: a fetched span
+   * with this id is a platform echo of a local span, never remote evidence.
+   */
+  isProcessSpan(traceId: string, spanId: string): boolean {
+    return this.processSpanIds.get(traceId)?.has(spanId) ?? false;
+  }
+
+  /**
+   * Removes one span by id. Used by the remote trace fetcher to retract a
+   * synthetic error span when the judge waits once more and the trace
+   * settles after all.
+   */
+  removeSpanById(spanId: string): void {
+    this.spans = this.spans.filter((s) => s.spanContext().spanId !== spanId);
   }
 
   /**
@@ -30,9 +92,17 @@ export class JudgeSpanCollector implements SpanProcessor {
    * @param threadId - The thread identifier whose spans should be cleared
    */
   clearSpansForThread(threadId: string): void {
+    const threadSpans = this.getSpansForThread(threadId);
     const threadSpanIds = new Set(
-      this.getSpansForThread(threadId).map((s) => s.spanContext().spanId)
+      threadSpans.map((s) => s.spanContext().spanId)
     );
+    for (const span of threadSpans) {
+      this.processSpanIds.delete(span.spanContext().traceId);
+    }
+    for (const traceId of this.threadTraceIds.get(threadId) ?? []) {
+      this.processSpanIds.delete(traceId);
+    }
+    this.threadTraceIds.delete(threadId);
     this.spans = this.spans.filter(
       (s) => !threadSpanIds.has(s.spanContext().spanId)
     );

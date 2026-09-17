@@ -1,6 +1,14 @@
 import * as agents from "./agents";
 import { configure } from "./config/configure";
 import * as domain from "./domain";
+import {
+  conversation,
+  evaluator,
+  field,
+  scenarioSource,
+  trace,
+  value,
+} from "./evaluators";
 import * as execution from "./execution";
 import * as runner from "./runner";
 import * as script from "./script";
@@ -20,6 +28,9 @@ export * from "./execution";
 export * from "./runner";
 export * from "./script";
 
+// Evaluators on scenario runs: the mapping helpers and the runner pieces.
+export * from "./evaluators";
+
 // Voice subsystem — type contract surface (PR1) + TTS / STT plumbing (PR2)
 // for issue #372. Adapter runtime / transports land in subsequent PRs
 // behind this same contract.
@@ -33,6 +44,10 @@ export type { ScenarioConfigureOptions } from "./config/configure";
 // Tracing public API
 export { setupScenarioTracing } from "./tracing/setup";
 export { scenarioOnly, withCustomScopes } from "./tracing/filters";
+export {
+  RemoteTraceFetcher,
+  remoteTraceFetcher,
+} from "./tracing/remote-trace-fetcher";
 export {
   ATTR_SCENARIO_SDK_NAME,
   ATTR_SCENARIO_SDK_VERSION,
@@ -58,12 +73,24 @@ const voiceAgentFactories = {
   composableAgent,
 };
 
+// Evaluator mapping helpers, the documented idiom on the `scenario` object
+// (`scenario.evaluator(...)`, `scenario.field(...)`, `scenario.trace.toolCall(...)`).
+const evaluatorHelpers = {
+  evaluator,
+  field,
+  value,
+  conversation,
+  trace,
+  scenarioSource,
+};
+
 type ScenarioApi = typeof agents &
   typeof domain &
   typeof execution &
   typeof runner &
   typeof script &
-  typeof voiceAgentFactories & {
+  typeof voiceAgentFactories &
+  typeof evaluatorHelpers & {
     configure: typeof configure;
   };
 
@@ -74,6 +101,7 @@ export const scenario: ScenarioApi = {
   ...runner,
   ...script,
   ...voiceAgentFactories,
+  ...evaluatorHelpers,
   configure,
 };
 

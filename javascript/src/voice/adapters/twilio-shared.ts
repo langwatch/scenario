@@ -33,6 +33,7 @@
  */
 
 import { Buffer } from "node:buffer";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import { PCM16_SAMPLE_RATE } from "../audio-chunk";
 
@@ -48,14 +49,61 @@ const E164_RE = /^\+[1-9]\d{6,14}$/;
 // Guards against TwiML XML injection in sendDtmfOnCall.
 const DTMF_RE = /^[0-9*#wW]+$/;
 
-/** Throw unless `phoneNumber` is a valid E.164 string (`+` then 7–15 digits). */
+/**
+ * Throw unless `phoneNumber` is a valid E.164 string (`+` then 7–15 digits).
+ *
+ * The message redacts the offending number: `placeCall` validates BEFORE the
+ * allowlist check, so a mistyped external destination would otherwise reach
+ * logs in full while every other Twilio failure path redacts. The format hint
+ * already tells the caller what shape was expected.
+ */
 export function validateE164(phoneNumber: string): void {
   if (!E164_RE.test(phoneNumber)) {
     throw new Error(
-      `phone_number ${JSON.stringify(phoneNumber)} is not in E.164 format ` +
+      `phone_number ${redactE164(phoneNumber)} is not in E.164 format ` +
         `(expected e.g. '+14155551234', pattern: leading '+' then 7–15 digits).`,
     );
   }
+}
+
+/**
+ * Validate a phone number and return its canonical comparison form.
+ *
+ * Allowlist membership is decided on the value this returns, on BOTH sides of
+ * the comparison, so a match is an exact `Set` lookup. Never compare raw
+ * strings with `includes`/`startsWith`: "+1415555" is a prefix of a real
+ * allowlisted number and must not pass.
+ */
+export function normalizeE164(phoneNumber: string): string {
+  const stripped = phoneNumber.trim();
+  validateE164(stripped);
+  return stripped;
+}
+
+/**
+ * Thrown when the public base URL is not yet reachable from the edge.
+ *
+ * A-leg origination hands Twilio our public URL and Twilio opens the media
+ * WebSocket against it within seconds. If the tunnel edge is not live yet the
+ * call connects to nothing: the caller pays for a dead PSTN call that ends in a
+ * confusing stream-connect timeout. Failing fast under a named error before
+ * origination is the cheaper failure.
+ */
+export class TunnelNotReadyError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "TunnelNotReadyError";
+  }
+}
+
+/**
+ * Anything that can tell us our public URL is reachable from the edge.
+ *
+ * Structurally satisfied by any tunnel wrapper that exposes the check; the
+ * adapter never owns or opens a tunnel itself, it only asks.
+ */
+export interface TunnelReadiness {
+  waitUntilEdgeReachable(): Promise<void>;
 }
 
 /** Throw unless `tones` is a valid DTMF string (`[0-9*#wW]+`). */
@@ -262,6 +310,11 @@ export interface MediaStreamEvent {
   dtmfDigit?: string;
   /** Mark name (present for `mark` frames). */
   markName?: string;
+  /**
+   * `start.customParameters` — the `<Parameter>` children of `<Stream>`. Carries
+   * the a-leg per-call nonce; absent for every other event and for b-leg.
+   */
+  customParameters?: Record<string, string>;
 }
 
 const KNOWN_EVENTS = new Set<MediaStreamEventName>([
@@ -331,7 +384,18 @@ export function parseMediaStreamFrame(text: string): MediaStreamEvent | null {
     return { event: "mark", streamSid, markName: name };
   }
 
-  // connected, start, stop — no payload-specific fields.
+  if (event === "start") {
+    const raw = start.customParameters;
+    const customParameters: Record<string, string> = {};
+    if (raw && typeof raw === "object") {
+      for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof value === "string") customParameters[name] = value;
+      }
+    }
+    return { event: "start", streamSid, callSid, customParameters };
+  }
+
+  // connected, stop — no payload-specific fields.
   return { event: event as MediaStreamEventName, streamSid, callSid };
 }
 
@@ -451,17 +515,45 @@ export class TwilioRESTHelper {
    * `twimlUrl` — the historical Python version dropped that too (SSRF-via-
    * Twilio risk if a caller ever passed an attacker-controlled URL).
    */
-  async placeCall(args: { to: string; from: string; twiml: string }): Promise<string> {
+  async placeCall(args: {
+    to: string;
+    from: string;
+    twiml: string;
+    /**
+     * Twilio's own maximum call duration in seconds (`TimeLimit` on the wire).
+     * Twilio hangs the call up when it elapses, which is the ONLY duration
+     * guard that still fires if this process hangs or is killed — the
+     * adapter-side timer is the second belt. Omitted from the request entirely
+     * when undefined, so b-leg origination bodies stay byte-identical to what
+     * they have always been.
+     */
+    timeLimitSeconds?: number;
+  }): Promise<string> {
     const body = new URLSearchParams({
       To: args.to,
       From: args.from,
       Twiml: args.twiml,
     });
+    if (args.timeLimitSeconds !== undefined) {
+      body.set("TimeLimit", String(args.timeLimitSeconds));
+    }
     const data = (await this._request("POST", `/Calls.json`, body)) as { sid?: string };
     if (!data.sid) {
       throw new Error("Twilio REST Calls.create returned no sid");
     }
     return data.sid;
+  }
+
+  /**
+   * Hang up an in-progress call (REST `Status=completed`).
+   *
+   * The adapter-side max-duration timer's teardown action (#762 guardrail (b)).
+   * Same `POST /Calls/{sid}.json` idiom as {@link sendDtmfOnCall}, but it ends
+   * the call outright instead of replacing its TwiML.
+   */
+  async endCall(callSid: string): Promise<void> {
+    const body = new URLSearchParams({ Status: "completed" });
+    await this._request("POST", `/Calls/${callSid}.json`, body);
   }
 
   /** Send DTMF on an in-progress call via TwiML update with `<Play digits>`. */
@@ -490,6 +582,23 @@ export function redactE164(number: string | undefined | null): string {
 }
 
 /**
+ * Derive the Media Streams WebSocket URL from the adapter's public base URL.
+ *
+ * `https:` → `wss:` (`http:` → `ws:`), trailing slash stripped,
+ * `/twilio/stream` appended. Single source of truth for the string-munging:
+ * both the inbound webhook ({@link TwilioWebhookServer}) and the A-leg
+ * origination TwiML (`TwilioAgentAdapter.placeCall`) route through here.
+ */
+export function streamWsUrl(publicBaseUrl: string): string {
+  return (
+    publicBaseUrl
+      .replace(/^https:/, "wss:")
+      .replace(/^http:/, "ws:")
+      .replace(/\/$/, "") + "/twilio/stream"
+  );
+}
+
+/**
  * Escape a string for safe interpolation into XML attribute values / element
  * text. Used by the TwiML response builder so the stream URL never breaks out
  * of the `url="..."` attribute.
@@ -501,6 +610,86 @@ export function escapeXmlAttr(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+/**
+ * Hard ceiling on how long an a-leg call may live, in seconds (#762 guardrail
+ * (b)). A-leg mode dials numbers we do not own, so a runaway call is a runaway
+ * bill; 300s is well past any scenario turn-taking demo and far short of a
+ * forgotten-call disaster. A per-call value ABOVE this cap is a caller error,
+ * never a silent clamp — see {@link resolveMaxCallDuration}. Mirrors Python's
+ * `MAX_CALL_DURATION_CAP_SECONDS`.
+ */
+export const MAX_CALL_DURATION_CAP_SECONDS = 300;
+
+/**
+ * Applied when an a-leg `placeCall` names no duration. Equal to the cap: an
+ * unspecified duration must still be bounded, and the safest bound we are
+ * willing to grant at all is the one the cap already sets.
+ */
+export const DEFAULT_MAX_CALL_DURATION_SECONDS = MAX_CALL_DURATION_CAP_SECONDS;
+
+/**
+ * Resolve an a-leg call's maximum duration in seconds.
+ *
+ * `undefined` yields {@link DEFAULT_MAX_CALL_DURATION_SECONDS}. A request above
+ * {@link MAX_CALL_DURATION_CAP_SECONDS} throws rather than clamping: the cap
+ * exists to bound spend, and a caller who silently receives a shorter call than
+ * the one they asked for debugs the wrong problem.
+ *
+ * Distinct from `placeCall`'s `timeoutMs`, which bounds how long we WAIT FOR
+ * THE MEDIA STREAM TO CONNECT, not how long the call may last.
+ */
+export function resolveMaxCallDuration(requested: number | undefined): number {
+  if (requested === undefined) return DEFAULT_MAX_CALL_DURATION_SECONDS;
+  if (!(requested > 0)) {
+    throw new Error(
+      `maxCallDurationSeconds must be a positive number of seconds, got ${JSON.stringify(requested)}.`,
+    );
+  }
+  if (requested > MAX_CALL_DURATION_CAP_SECONDS) {
+    throw new Error(
+      `maxCallDurationSeconds=${JSON.stringify(requested)} exceeds the ` +
+        `${MAX_CALL_DURATION_CAP_SECONDS}s cap on a-leg calls. A-leg mode dials ` +
+        `numbers this account does not own; the cap bounds spend and is not ` +
+        `per-call overridable.`,
+    );
+  }
+  return Math.trunc(requested);
+}
+
+/**
+ * Byte length of the per-call media-stream nonce (a-leg WS auth, #762).
+ * 16 bytes = 128 bits — UUIDv4-grade entropy, far beyond guessing for a value
+ * that lives only for one call. Rendered as lowercase hex because hex survives
+ * Twilio's `<Parameter>` round-trip with no alphabet, padding, or case
+ * ambiguity. Mirrors Python's `STREAM_NONCE_BYTES`.
+ */
+export const STREAM_NONCE_BYTES = 16;
+
+/** Length of the hex rendering of a minted nonce. */
+export const STREAM_NONCE_HEX_LEN = STREAM_NONCE_BYTES * 2;
+
+/** Mint a fresh per-call media-stream nonce from the OS CSPRNG. */
+export function mintStreamNonce(): string {
+  return randomBytes(STREAM_NONCE_BYTES).toString("hex");
+}
+
+/**
+ * Timing-safe compare of a received nonce against the minted one.
+ *
+ * A missing/empty `received` never matches: the caller enforces on adapter
+ * state (a-leg mode minted a nonce), not on the frame carrying one, so omitting
+ * the `<Parameter>` is a rejection rather than a bypass. Unequal lengths short-
+ * circuit because `timingSafeEqual` throws on them; the nonce length is fixed
+ * and public, so that leaks nothing.
+ */
+export function nonceMatches(expected: string, received: string | undefined): boolean {
+  if (!received) return false;
+  const a = Buffer.from(expected, "utf-8");
+  const b = Buffer.from(received, "utf-8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 /**

@@ -17,7 +17,7 @@
  * returned a non-empty STT `user_transcript` — i.e. audio actually reached the
  * agent.
  *
- * Env-gated on ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID + OPENAI_API_KEY; self-
+ * Env-gated on ELEVENLABS_CONVAI_API_KEY + ELEVENLABS_AGENT_ID + OPENAI_API_KEY; self-
  * skips otherwise. Runs live via the `javascript-voice-integration.yml`
  * workflow_dispatch (AC5: 3 consecutive clean runs).
  */
@@ -26,17 +26,16 @@ import { describe, it, expect } from "vitest";
 
 import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_CONVAI_KEY = voice.resolveElevenLabsConvAIApiKey();
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-const hasHostedKey = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
+const hasHostedKey = Boolean(ELEVENLABS_CONVAI_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
 
 /** Build a fresh hosted-EL adapter (real-audio streaming is the only behavior). */
 function realAudioAgent(): voice.ElevenLabsAgentAdapter {
   return scenario.elevenLabsAgent({
     agentId: ELEVENLABS_AGENT_ID!,
-    apiKey: ELEVENLABS_API_KEY!,
     // The fix: stream REAL PCM for every user turn so EL's STT/VAD/
     // turn-detector run on turns 2+, instead of text-committing them.
   });
@@ -85,7 +84,7 @@ function assertRealVoiceMultiTurn(
 
 describe("hosted-EL real voice-in multi-turn (live)", () => {
   if (!hasHostedKey) {
-    it.skip("requires ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID + OPENAI_API_KEY", () => {});
+    it.skip("requires ELEVENLABS_CONVAI_API_KEY + ELEVENLABS_AGENT_ID + OPENAI_API_KEY", () => {});
     return;
   }
 

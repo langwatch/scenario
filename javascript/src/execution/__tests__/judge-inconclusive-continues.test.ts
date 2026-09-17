@@ -73,6 +73,22 @@ function finishTestCall(
   } as unknown as InvokeLLMResult;
 }
 
+function makeVerdictCall(): InvokeLLMResult {
+  return {
+    text: "",
+    content: [],
+    toolCalls: [
+      {
+        toolName: "make_verdict",
+        type: "tool-call" as const,
+        toolCallId: "tc-make-verdict",
+        input: {},
+      },
+    ],
+    toolResults: [],
+  } as unknown as InvokeLLMResult;
+}
+
 describe("given a judge that hedges on the first turn (#886)", () => {
   describe("when finish_test returns verdict inconclusive with turns remaining", () => {
     it("continues the conversation and reaches the real verdict", async () => {
@@ -86,9 +102,16 @@ describe("given a judge that hedges on the first turn (#886)", () => {
         spanCollector: new JudgeSpanCollector(),
       });
       let judgeLLMCalls = 0;
-      judge.invokeLLM = async () => {
+      let verdictCalls = 0;
+      judge.invokeLLM = async (params) => {
         judgeLLMCalls += 1;
-        return judgeLLMCalls === 1
+        // Honor the offered toolset: decision calls offer continue_test /
+        // make_verdict (no finish_test), the verdict call offers finish_test.
+        if (!("finish_test" in (params.tools ?? {}))) {
+          return makeVerdictCall();
+        }
+        verdictCalls += 1;
+        return verdictCalls === 1
           ? finishTestCall("inconclusive", "inconclusive")
           : finishTestCall("success", "true");
       };
@@ -111,7 +134,9 @@ describe("given a judge that hedges on the first turn (#886)", () => {
 
       // Before the fix the run died here: success=false after ONE turn, with
       // the judge's own reasoning saying the verdict should be inconclusive.
-      expect(judgeLLMCalls).toBe(2);
+      // Two turns, each a decision call plus a voluntary verdict call.
+      expect(judgeLLMCalls).toBe(4);
+      expect(verdictCalls).toBe(2);
       expect(sim.calls).toBe(2);
       expect(result.success).toBe(true);
       expect(result.metCriteria).toContain("Agent greets the user politely");

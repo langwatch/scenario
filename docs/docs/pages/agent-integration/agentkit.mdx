@@ -47,6 +47,7 @@ const createAgent = (): AgentAdapter => {
   const agentState = createState();
 
   return {
+    name: "AgentKitAgent",
     role: AgentRole.AGENT,
     call: async (input) => {
       const latestMessage = input.messages.at(-1)?.content || "";

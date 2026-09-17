@@ -1,5 +1,29 @@
 name: release-please
 
+# Why the release pull requests open as drafts (`draft-pull-request` in
+# .release-please-config.json, which is strict JSON and cannot hold this note).
+#
+# release-please creates-or-updates one release pull request per package, so
+# every merge to main force-pushes those branches. The diff is a changelog plus
+# a version field, and the aggregator workflows path-filter on the package
+# directory those files live in, correctly, since a dependency bump touches the
+# same files and a path filter cannot tell the two apart. So a two-file metadata
+# change pulled the JavaScript suite, the Python suite and the examples legs on
+# every merge, for as long as the release pull request stayed open.
+#
+# The heavy jobs of javascript-ci, python-ci and docs-ci already skip a draft,
+# so this buys the reduction with no new mechanism, and the full suite still
+# runs before anything ships: marking the pull request ready to review fires
+# `ready_for_review`, which those three list in their trigger types precisely so
+# the heavy jobs get their run then. A draft cannot be merged, so "ready for
+# review" is the same click as "I am releasing this".
+#
+# Setting it here rather than by hand matters on the next cycle: release-please
+# updates an existing release pull request, but once one merges it opens a fresh
+# pull request for the following version, and that one would be non-draft again.
+#
+# Spec: specs/release-pr-drafts.feature
+
 on:
   push:
     branches:
@@ -14,7 +38,7 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v4
         id: release
         with:
           # Use a PAT so that the created releases trigger downstream

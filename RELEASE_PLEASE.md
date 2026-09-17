@@ -42,9 +42,26 @@ type(scope): description
 ## Release Process
 
 1. **Make Changes**: Create PRs with conventional commit messages
-2. **Merge to Main**: Release Please will create release PRs automatically
+2. **Merge to Main**: Release Please will create release PRs automatically, as drafts
 3. **Review Release PR**: Check the generated changelog and version bumps
-4. **Merge Release PR**: This triggers the automated publishing workflows
+4. **Mark it Ready for Review**: This runs the full test suite against the release commit
+5. **Merge Release PR**: This triggers the automated publishing workflows
+
+### Why the release PRs are drafts
+
+Release Please updates its release PRs on every merge to `main`, and the
+aggregator workflows path-filter on the package directory the version bump
+lands in. Without the draft, a changelog and a version field ran the JavaScript
+suite, the Python suite and the examples legs on every merge, for as long as the
+release PR stayed open.
+
+The heavy jobs of `javascript-ci`, `python-ci` and `docs-ci` skip a draft, and
+they list `ready_for_review` in their trigger types, so marking the release PR
+ready runs the full suite before anything ships. A draft cannot be merged, so
+marking it ready is the same click as deciding to release. The setting is
+`draft-pull-request` in `.release-please-config.json`, and
+`scripts/validate-aggregator-workflows.sh` fails if it or either half of the
+gate is removed. Spec: `specs/release-pr-drafts.feature`.
 
 ## Manual Release (if needed)
 

@@ -8,7 +8,11 @@ the backend, and provides a single import location for event models.
 If you need to add custom logic or helpers, you can extend or wrap these models here.
 """
 
+from dataclasses import dataclass
 from typing import Union, Any, Optional, TypeAlias
+
+from attrs import define as _attrs_define
+
 from scenario._generated.langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
     PostApiScenarioEventsBodyType0Metadata,
@@ -18,11 +22,86 @@ from scenario._generated.langwatch_api_client.lang_watch_api_client.models impor
     PostApiScenarioEventsBodyType1Status,
     PostApiScenarioEventsBodyType2,
 )
+from scenario._generated.langwatch_api_client.lang_watch_api_client.types import (
+    UNSET,
+    Unset,
+)
 from .messages import MessageType
 
-# Create alias for cleaner naming
-ScenarioRunStartedEventMetadata: TypeAlias = PostApiScenarioEventsBodyType0Metadata
-ScenarioRunFinishedEventResults: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0
+
+@dataclass(frozen=True)
+class ScenarioRunStartedEventAgent:
+    """
+    One agent that takes part in a scenario run.
+
+    Args:
+        name (str): The adapter's explicit name, or its class name when it sets none
+        role (str): The adapter's role in lower case: "agent", "user" or "judge"
+    """
+
+    name: str
+    role: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "role": self.role}
+
+
+@_attrs_define
+class ScenarioRunStartedEventMetadata(PostApiScenarioEventsBodyType0Metadata):
+    """
+    Metadata of a scenario run, extended with the agents that the run uses
+    and the fields the scenario carries.
+
+    The generated model carries `name` and `description`. `agents` and
+    `fields` are added here because the generated client is not regenerated
+    for these fields. They stay top level keys next to `name` and
+    `description`, and never go into the `langwatch` key, which the platform
+    reserves for itself.
+
+    Args:
+        agents (Union[Unset, list[ScenarioRunStartedEventAgent]]): The agents of the
+            run, in the order in which the scenario lists them
+        fields (Union[Unset, dict[str, Any]]): The values the scenario carries
+            next to its description, keyed by field name
+    """
+
+    agents: Union[Unset, list[ScenarioRunStartedEventAgent]] = UNSET
+    fields: Union[Unset, dict[str, Any]] = UNSET
+
+    def to_dict(self) -> dict[str, Any]:
+        field_dict = super().to_dict()
+        if not isinstance(self.agents, Unset):
+            field_dict["agents"] = [agent.to_dict() for agent in self.agents]
+        if not isinstance(self.fields, Unset):
+            field_dict["fields"] = dict(self.fields)
+        return field_dict
+
+
+@_attrs_define
+class ScenarioRunFinishedEventResults(PostApiScenarioEventsBodyType1ResultsType0):
+    """
+    Results of a scenario run, extended with the evaluations the run itself ran.
+
+    The generated model carries the verdict, the criteria and the reasoning.
+    `evaluations` is added here because the generated client is not
+    regenerated for this field. It is sent only when the run ran evaluators:
+    the platform stores the list as it is and skips its own evaluators, so an
+    absent key is what lets a platform-run scenario evaluate server-side.
+
+    Args:
+        evaluations (Union[Unset, list[dict[str, Any]]]): One entry per
+            evaluator, in the wire shape of `results.evaluations`
+    """
+
+    evaluations: Union[Unset, list[dict[str, Any]]] = UNSET
+
+    def to_dict(self) -> dict[str, Any]:
+        field_dict = super().to_dict()
+        if not isinstance(self.evaluations, Unset):
+            field_dict["evaluations"] = list(self.evaluations)
+        return field_dict
+
+
 ScenarioRunFinishedEventVerdict: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0Verdict
 ScenarioRunFinishedEventStatus: TypeAlias = PostApiScenarioEventsBodyType1Status
 
@@ -152,6 +231,7 @@ ScenarioEvent = Union[
 __all__ = [
     "ScenarioEvent",
     "ScenarioRunStartedEvent",
+    "ScenarioRunStartedEventAgent",
     "ScenarioRunStartedEventMetadata",
     "ScenarioRunFinishedEvent",
     "ScenarioRunFinishedEventResults",

@@ -17,30 +17,16 @@
  * Tag convention: `@ts-assistant-role` (per-subject) — see issue #523.
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect } from "vitest";
 
-import { AudioChunk } from "../../voice/audio-chunk";
 import { makeChunk } from "./fixtures/make-chunk";
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
+import { AudioChunk } from "../../voice/audio-chunk";
 import { createAudioMessage, extractAudio, messageHasAudio } from "../../voice/messages";
 import { JudgeAgent } from "../judge/judge-agent";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature"
-);
-
-
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

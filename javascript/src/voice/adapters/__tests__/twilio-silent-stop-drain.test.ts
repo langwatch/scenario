@@ -165,7 +165,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     await driveTwilioProduction(adapter, scriptedSocket([startFrame(), stopFrame()]));
 
     // Production nulled the transport — the condition that threw pre-fix.
-    expect(adapter._streamWsForTest).toBeNull();
+    expect(adapter._streamWsForServer).toBeNull();
     expect(adapter._streamSidForTest).toBeUndefined();
 
     const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
@@ -183,7 +183,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     // Only a start frame, then the socket closes (receiveText → null).
     await driveTwilioProduction(adapter, scriptedSocket([startFrame()]));
 
-    expect(adapter._streamWsForTest).toBeNull();
+    expect(adapter._streamWsForServer).toBeNull();
     expect(adapter._streamSidForTest).toBeUndefined();
 
     const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
@@ -203,7 +203,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
       scriptedSocket([startFrame(), buildMediaFrame(STREAM_SID, mulaw), stopFrame()]),
     );
 
-    expect(adapter._streamWsForTest).toBeNull(); // production teardown ran
+    expect(adapter._streamWsForServer).toBeNull(); // production teardown ran
 
     const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
     // Real audio survived as the first chunk; the sentinel lands after it.
@@ -231,7 +231,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
 
     // The loop's finally ran on the throw path and production teardown nulled
     // the transport.
-    expect(adapter._streamWsForTest).toBeNull();
+    expect(adapter._streamWsForServer).toBeNull();
 
     const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
     expect(first.data.length).toBe(0);
@@ -253,7 +253,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     const sock = controllableSocket();
     const session2 = driveTwilioProduction(adapter, sock);
     sock.push(startFrame("MZ695b", "CA695b"));
-    await vi.waitFor(() => expect(adapter._streamWsForTest).not.toBeNull());
+    await vi.waitFor(() => expect(adapter._streamWsForServer).not.toBeNull());
 
     // The regression this pins: if session 1's `_streamEnded` were still set
     // (flag scoped to the connection instead of the call), this receiveAudio
@@ -313,7 +313,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
 describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
   /** Poll until the route handler's `finally` has nulled the transport. */
   async function awaitTeardown(adapter: TwilioAgentAdapter): Promise<void> {
-    await vi.waitFor(() => expect(adapter._streamWsForTest).toBeNull(), {
+    await vi.waitFor(() => expect(adapter._streamWsForServer).toBeNull(), {
       timeout: 5_000,
     });
   }

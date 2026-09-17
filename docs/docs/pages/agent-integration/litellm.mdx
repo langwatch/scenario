@@ -18,6 +18,8 @@ import scenario
 import litellm
 
 class LiteLLMAgentAdapter(scenario.AgentAdapter):
+    name = "LiteLLMAgent"
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         response = litellm.completion(
             model="openai/gpt-4.1-mini",

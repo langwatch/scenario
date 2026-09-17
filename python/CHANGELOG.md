@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.5.0](https://github.com/langwatch/scenario/compare/python/v1.4.0...python/v1.5.0) (2026-09-06)
+
+
+### Features
+
+* evaluators on scenario runs with mappings as functions of the state ([#966](https://github.com/langwatch/scenario/issues/966)) ([a2c8070](https://github.com/langwatch/scenario/commit/a2c8070f5120b59330d34b526c8ac37c8e2fc4f9))
+
+
+### Bug Fixes
+
+* **#922:** always report a scenario run as finished, and make event delivery retry ([#928](https://github.com/langwatch/scenario/issues/928)) ([7f5e220](https://github.com/langwatch/scenario/commit/7f5e220a4678345912e6842cc6f9fce4ea6aa42a))
+* evaluator client refuses redirects, saved evaluators declare their inputs, repeated tool calls stay distinct ([#971](https://github.com/langwatch/scenario/issues/971)) ([212728e](https://github.com/langwatch/scenario/commit/212728e3c34b65f87d9c7176245913c9a6e384ff))
+
+## [1.4.0](https://github.com/langwatch/scenario/compare/python/v1.3.0...python/v1.4.0) (2026-09-01)
+
+
+### Features
+
+* agent adapters carry a name and runs report their agents ([#952](https://github.com/langwatch/scenario/issues/952)) ([6df4e12](https://github.com/langwatch/scenario/commit/6df4e1296f23079e70a1ea7c40dd0877bbd15d7a))
+* scenario.run accepts a connected agent function ([#954](https://github.com/langwatch/scenario/issues/954)) ([5cb7758](https://github.com/langwatch/scenario/commit/5cb7758a1197a7e97e023257e68608a86d05b968))
+* **voice:** let the python realtime adapters mint through a voice gateway ([#938](https://github.com/langwatch/scenario/issues/938)) ([0545b34](https://github.com/langwatch/scenario/commit/0545b34eb691ad3ce07583aaaa773440bb47d27c))
+
+
+### Miscellaneous
+
+* **audio-examples:** bring the fourth sibling into the shared judge criteria ([#682](https://github.com/langwatch/scenario/issues/682)) ([#936](https://github.com/langwatch/scenario/issues/936)) ([5e1bd79](https://github.com/langwatch/scenario/commit/5e1bd79fff5ce5733dd60db915bf2a91a552c861))
+* **deps:** bump opentelemetry-sdk ([84b4fac](https://github.com/langwatch/scenario/commit/84b4fac1598504ba817366c6ad55b006fc6a8564))
+* **deps:** bump opentelemetry-sdk from 1.42.0 to 1.44.0 in /python in the opentelemetry group across 1 directory ([#801](https://github.com/langwatch/scenario/issues/801)) ([84b4fac](https://github.com/langwatch/scenario/commit/84b4fac1598504ba817366c6ad55b006fc6a8564))
+* **deps:** bump rich from 14.3.4 to 15.0.0 in /python ([#808](https://github.com/langwatch/scenario/issues/808)) ([8d90cf4](https://github.com/langwatch/scenario/commit/8d90cf4734a6c3ea985df38fc940ed0cd17835d7))
+
+## [1.3.0](https://github.com/langwatch/scenario/compare/python/v1.2.0...python/v1.3.0) (2026-08-18)
+
+
+### Features
+
+* judge fetches remote traces with per-turn trace propagation ([#909](https://github.com/langwatch/scenario/issues/909)) ([149778c](https://github.com/langwatch/scenario/commit/149778cc222252db05cfb534e397bf7975a8fff3))
+
+## [1.2.0](https://github.com/langwatch/scenario/compare/python/v1.1.1...python/v1.2.0) (2026-08-13)
+
+
+### Features
+
+* **judge:** minTurns — a guaranteed-turns floor the judge cannot end early ([#900](https://github.com/langwatch/scenario/issues/900)) ([c9b58bb](https://github.com/langwatch/scenario/commit/c9b58bbf730d5a90ea8a1c2c8310d5b9748565ed))
+* **python:** export the voice error types from the package root ([#723](https://github.com/langwatch/scenario/issues/723)) ([#894](https://github.com/langwatch/scenario/issues/894)) ([894cbed](https://github.com/langwatch/scenario/commit/894cbedcb2129ee88455603087ff96ca666f5acf))
+
+## [1.1.1](https://github.com/langwatch/scenario/compare/python/v1.1.0...python/v1.1.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **voice:** align the JS response timeout with Python and split the two receiveAudio timeouts ([#895](https://github.com/langwatch/scenario/issues/895)) ([cdb955f](https://github.com/langwatch/scenario/commit/cdb955faae9b04e8e8b442fec61504f352e31a70))
+* **voice:** point the Python STT seam at set_stt_provider ([#841](https://github.com/langwatch/scenario/issues/841)) ([524966d](https://github.com/langwatch/scenario/commit/524966d0ec0d9c364379959c19802e7c91f92f51)), closes [#743](https://github.com/langwatch/scenario/issues/743)
+
 ## [1.1.0](https://github.com/langwatch/scenario/compare/python/v1.0.0...python/v1.1.0) (2026-08-12)
 
 

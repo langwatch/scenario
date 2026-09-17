@@ -9,6 +9,7 @@ for converting between different message formats.
 from .events import (
     ScenarioEvent,
     ScenarioRunStartedEvent,
+    ScenarioRunStartedEventAgent,
     ScenarioRunStartedEventMetadata,
     ScenarioRunFinishedEvent,
     ScenarioRunFinishedEventResults,
@@ -39,6 +40,7 @@ __all__ = [
     # Event types
     "ScenarioEvent",
     "ScenarioRunStartedEvent",
+    "ScenarioRunStartedEventAgent",
     "ScenarioRunStartedEventMetadata",
     "ScenarioRunFinishedEvent",
     "ScenarioRunFinishedEventResults",

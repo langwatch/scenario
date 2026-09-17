@@ -182,7 +182,10 @@ class TestBuildTraceDigestLargeTrace:
             assert "expand_trace" in tool_names
             assert "grep_trace" in tool_names
             assert "continue_test" in tool_names
-            assert "finish_test" in tool_names
+            assert "make_verdict" in tool_names
+            # The verdict schema belongs to the verdict call, never the
+            # decision call.
+            assert "finish_test" not in tool_names
 
 
 class TestProgressiveDiscoveryLoop:
@@ -206,7 +209,8 @@ class TestProgressiveDiscoveryLoop:
         expand_response.choices[0].message.content = None
         expand_response.choices[0].message.role = "assistant"
 
-        # Second call: LLM finishes
+        # Second call: LLM decides it has enough; third call: the verdict
+        make_verdict_response = mock_litellm_response("make_verdict", {})
         finish_response = mock_litellm_response("finish_test", {
             "criteria": {"agent_works": "true"},
             "reasoning": "All good",
@@ -220,6 +224,8 @@ class TestProgressiveDiscoveryLoop:
             call_count += 1
             if call_count == 1:
                 return expand_response
+            if call_count == 2:
+                return make_verdict_response
             return finish_response
 
         with patch(
@@ -228,8 +234,8 @@ class TestProgressiveDiscoveryLoop:
         ):
             result = await judge.call(create_base_input())
 
-            # Should have made 2 LLM calls (expand + finish)
-            assert call_count == 2
+            # Three LLM calls: expand + make_verdict + finish
+            assert call_count == 3
 
     @pytest.mark.asyncio
     async def test_executes_grep_tool_and_continues_loop(self) -> None:

@@ -8,12 +8,12 @@
 
 import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
 import type { ScenarioResult } from "../../domain";
 import {
   computeLatencyMetrics,
@@ -25,8 +25,6 @@ import type {
   VoiceEvent,
 } from "../recording.types";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");
 const SAMPLE_RATE = 24000;
 
 function pcmSegment(
@@ -78,7 +76,7 @@ function makeVoiceResult(overrides: {
   };
 }
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

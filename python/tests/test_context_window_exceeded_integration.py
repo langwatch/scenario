@@ -9,7 +9,7 @@ See: specs/context-window-exceeded.feature
 """
 
 import pytest
-from typing import List
+from typing import Any, List
 
 import scenario
 from scenario._generated.langwatch_api_client.lang_watch_api_client.types import Unset
@@ -57,7 +57,7 @@ class MockEventReporter(EventReporter):
     def __init__(self) -> None:
         self.posted_events: List[ScenarioEvent] = []
 
-    async def post_event(self, event: ScenarioEvent) -> dict:
+    async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> dict:
         self.posted_events.append(event)
         return {}
 

@@ -54,6 +54,43 @@ if os.getenv("OPENAI_API_KEY"):
 
 
 # --------------------------------------------------------------------- #
+# Unit-suite network guard                                              #
+# --------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _no_gateway_mint_in_unit_tests(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the voice unit suite off the network.
+
+    Both realtime adapters now mint a session credential over HTTP before
+    they open their socket, and that mint is a real request to whatever
+    OPENAI_BASE_URL or ELEVENLABS_BASE_URL names. A unit test that drives a
+    fake socket would otherwise reach a live vendor on every ``connect()``,
+    which is slow, costs money, and fails differently on every machine
+    depending on what the developer has exported.
+
+    Only the ENDPOINT RESOLUTION is neutralised, so a test that passes an
+    explicit endpoint still exercises the whole mint. Integration tests, whose
+    point is to reach a live provider, keep resolution; so does anything
+    marked ``voice_gateway_mint``, which is testing resolution itself.
+    """
+    if request.node.get_closest_marker("integration"):
+        return
+    if request.node.get_closest_marker("voice_gateway_mint"):
+        return
+    monkeypatch.setattr(
+        "scenario.voice.adapters.openai_realtime.resolve_realtime_mint_endpoint",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "scenario.voice.adapters.elevenlabs.resolve_elevenlabs_mint_endpoint",
+        lambda *_args, **_kwargs: None,
+    )
+
+
+# --------------------------------------------------------------------- #
 # Helpers                                                               #
 # --------------------------------------------------------------------- #
 
@@ -84,6 +121,17 @@ _TWILIO_REQUIRED_KEYS = (
     "TWILIO_AUTH_TOKEN",
     "TWILIO_PHONE_NUMBER",
     "TWILIO_PHONE_NUMBER_2",
+)
+
+
+# Keys required by the a-leg external live smoke (#762 AC11). No
+# TWILIO_PHONE_NUMBER_2: a-leg needs no second owned number, only an explicit
+# external destination the operator has consented to dial.
+_TWILIO_A_LEG_REQUIRED_KEYS = (
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_PHONE_NUMBER",
+    "SCENARIO_TWILIO_EXTERNAL_TO",
 )
 
 
@@ -344,6 +392,18 @@ def requires_twilio_outbound():
     number whose own harness answers. No human required.
     """
     _require_twilio_env(_TWILIO_REQUIRED_KEYS, _twilio_auth_ok)
+
+
+@pytest.fixture
+def requires_twilio_a_leg_external():
+    """Skip when a-leg live env is ABSENT; FAIL when present-but-broken (#796 opt b).
+
+    A-leg dials a number this account does NOT own, so it needs no second Twilio
+    number — but it does need an explicit external destination, which is also
+    what keeps this test from ever dialling by accident: no
+    ``SCENARIO_TWILIO_EXTERNAL_TO``, no call.
+    """
+    _require_twilio_env(_TWILIO_A_LEG_REQUIRED_KEYS, _twilio_auth_ok)
 
 
 @pytest.fixture

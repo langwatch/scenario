@@ -1,0 +1,74 @@
+---
+title: Improving Your Agent - Fix Failing Tests Without Overfitting
+description: Read this guide before you change your agent to fix a failing test or scenario. Find which layer caused the failure, fix the whole class instead of one transcript, and keep the prompt small, so your agent improves instead of overfitting to its own tests.
+---
+
+import { Authors } from "vocs/components";
+
+# Improving Your Agent [Fixing failures without overfitting]
+
+<Authors authors={["@_rchaves_", "@andrewgardejoia"]} date="2026-08-19" />
+
+When a scenario fails, the fix that comes to mind first is a new instruction in the system prompt. That instinct is reasonable: the prompt is the part of the agent you can edit in seconds, the new rule speaks directly to what went wrong, and the scenario usually turns green on the next run. Sometimes it is also the wrong fix, because the problem can be deeper in the harness, and patching it in the prompt can do more damage than good.
+
+## Why just patching the prompt might be a bad idea
+
+Every prompt patch carries two risks. The first is that it hides a bigger underlying issue: when the real cause lives in the harness, the tools, or the knowledge the agent retrieves, a rule that suppresses the symptom leaves the cause in place and makes it harder to see. The second is that it biases the model too far in one direction, teaching it to stop generalizing, a problem known since classical machine learning as overfitting.
+
+A prompt maintained by patches ends up like a system built from one vibe-coded patch on top of another: a buggy, unmaintainable mess. The way out is the same too: look at it from above, think architecturally, and refactor, so everything keeps a good, solid structure moving forward.
+
+The [Vibe-Eval Loop](/best-practices/the-vibe-eval-loop) covers the first half of that discipline: when you find an issue, write the scenario first and watch it fail. The rest of this guide is the second half, what to do once it fails.
+
+## The improvement ladder
+
+When a scenario fails and the failure is real, meaning the agent misbehaved and the test is right, walk down this ladder before editing anything:
+
+1. **Diagnose the layer first.** A failure has five possible owners: the harness (tool surface, permissions, context assembly), the model choice, the knowledge content (skills, docs, retrieval), the prompt instructions, or the scenario itself, which can carry ambiguous criteria or a flaky judge. Work through them in that order, with the prompt as the last resort rather than the first reflex. If the fix is "the agent must never use tool X", removing tool X from its configuration is stronger than any wording about it.
+
+2. **Fix the class of failure.** Resist pasting the failing conversation, or rules quoting it, into the prompt. State the one general principle that makes the whole class of failure impossible, and if you cannot name the class, the diagnosis is not finished.
+
+3. **Prove the class.** Re-run the scenario several times and with varied wording before accepting a fix. [User simulators](/basics/user-simulator) improvise, which serves you here: a fix that only survives one phrasing was a patch for that phrasing.
+
+4. **Refactor under green.** Once the suite passes, treat the prompt the way you treat code: merge overlapping rules, delete rules a newer principle covers, and re-run everything. Track the prompt's size across changes the way you track a bundle size, because steady growth means patches are accumulating.
+
+5. **Pair every rule with an overshoot scenario.** Each prohibition needs a scenario for the nearby legitimate case, so a fix cannot silently over-trigger. A rule that declines out-of-scope requests needs a greeting scenario that fails when the agent starts declining greetings, because without the pair, over-refusal has no test to fail.
+
+6. **Keep the judge independent of the prompt.** Write [judge criteria](/basics/judge-agent) from user outcomes and verified side effects: "the booking exists afterward", "the reply contains the total". Criteria that restate the agent's prompt rules ("is terse", "does not narrate") make passing circular, since the suite then grades obedience to the prompt and the shortest path to green becomes more forceful prompt text.
+
+## What belongs in a prompt
+
+Minimalism has a failure mode of its own, which is deleting the things the model genuinely cannot know. Two kinds of content live in a prompt, and only one of them should be held small.
+
+**Interface contracts** stay: which commands and tools exist, output format specifications, error-handling contracts, routing tables. This is reference material about the agent's environment, so keep it accurate and compact, and keep it.
+
+**Behavioral corrections** are the part to hold minimal. A handful of principles the model can generalize from beats a numbered list of prohibitions that invites loophole-hunting one rule at a time, and every added prohibition spends some of the model's own judgment.
+
+## What to avoid in a prompt
+
+Review prompt changes the way you review code, and treat two patterns as defects:
+
+- **A quoted conversation in the prompt.** Attack transcripts, failing dialogues, and multi-turn examples pasted from a test run are patches for one instance. Extract the principle they were meant to teach and delete the transcript.
+- **A rule that carves out another rule.** "Never do X" followed weeks later by "except the X from rule 12 stays correct" means two patches are negotiating with each other; rewrite both as one rule before the exceptions breed.
+
+## Look at the traces to find the layer
+
+With a harness, a large part of what the model actually receives is assembled for you: injected tool schemas, scaffolding, retrieved context. The only real way to understand that input is to look at the actual telemetry, so when a scenario fails, open the trace of that run before you edit anything. The trace has the final system prompt, the tool list your harness injected, the context that was pulled in, and every tool call with its arguments and result.
+
+This guide is a good starting point; however, given the extensive use cases and generalization agents deliver, no universal playbook can say "for X, fix Y" for all setups. An advanced enough codebase and harness should already have the defined standards and levers you can pull for a proper fix.
+
+For example, by saying which commands and tools exist in your AGENTS.md you are directly competing with the harness's autoloading tool map that gets injected, which may be valid if additional bias is indeed proven necessary, but it may also be a smell of a harness not properly tuned.
+
+## Your scenarios are a training set
+
+The scenarios you tune against are, functionally, training data. With ten of them you can reach green by patching each one; with hundreds, distilled from real production failures, patching stops working and the only way through is genuinely better prompts, tools, and code. Growing the suite from production is therefore itself a defense against overfitting.
+
+Two practices follow:
+
+- **Keep a held-out set.** Some scenarios the person or agent doing the fixing never reads. When the tuned set passes and the held-out set fails, the fix did not generalize.
+- **Run the whole suite on a schedule**, not only when someone edits the agent. A prompt tuned once and then frozen is abandoned at its most overfitted point, and production keeps moving after the tuning stops.
+
+## The measure of improvement
+
+The target state is the smallest prompt that still passes everything: pass rate holds or rises while prompt size trends down. A deletion that keeps the suite green is an improvement even though no test changed, for the same reason deleting dead code is.
+
+So when a scenario fails, start from the question of which layer owns the failure and which principle covers its whole class. The rule you were about to add is sometimes the right answer, and after walking the ladder you will know, instead of only knowing that the test went green.

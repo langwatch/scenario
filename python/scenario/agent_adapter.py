@@ -8,7 +8,7 @@ architecture or API.
 """
 
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 from .types import AgentInput, AgentReturnTypes, AgentRole
 
@@ -23,6 +23,8 @@ class AgentAdapter(ABC):
     the conversation state and returns responses in a standardized format.
 
     Attributes:
+        name: The name that LangWatch shows as the target of the run. When you do not
+            set it, the framework uses the class name of the adapter.
         role: The role this agent plays in scenarios (USER, AGENT, or JUDGE)
 
     Example:
@@ -31,6 +33,8 @@ class AgentAdapter(ABC):
         from my_agent import MyCustomAgent
 
         class MyAgentAdapter(scenario.AgentAdapter):
+            name = "MyAgent"
+
             def __init__(self):
                 self.agent = MyCustomAgent()
 
@@ -67,6 +71,11 @@ class AgentAdapter(ABC):
         - For stateless agents, use input.messages for the full conversation history
     """
 
+    # Not a ClassVar: most adapters set the name in the class body, but an
+    # adapter that wraps something named at runtime, such as the connected
+    # agent adapter, sets it on the instance. The TypeScript SDK declares the
+    # same field on the instance.
+    name: Optional[str] = None
     role: ClassVar[AgentRole] = AgentRole.AGENT
 
     @abstractmethod
@@ -113,3 +122,26 @@ class AgentAdapter(ABC):
             ```
         """
         pass
+
+
+def resolve_agent_name(agent: AgentAdapter) -> Optional[str]:
+    """
+    The name a run reports for an agent adapter.
+
+    The adapter's own name comes first, without the space around it. A blank name
+    counts as no name, so the class name of the adapter is used instead. The
+    result is None only for an adapter with no class name of its own, which
+    Python does not produce but the TypeScript SDK does for a plain object. The
+    TypeScript SDK follows the same steps.
+
+    Args:
+        agent: The adapter that takes part in the run
+
+    Returns:
+        The name to report, or None when the adapter carries no usable name
+    """
+    explicit = getattr(agent, "name", None)
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+
+    return type(agent).__name__.strip() or None

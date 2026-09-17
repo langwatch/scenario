@@ -32,16 +32,18 @@ async def test_demo_recording_playback_wav_written(requires_llm, requires_pipeca
     WAV file is written with non-zero size when a live bot is present.
     Skipped when no audio is recorded (headless / no live bot).
     """
-    import tempfile
-    from recording_playback import main, OUT_DIR  # type: ignore[import]
+    from _recording_helper import demo_recording_dir  # type: ignore[import]
+    from recording_playback import main  # type: ignore[import]
 
     result = await main()
 
     if result.audio is None:
         pytest.skip("No audio recorded (no live bot); skipping file-size assertion")
 
-    wav_path = OUT_DIR / "demo.wav"
+    # The demo writes through save_demo_recording, which lays out
+    # segments/, full.wav and manifest.json under the demo's own directory.
+    wav_path = demo_recording_dir("recording_playback") / "full.wav"
     if not wav_path.exists():
         pytest.skip("WAV not written (likely no live bot connection)")
 
-    assert wav_path.stat().st_size > 0, "demo.wav must be non-empty"
+    assert wav_path.stat().st_size > 0, "full.wav must be non-empty"

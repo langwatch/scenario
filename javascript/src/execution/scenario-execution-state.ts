@@ -1,6 +1,27 @@
+import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { AssistantModelMessage, ModelMessage, ToolModelMessage } from "ai";
 import { Observable, Subject } from "rxjs";
-import { ScenarioExecutionStateLike, ScenarioConfig } from "../domain";
+import {
+  JudgeAgentAdapter,
+  type ScenarioConfig,
+  type ScenarioExecutionStateLike,
+  type ScenarioFieldValue,
+} from "../domain";
+import {
+  messageText,
+  runContexts,
+  runToolCalls,
+  runTraces,
+  runTurns,
+  sortSpans,
+  transcript,
+  type StateReadReporter,
+  type StateReads,
+  type StateViewSource,
+  type ToolCalls,
+  type TraceView,
+  type TurnView,
+} from "./state-views";
 import { generateMessageId } from "../utils/ids";
 
 // Generic enum - ready for extension
@@ -22,10 +43,12 @@ export type StateChangeEvent = {
  * other related information.
  */
 export class ScenarioExecutionState implements ScenarioExecutionStateLike {
-  private _messages: (ModelMessage & { id: string; traceId?: string })[] = [];
+  private _messages: (ModelMessage & { id: string; traceId?: string; turn?: number })[] = [];
   private _currentTurn: number = 0;
   private _threadId: string = "";
   private _onRollback?: (removedSet: Set<object>) => void;
+  private _spanProvider: () => ReadableSpan[] = () => [];
+  private _reads: StateReads | null = null;
 
   /**
    * Back-reference to the {@link ScenarioExecution} that owns this state.
@@ -45,6 +68,56 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
   /** Set the back-reference; called once by the executor's constructor. */
   setExecutor(executor: object): void {
     this._executor = executor;
+  }
+
+  /**
+   * Sets where `spans` reads from: the executor points it at the judge span
+   * collector for this thread. Reading never fetches remote traces.
+   */
+  setSpanProvider(provider: () => ReadableSpan[]): void {
+    this._spanProvider = provider;
+  }
+
+  /**
+   * Starts recording what the next reads touch, so the evaluator runner
+   * knows whether a mapping read the trace and what it found missing.
+   */
+  startReadTracking(): void {
+    this._reads = { trace: false, blankFields: [], missingToolCalls: [], emptyContexts: false };
+  }
+
+  /** Stops recording and returns what was read since tracking started. */
+  takeReads(): StateReads {
+    const reads = this._reads ?? {
+      trace: false,
+      blankFields: [],
+      missingToolCalls: [],
+      emptyContexts: false,
+    };
+    this._reads = null;
+    return reads;
+  }
+
+  private readonly reporter: StateReadReporter = {
+    noteTrace: () => {
+      if (this._reads) this._reads.trace = true;
+    },
+    noteMissingToolCall: (name) => {
+      if (this._reads && !this._reads.missingToolCalls.includes(name)) {
+        this._reads.missingToolCalls.push(name);
+      }
+    },
+    noteEmptyContexts: () => {
+      if (this._reads) this._reads.emptyContexts = true;
+    },
+  };
+
+  private get viewSource(): StateViewSource {
+    return {
+      messages: this._messages,
+      spans: this._spanProvider(),
+      reporter: this.reporter,
+    };
   }
 
   /** Event stream for message additions */
@@ -90,6 +163,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     const messageWithId = {
       ...message,
       id: generateMessageId(),
+      turn: this._currentTurn,
     };
     this._messages.push(messageWithId);
     // Emit event when message is added
@@ -160,6 +234,57 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
           (part) => part.type === "tool-result" && part.toolName === toolName
         )
     );
+  }
+
+  get fields(): Record<string, ScenarioFieldValue> {
+    return this.config.fields ?? {};
+  }
+
+  field(name: string): ScenarioFieldValue | undefined {
+    const value = this.fields[name];
+    if (value === undefined || value === null || value === "") {
+      if (this._reads && !this._reads.blankFields.includes(name)) {
+        this._reads.blankFields.push(name);
+      }
+      return undefined;
+    }
+    return value;
+  }
+
+  get criteria(): string[] {
+    return this.config.agents.flatMap((agent) =>
+      agent instanceof JudgeAgentAdapter ? agent.criteria ?? [] : []
+    );
+  }
+
+  firstUserMessage(): string {
+    const message = this._messages.find((m) => m.role === "user");
+    return message ? messageText(message) : "";
+  }
+
+  transcript(): string {
+    return transcript(this._messages);
+  }
+
+  toolCalls(name?: string): ToolCalls {
+    return runToolCalls(this.viewSource, name);
+  }
+
+  get contexts(): string[] {
+    return runContexts(this.viewSource);
+  }
+
+  get spans(): ReadableSpan[] {
+    this.reporter.noteTrace();
+    return sortSpans(this._spanProvider());
+  }
+
+  get traces(): TraceView[] {
+    return runTraces(this.viewSource);
+  }
+
+  get turns(): TurnView[] {
+    return runTurns(this.viewSource);
   }
 
   /**

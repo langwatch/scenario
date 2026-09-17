@@ -10,14 +10,12 @@
  * binding conflicts from issue #523.
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { describe, expect, it } from "vitest";
 
 import * as voiceNs from "../..";
 
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 import * as effectsModule from "../index";
 import {
   backgroundNoise,
@@ -37,10 +35,7 @@ import {
 // `static` is a reserved keyword — import via alias
 import { static_ as staticEffect } from "../noise";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "..", "specs", "voice-agents.feature");
-
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

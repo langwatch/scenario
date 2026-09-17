@@ -1,0 +1,80 @@
+name: meta-ci
+
+# The repo's two self-validating scripts, actually run.
+#
+# `validate-pr-auto-approve.sh` checks `pr-auto-approve.yml` against the
+# PR-gate AC checklist; `validate-aggregator-workflows.sh` checks that each
+# aggregator workflow's `changes` job carries the path filters its downstream
+# jobs need. Both were written as gates and neither was wired to anything, so
+# they ran only when someone remembered to run them by hand. The first spent an
+# unknown stretch exiting 1 against workflows that had been deleted, and the rot
+# surfaced only when a review happened to run it.
+#
+# Deliberately NOT path-filtered. Both scripts finish in well under a second,
+# and a filter is the failure mode this workflow exists to prevent: a gate that
+# does not fire looks exactly like a gate that passed. `validate-pr-auto-approve`
+# reads four separate files and `validate-aggregator-workflows` reads five, so a
+# correct filter would be nine entries that have to be kept in step with what
+# the scripts happen to read next. Running them always costs a few seconds and
+# cannot silently stop covering anything.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate the workflow gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          # Neither validator runs an authenticated git command, and this job
+          # executes repository-controlled shell on `pull_request`. Without
+          # this, checkout leaves the token in `.git/config` for that shell to
+          # find.
+          persist-credentials: false
+
+      # Both validators parse YAML with PyYAML. It is present on ubuntu-24.04
+      # today, so this is not fixing a broken run, and a missing module would
+      # not pass silently either: every parsing check reports its own FAIL and
+      # the job exits 1.
+      #
+      # It is the SHAPE of that failure that makes the dependency worth owning.
+      # Measured by making `import yaml` raise: 16 FAILs, reading
+      # "docs-ci: build does not need changes" and fifteen more like it. A run
+      # that says sixteen workflows regressed, when one module is absent, sends
+      # whoever is on it to the wrong file. Pinning also keeps the gate's
+      # verdict from moving with the runner image underneath it.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the validators' one dependency
+        run: pip install "PyYAML==6.0.3"
+
+      - name: Validate pr-auto-approve against the PR-gate checklist
+        run: bash scripts/validate-pr-auto-approve.sh
+
+      # Runs even when the step above failed, so one push surfaces both
+      # verdicts. The default `success()` condition would hide the second
+      # validator's findings behind the first one's, costing a round trip to
+      # learn something this run already knew.
+      - name: Validate the aggregator workflows' path filters
+        if: ${{ !cancelled() }}
+        run: bash scripts/validate-aggregator-workflows.sh
+
+      # Same reason as above: report this run's verdict rather than the first
+      # failure's. These two cover the examples suite's required-check wiring,
+      # which is what lets a shared gateway budget block unrelated PRs.
+      - name: Validate the examples suite's budget-gate wiring
+        if: ${{ !cancelled() }}
+        run: bash scripts/validate-examples-gate.sh
+
+      - name: Test the examples budget gate's own decisions
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-examples-budget-gate.sh

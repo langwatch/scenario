@@ -43,6 +43,7 @@ import scenario, { type AgentAdapter } from '@langwatch/scenario';
 
 const createMyAgentAdapter = (): AgentAdapter => {
   return {
+    name: "VercelAIAgent",
     call: async (input) => {
       const result = await myAgent(input.messages.at(-1)?.content);
       return result.response.messages;

@@ -8,6 +8,33 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; FAIL=1; }
 
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# Decides whether a job condition genuinely keeps the job off a draft pull
+# request. Searching the condition for the comparison is not enough:
+# `needs.changes.outputs.relevant == 'true' || github.event.pull_request.draft
+# == false` contains it and still runs the heavy job on a relevant draft. The
+# comparison has to be one of the top-level `&&` conjuncts, which is what makes
+# it hold whatever the rest of the expression decides. Exit 0 accepts.
+DRAFT_GATE_PY="$TMP_DIR/draft_gate.py"
+cat > "$DRAFT_GATE_PY" <<'EOF'
+import re, sys
+
+# The two spellings of "this pull request is not a draft". Both read as false
+# on a push, where `github.event.pull_request` does not exist.
+NOT_A_DRAFT = re.compile(
+    r"^(?:github\.event\.pull_request\.draft\s*==\s*false"
+    r"|!\s*github\.event\.pull_request\.draft)$"
+)
+
+condition = sys.argv[1] if len(sys.argv) > 1 else ""
+for conjunct in condition.split("&&"):
+    if NOT_A_DRAFT.match(conjunct.strip().strip("()").strip()):
+        sys.exit(0)
+sys.exit(1)
+EOF
+
 # check_workflow <file> <name> <inner_job> <aggregator> <filter1> <filter2>
 check_workflow() {
   local wf="$1"
@@ -106,11 +133,80 @@ EOF
   then pass "$name: cancel-in-progress: true"; else fail "$name: cancel-in-progress not set to true"; fi
 
   echo "--- path filters in changes job ---"
-  if grep -q "$filter1" "$wf" && grep -q "$filter2" "$wf"; then
-    pass "$name: path filters ($filter1, $filter2) present"
-  else
-    fail "$name: path filters missing (expected $filter1 and $filter2)"
-  fi
+  # Membership of the `relevant` list the detect-changes step actually
+  # declares, not a substring of the file. An unscoped grep passed on any line
+  # that happened to contain the needle: `docs/` is satisfied by the sibling
+  # entry '.github/workflows/docs-ci.yml' AND by the build job's
+  # cache-dependency-path, so deleting the real filter left this check saying
+  # PASS. python-ci escaped only because `python/**` happens to appear nowhere
+  # else in its file, which is luck rather than a check. This parses the YAML
+  # the way every other check in this script already does.
+  if python3 - "$wf" "$filter1" "$filter2" <<'EOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+wanted = sys.argv[2:]
+changes = d.get('jobs', {}).get('changes', {})
+declared = None
+for step in changes.get('steps', []) or []:
+    # Exact reference, not a substring: any action whose name merely contains
+    # "detect-changes" could supply a matching `filters` input and satisfy this
+    # while the job never uses the local one. That is the same shape of hole
+    # this check was written to close, one level up.
+    if step.get('uses') == './.github/actions/detect-changes':
+        declared = (step.get('with') or {}).get('filters')
+        break
+if declared is None:
+    print("changes job declares no detect-changes step with filters")
+    sys.exit(1)
+# `filters` is a block scalar carrying its own YAML document.
+patterns = (yaml.safe_load(declared) or {}).get('relevant')
+if not isinstance(patterns, list):
+    print(f"the relevant filter is not a list: {patterns!r}")
+    sys.exit(1)
+missing = [w for w in wanted if w not in patterns]
+if missing:
+    print(f"missing from the relevant filter: {missing}; declared: {patterns}")
+    sys.exit(1)
+EOF
+  then pass "$name: path filters ($filter1, $filter2) present"; else fail "$name: path filters missing (expected $filter1 and $filter2)"; fi
+
+  # The two halves of the draft gate, which only work together. The heavy job
+  # skips a draft, and `ready_for_review` is what gives it its run once the
+  # draft is marked ready. Drop the trigger type and a release-please pull
+  # request merges on a run that skipped the suite; drop the condition and every
+  # merge to main runs the suite again on a pull request nobody is reviewing.
+  # See specs/release-pr-drafts.feature.
+  echo "--- $inner_job skips a draft pull request ---"
+  local cond
+  cond="$(python3 - "$wf" "$inner_job" <<'EOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+print(str(d.get('jobs', {}).get(sys.argv[2], {}).get('if', '')))
+EOF
+)"
+  if python3 "$DRAFT_GATE_PY" "$cond"
+  then pass "$name: $inner_job skips a draft"
+  else fail "$name: $inner_job does not gate on the pull request not being a draft: ${cond:-<no if condition>}"; fi
+
+  echo "--- pull_request types include ready_for_review ---"
+  if python3 - "$wf" <<'EOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+on = d.get('on', d.get(True, {}))
+pr = on.get('pull_request') if isinstance(on, dict) else None
+types = (pr or {}).get('types')
+if not isinstance(types, list):
+    print("pull_request declares no types, so ready_for_review never fires")
+    sys.exit(1)
+missing = [t for t in ('opened', 'synchronize', 'reopened', 'ready_for_review') if t not in types]
+if missing:
+    print(f"missing trigger types: {missing}; declared: {types}")
+    sys.exit(1)
+EOF
+  then pass "$name: pull_request types cover ready_for_review"; else fail "$name: pull_request types miss ready_for_review"; fi
 
   echo "--- $inner_job needs changes ---"
   if python3 - "$wf" "$inner_job" <<'EOF'
@@ -168,24 +264,210 @@ check_workflow \
   "python-ci" \
   "test" \
   "python-complete" \
-  "python/" \
-  "python-ci.yml"
+  "python/**" \
+  ".github/workflows/python-ci.yml"
 
 check_workflow \
   "$REPO_ROOT/.github/workflows/javascript-ci.yml" \
   "javascript-ci" \
   "ci-checks" \
   "javascript-complete" \
-  "javascript/" \
-  "javascript-ci.yml"
+  "javascript/**" \
+  ".github/workflows/javascript-ci.yml"
 
 check_workflow \
   "$REPO_ROOT/.github/workflows/docs-ci.yml" \
   "docs-ci" \
   "build" \
   "docs-complete" \
-  "docs/" \
-  "docs-ci.yml"
+  "docs/**" \
+  ".github/workflows/docs-ci.yml"
+
+# ---------------------------------------------------------------------------
+# Examples coverage on runs without secrets (see #893)
+#
+# The examples suite needs repo secrets, so it cannot run on a fork PR or a
+# Dependabot PR. Skipping it there is right; leaving nothing in its place is
+# not, because the aggregator counts a skipped step's job as success and an
+# examples-only change from an external contributor then reaches a green
+# required check with nothing having read the file it changed.
+#
+# The invariant is that exactly one of the two examples steps runs on any
+# given run: the live suite when secrets are readable, the secret-free
+# collection when they are not. Both must therefore be gated on the same
+# resolver output, with opposite senses. Complementary conditions written out
+# by hand in two places drift; this is what notices when they do.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Validating examples coverage without secrets ==="
+if python3 - "$REPO_ROOT/.github/workflows/python-ci.yml" <<'EOF'
+import yaml, sys
+
+with open(sys.argv[1]) as f:
+    workflow = yaml.safe_load(f)
+
+steps = workflow.get("jobs", {}).get("test", {}).get("steps", [])
+if not steps:
+    print("python-ci: test job has no steps")
+    sys.exit(1)
+
+resolver = [s for s in steps if s.get("id") == "secrets"]
+if len(resolver) != 1:
+    print(f"expected exactly one step with id: secrets, found {len(resolver)}")
+    sys.exit(1)
+# What the resolver WRITES is checked by running it, in the section below.
+# Reading the shell for it does not work: a substring matches a commented-out
+# line, and whether two writes are mutually exclusive is a control-flow
+# question no amount of string matching answers.
+
+GATE = "steps.secrets.outputs.available"
+examples = [s for s in steps if "examples/" in s.get("run", "")]
+if len(examples) != 2:
+    print(f"expected two steps running examples/, found {len(examples)}")
+    sys.exit(1)
+
+with_secrets = [s for s in examples if s.get("if", "") == f"{GATE} == 'true'"]
+without_secrets = [s for s in examples if s.get("if", "") == f"{GATE} != 'true'"]
+if len(with_secrets) != 1 or len(without_secrets) != 1:
+    print("the two examples steps are not complementary on " + GATE)
+    for s in examples:
+        print(f"  {s.get('name', '<unnamed>')!r}: if: {s.get('if', '<none>')!r}")
+    sys.exit(1)
+
+# Which step does what, not just that two exist. The failure worth catching is
+# the live suite quietly becoming a second collection: both steps would still
+# be present and complementary, and nothing would run the examples again.
+#
+# Matched as a command rather than a substring, on the executable lines only.
+# `pytest examples/voice/` contains "pytest examples/" while covering a
+# fraction of the tree, and a commented-out command contains it while running
+# nothing at all.
+import re
+
+
+def commands(run: str) -> str:
+    return "\n".join(
+        line for line in run.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+WHOLE_EXAMPLES_TREE = re.compile(r"pytest\s+examples/(?:\s|$)")
+
+live_run = commands(with_secrets[0].get("run", ""))
+collect_run = commands(without_secrets[0].get("run", ""))
+if not WHOLE_EXAMPLES_TREE.search(live_run) or "--collect-only" in live_run:
+    print("the secret-enabled step does not run the live suite: " + live_run)
+    sys.exit(1)
+if (
+    not WHOLE_EXAMPLES_TREE.search(collect_run)
+    or "--collect-only" not in collect_run
+):
+    print("the secret-free step does not collect: " + collect_run)
+    sys.exit(1)
+EOF
+then pass "python-ci: examples are covered on runs without secrets"
+else fail "python-ci: examples are not covered on runs without secrets"; fi
+
+# The resolver's own decision, by running it rather than reading it. Executing
+# it is no wider a trust boundary than the workflow already is: this is the
+# same script python-ci runs, from the same commit. Every case below is a real
+# event shape, and GitHub takes the LAST write for a key, which is what makes
+# an unconditional pair of writes visible here.
+echo "--- the resolver's decision, over every event shape ---"
+RESOLVER_SH="$TMP_DIR/resolver.sh"
+if python3 - "$REPO_ROOT/.github/workflows/python-ci.yml" > "$RESOLVER_SH" <<'EOF'
+import yaml, sys
+
+with open(sys.argv[1]) as f:
+    workflow = yaml.safe_load(f)
+
+steps = workflow.get("jobs", {}).get("test", {}).get("steps", [])
+resolver = [s for s in steps if s.get("id") == "secrets"]
+if len(resolver) != 1:
+    sys.exit(1)
+print(resolver[0].get("run", ""))
+EOF
+then
+  BAD=0
+  # <actor> <event> <head repo> <this repo> <expected>
+  check_resolver() {
+    local out
+    out="$(mktemp)"
+    ACTOR="$1" EVENT_NAME="$2" HEAD_REPO="$3" THIS_REPO="$4" GITHUB_OUTPUT="$out" \
+      bash "$RESOLVER_SH" >/dev/null 2>&1 || true
+    local got
+    got="$(grep -o 'available=[a-z]*' "$out" 2>/dev/null | tail -1)"
+    if [ "$got" != "available=$5" ]; then
+      echo "    $2 actor=$1 head=$3 -> ${got:-<nothing written>}, expected available=$5"
+      BAD=1
+    fi
+    rm -f "$out"
+  }
+  check_resolver "dependabot[bot]" pull_request langwatch/scenario langwatch/scenario false
+  check_resolver outsider pull_request outsider/scenario langwatch/scenario false
+  check_resolver maintainer pull_request langwatch/scenario langwatch/scenario true
+  check_resolver maintainer push "" langwatch/scenario true
+  check_resolver maintainer workflow_dispatch "" langwatch/scenario true
+  if [ "$BAD" -eq 0 ]; then
+    pass "python-ci: the resolver answers correctly for every event shape"
+  else
+    fail "python-ci: the resolver answers wrongly for some event shape"
+  fi
+else
+  fail "python-ci: could not extract the secrets resolver to run it"
+fi
+
+# ---------------------------------------------------------------------------
+# Release pull requests open as drafts (see specs/release-pr-drafts.feature)
+#
+# The draft gate above only saves anything if release-please actually opens its
+# pull requests as drafts. That setting lives in a strict-JSON config nobody
+# reads on the way past, and turning it off is a one-word edit that no test
+# would otherwise notice: the suite would simply start running on every merge
+# to main again.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Validating the draft-gate check itself ==="
+# The check above decides whether a condition keeps the heavy job off a draft.
+# Its own failure mode is accepting a condition that does not, which would let
+# the gate be removed in a rewrite while the validator kept reporting PASS.
+echo "--- the draft-gate check, over conditions that do and do not gate ---"
+DRAFT_GATE_BAD=0
+# <expected: accept|reject> <condition>
+check_draft_gate() {
+  local got
+  if python3 "$DRAFT_GATE_PY" "$2"; then got=accept; else got=reject; fi
+  if [ "$got" != "$1" ]; then
+    echo "    $got, expected $1, for: ${2:-<empty>}"
+    DRAFT_GATE_BAD=1
+  fi
+}
+check_draft_gate accept "needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false"
+check_draft_gate accept "github.event.pull_request.draft == false"
+check_draft_gate accept "needs.changes.outputs.relevant == 'true' && !github.event.pull_request.draft"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true' || github.event.pull_request.draft == false"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true' && (github.event.pull_request.draft == false || github.event_name == 'push')"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == true"
+check_draft_gate reject "needs.changes.outputs.relevant == 'true'"
+check_draft_gate reject ""
+if [ "$DRAFT_GATE_BAD" -eq 0 ]; then
+  pass "the draft-gate check accepts only a condition that gates on the draft"
+else
+  fail "the draft-gate check misjudges some condition"
+fi
+
+echo ""
+echo "=== Validating release-please opens drafts ==="
+if python3 - "$REPO_ROOT/.release-please-config.json" <<'EOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    config = json.load(f)
+if config.get("draft-pull-request") is not True:
+    print(f"draft-pull-request is {config.get('draft-pull-request')!r}, expected True")
+    sys.exit(1)
+EOF
+then pass "release-please: release pull requests open as drafts"
+else fail "release-please: release pull requests do not open as drafts"; fi
 
 # ---------------------------------------------------------------------------
 # Summary

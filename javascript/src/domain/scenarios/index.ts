@@ -2,11 +2,17 @@ import { ModelMessage } from "ai";
 import type { AudioChunk } from "../../voice/audio-chunk";
 import type { VoiceConfig } from "../../voice/config";
 import type { VoiceEvent } from "../../voice/recording.types";
+import type {
+  ConnectedAgentFunction,
+  ConnectedAgentParameterValue,
+} from "../agents/connected-agent.types";
 import { AgentAdapter } from "../agents/index";
+import type { ScenarioEvaluator, ScenarioFieldValue } from "../core/evaluations";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
 export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
+export const DEFAULT_TRACE_WAIT_TIMEOUT_MS = 30_000;
 
 /**
  * Configuration for LangWatch event reporting.
@@ -40,13 +46,34 @@ export interface ScenarioConfig {
   description: string;
 
   /**
-   * The agents participating in the scenario.
+   * The agents participating in the scenario. An {@link AgentAdapter}, or
+   * the function `connectAgent` from the LangWatch SDK returns, which runs
+   * as the agent under test with no adapter.
    */
-  agents: AgentAdapter[];
+  agents: (AgentAdapter | ConnectedAgentFunction)[];
+  /**
+   * Run parameters for the connected agent functions in {@link agents}.
+   * A parameter not set here takes the default the function declares.
+   */
+  parameters?: Record<string, ConnectedAgentParameterValue>;
   /**
    * The script of steps to execute for the scenario.
    */
   script?: ScriptStep[];
+
+  /**
+   * Values the scenario carries next to its description, keyed by field
+   * name, for example a golden SQL query or a table schema. Evaluator
+   * inputs read them through `scenario.field(name)` or by inference.
+   */
+  fields?: Record<string, ScenarioFieldValue>;
+
+  /**
+   * LangWatch evaluators to run once the scenario has a verdict. Their
+   * results land on {@link ScenarioResult.evaluations} and on the run in
+   * LangWatch; a required evaluator that fails fails the scenario.
+   */
+  evaluators?: ScenarioEvaluator[];
 
   /**
    * Whether to output verbose logging.
@@ -64,6 +91,24 @@ export interface ScenarioConfig {
    * @default {@link DEFAULT_MAX_TURNS}
    */
   maxTurns?: number;
+
+  /**
+   * The minimum number of turns that must run before the judge may
+   * volunteer a verdict. With `minTurns: 4`, turns 1–4 always run and the
+   * judge can first end the test on turn 5 — its `finish_test` tool is
+   * withheld on earlier turns (ADR-005).
+   *
+   * Forced judgments always win over the floor: an explicit
+   * `scenario.judge()` step and the final `maxTurns` turn still deliver a
+   * terminal verdict even below the floor. The floor governs the judge
+   * only — red-team early exit and explicit `succeed()`/`fail()` script
+   * steps are unaffected.
+   *
+   * Must be a non-negative integer and must not exceed `maxTurns`; invalid
+   * values throw at startup. Zero is valid and behaves like an unset floor.
+   * When unset, behavior is identical to previous releases.
+   */
+  minTurns?: number;
 
   /**
    * Optional thread ID to use for the conversation.
@@ -115,6 +160,50 @@ export interface ScenarioConfig {
   voice?: VoiceConfig;
 
   /**
+   * Whether the judge fetches the remote traces produced by the agent under
+   * test from the LangWatch trace API and merges them into its evaluation.
+   *
+   * Enable this when the agent runs behind an HTTP endpoint that returns
+   * final text only: the adapter forwards {@link AgentInput.propagationHeaders}
+   * to the remote agent, the agent's own spans land in the same trace, and
+   * the judge reads the real tool calls, writes, and retrievals instead of
+   * claims in the transcript.
+   *
+   * Can also be set project-wide in `scenario.config.js`; this per-run value
+   * wins.
+   *
+   * @default false
+   */
+  fetchRemoteTraces?: boolean;
+
+  /**
+   * Total time budget in milliseconds the judge waits at verdict time for
+   * remote traces to arrive and stabilize. Only used when
+   * {@link fetchRemoteTraces} is enabled. Mid-conversation judge calls never
+   * wait; the budget applies once, when a verdict is required.
+   *
+   * Can also be set project-wide in `scenario.config.js`; this per-run value
+   * wins.
+   *
+   * @default 30000
+   */
+  traceWaitTimeoutMs?: number;
+
+  /**
+   * Budget in milliseconds for the judge's one extra wait. When the traces
+   * are still incomplete after the settle-wait, the verdict call offers the
+   * judge a `wait_for_traces` tool: calling it waits this budget once more,
+   * then the tool is withdrawn and the judge must decide. Only used when
+   * {@link fetchRemoteTraces} is enabled.
+   *
+   * Can also be set project-wide in `scenario.config.js`; this per-run value
+   * wins.
+   *
+   * @default the resolved traceWaitTimeoutMs
+   */
+  traceWaitExtensionMs?: number;
+
+  /**
    * LangWatch reporting configuration.
    * Takes precedence over LANGWATCH_API_KEY and LANGWATCH_ENDPOINT environment variables.
    *
@@ -144,9 +233,11 @@ export interface ScenarioConfig {
 export interface ScenarioConfigFinal
   extends Omit<
     ScenarioConfig,
-    "id" | "script" | "threadId" | "verbose" | "maxTurns"
+    "id" | "agents" | "script" | "threadId" | "verbose" | "maxTurns"
   > {
   id: string;
+  /** Every agent as an adapter: connected agent functions are wrapped by then. */
+  agents: AgentAdapter[];
   script: ScriptStep[];
 
   verbose: boolean;

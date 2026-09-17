@@ -16,7 +16,12 @@ import pytest
 import scenario
 from scenario.types import AgentRole
 from openai.types.chat import ChatCompletionMessageParam
-from helpers import encode_audio_to_base64, wrap_judge_for_audio, OpenAiVoiceAgent
+from helpers import (
+    AUDIO_JUDGE_CRITERIA,
+    encode_audio_to_base64,
+    wrap_judge_for_audio,
+    OpenAiVoiceAgent,
+)
 
 # Skipped in CI: live end-to-end test — calls OpenAI's `gpt-audio-mini` audio
 # model and the real LangWatch backend (cost, API keys, non-deterministic
@@ -118,10 +123,7 @@ async def test_audio_to_audio():
     audio_judge = wrap_judge_for_audio(
         scenario.JudgeAgent(
             model="openai/gpt-5.6-luna",
-            criteria=[
-                "The agent identifies or guesses the voice is male",
-                "The agent acknowledges the input was audio (not text)",
-            ],
+            criteria=list(AUDIO_JUDGE_CRITERIA),
         )
     )
 

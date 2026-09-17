@@ -20,9 +20,6 @@
  * "multi-adapter", or "disconnect error" scenario near line 138).
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, it } from "vitest";
 
@@ -32,20 +29,10 @@ import {
   type AgentReturnTypes,
   UserSimulatorAgentAdapter,
 } from "../../domain";
-import { agent, fail, succeed, user } from "../../script";
-import { ScenarioExecution } from "../../execution/scenario-execution";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "..",
-  "specs",
-  "voice-agents.feature",
-);
+import { VOICE_AGENTS_FEATURE } from "../../__tests__/features";
+import { ScenarioExecution } from "../../execution/scenario-execution";
+import { agent, fail, succeed, user } from "../../script";
 
 class TextUserSimulator extends UserSimulatorAgentAdapter {
   role = AgentRole.USER;
@@ -138,7 +125,7 @@ it("disconnect errors are swallowed so cleanup never masks the scenario result",
 // Bound scenario — the spec-named happy-path contract.
 // -------------------------------------------------------------------------
 
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 describeFeature(
   feature,

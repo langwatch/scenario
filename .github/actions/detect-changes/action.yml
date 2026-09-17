@@ -39,6 +39,13 @@ outputs:
   relevant:
     description: "'true' if relevant paths changed, or if event is not a PR."
     value: ${{ steps.filter.outputs.relevant || steps.force.outputs.relevant }}
+  examples:
+    description: >-
+      'true' if the caller declared an `examples` filter and its paths changed,
+      or if the event is not a PR. Empty for callers that declare no such
+      filter, which is why consumers must treat empty as "not applicable"
+      rather than as "false".
+    value: ${{ steps.filter.outputs.examples || steps.force.outputs.examples }}
 
 runs:
   using: composite
@@ -56,3 +63,9 @@ runs:
       shell: bash
       run: |
         echo "relevant=true" >> "$GITHUB_OUTPUT"
+        # Forced true for the same reason as `relevant`: outside a PR there is
+        # no base to diff against, so the conservative answer is that the
+        # examples may have changed. For the examples gate that means a push
+        # to main stays red on a budget outage, which is right: on main the
+        # suite is the only thing that verifies an examples change.
+        echo "examples=true" >> "$GITHUB_OUTPUT"

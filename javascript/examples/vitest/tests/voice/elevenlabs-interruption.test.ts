@@ -20,7 +20,7 @@
  * `javascript/examples/vitest/outputs/recordings/elevenlabs_interruption/`.
  *
  * Binds `@e2e @ts-elevenlabs-interruption-demo`. Env-gated on `OPENAI_API_KEY`
- * (judge LLM + user-sim TTS), `ELEVENLABS_API_KEY`, and `ELEVENLABS_AGENT_ID`.
+ * (judge LLM + user-sim TTS), `ELEVENLABS_CONVAI_API_KEY`, and `ELEVENLABS_AGENT_ID`.
  *
  * STATUS — Un-gated after 3/3 consecutive clean live runs (#731). A successful
  * run produces at least one truncated agent segment (barge-in cuts the agent
@@ -36,7 +36,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import scenario, { type ScenarioResult } from "@langwatch/scenario";
+import scenario, { voice, type ScenarioResult } from "@langwatch/scenario";
 import { expect } from "vitest";
 
 import { saveDemoRecording } from "./helpers/save-demo-recording";
@@ -53,10 +53,10 @@ const FEATURE_PATH = resolve(
   "voice-agents.feature",
 );
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_CONVAI_KEY = voice.resolveElevenLabsConvAIApiKey();
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
-const RUN_E2E = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && hasOpenAI);
+const RUN_E2E = Boolean(ELEVENLABS_CONVAI_KEY && ELEVENLABS_AGENT_ID && hasOpenAI);
 
 const feature = await loadFeature(FEATURE_PATH);
 
@@ -88,7 +88,6 @@ describeFeature(
               agents: [
                 scenario.elevenLabsAgent({
                   agentId: ELEVENLABS_AGENT_ID!,
-                  apiKey: ELEVENLABS_API_KEY!,
                   // Verbose per-session prompt so the agent has audio to barge
                   // into (applied via conversation_initiation_client_data; the
                   // shared provisioned test agent stays concise).

@@ -17,8 +17,12 @@
 /**
  * The three criteria the audio examples judge against, in order.
  *
- * Keep in sync with `python/examples/test_audio_to_text.py`
- * (`AUDIO_JUDGE_CRITERIA`) — the parity test enforces it.
+ * Keep in sync with `python/examples/helpers/audio_judge_criteria.py`. The
+ * parity test enforces it.
+ *
+ * `as const` is load-bearing, not decoration: it makes the array readonly, so a
+ * sibling cannot push a drifted criterion onto the shared copy. The Python copy
+ * is a tuple for the same reason.
  */
 export const AUDIO_JUDGE_CRITERIA = [
   "The agent's response demonstrates it processed the SPECIFIC content of the audio — it addresses or attempts to answer the actual question that was asked in the audio. A generic acknowledgement that audio was received (e.g. 'I got your audio file', 'I heard your message') does NOT satisfy this criterion on its own",

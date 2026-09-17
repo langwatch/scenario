@@ -46,10 +46,17 @@ import base64
 import json
 import logging
 from collections import deque
-from typing import Any, ClassVar, Deque, Final, Literal, Optional
+from typing import Any, ClassVar, Deque, Final, Literal, Optional, Union
 
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
+from ..broker import (
+    ELEVENLABS_SIGNED_URL_PATH,
+    ElevenLabsMintEndpoint,
+    mint_elevenlabs_signed_url,
+    resolve_elevenlabs_mint_endpoint,
+    warn_direct_dial_fallback,
+)
 from ..capabilities import AdapterCapabilities
 
 
@@ -79,6 +86,59 @@ SILENCE_TAIL_BYTES = 16000
 #: explicitly deferred in #493). 45s is generous enough for a genuinely slow
 #: agent to respond, but finite so a non-responding turn times out cleanly.
 KEEPALIVE_HARD_CEILING_S: Final[float] = 45.0
+
+#: Deep link to the section that expands on both recv_audio timeouts.
+RECEIVE_TIMEOUT_DOCS_URL: Final[str] = (
+    "https://scenario.langwatch.ai/voice/troubleshooting"
+    "#receiveaudio-timed-out-hosted-elevenlabs"
+)
+
+
+def _seconds(value: float) -> str:
+    """Render a seconds value the way the TypeScript adapter's template literal
+    does, so both SDKs print ``60s`` and ``0.6s`` rather than ``60.0s``."""
+    return f"{value:g}"
+
+
+def _idle_timeout_message(timeout_s: float) -> str:
+    """Rejection text for the IDLE deadline: nothing at all reached the socket,
+    not even a keepalive ping, for ``timeout_s`` seconds. A fully silent agent.
+
+    Distinct from :func:`_ceiling_timeout_message` on purpose: silence and
+    pings-but-no-audio are different diagnoses with different remedies, so one
+    shared message would send the reader to check the wrong things.
+    """
+    waited = _seconds(timeout_s)
+    return (
+        f"ElevenLabsAgentAdapter: recv_audio timed out. The idle deadline of "
+        f"{waited}s elapsed with no message of any kind from the hosted agent, "
+        f"not even a keepalive ping. For a scripted multi-turn run this usually "
+        f"means the agent ended or transferred its turn (e.g. an escalation/handoff "
+        f"request), or the user turn did not commit. If the agent is only slower "
+        f"than that, raise the adapter's response_timeout, currently {waited}s, "
+        f"for example adapter.response_timeout = 180. See {RECEIVE_TIMEOUT_DOCS_URL}"
+    )
+
+
+def _ceiling_timeout_message(timeout_s: float, ceiling_s: float) -> str:
+    """Rejection text for the ABSOLUTE ceiling: the agent kept sending frames,
+    which re-arm the idle deadline, but never sent audio.
+    """
+    floor = _seconds(KEEPALIVE_HARD_CEILING_S)
+    return (
+        f"ElevenLabsAgentAdapter: recv_audio timed out. The absolute ceiling of "
+        f"{_seconds(ceiling_s)}s elapsed while the hosted agent kept sending frames, "
+        f"keepalive pings or transcripts, but never audio. Every inbound frame "
+        f"re-arms the idle deadline, so this ceiling, max(response_timeout, "
+        f"{floor}s), is what "
+        f"bounds the wait. It usually means a wedged server tool or retrieval call, "
+        f"or an agent that ended or transferred its turn. If the agent is only "
+        f"slower than that, raise the adapter's response_timeout, currently "
+        f"{_seconds(timeout_s)}s, past {floor}s and the ceiling rises with it, "
+        f"for example adapter.response_timeout = 180. "
+        f"See {RECEIVE_TIMEOUT_DOCS_URL}"
+    )
+
 
 #: How :meth:`ElevenLabsAgentAdapter.send_audio` signals end-of-turn to EL ConvAI.
 #:
@@ -207,6 +267,8 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         agent_id: str,
         api_key: str,
         *,
+        base_url: Optional[str] = None,
+        mint: Union[ElevenLabsMintEndpoint, bool, None] = None,
         system_prompt_override: Optional[str] = None,
         first_message_override: Optional[str] = None,
         dynamic_variables: Optional[dict[str, Any]] = None,
@@ -217,6 +279,28 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         super().__init__()
         self.agent_id = agent_id
         self._api_key = api_key
+        # Where to mint the session's signed URL. ``False`` skips the mint and
+        # dials the vendor's own websocket directly with ``xi-api-key``, which
+        # is what an unconfigured adapter has always done. An explicit
+        # endpoint, ``base_url=``, or ELEVENLABS_BASE_URL points the mint at a
+        # LangWatch AI Gateway, which mirrors the vendor's signed-URL path:
+        # the gateway checks the virtual key's budget and session cap, mints
+        # the signed URL, and bills the call as one spend record. The
+        # websocket that URL names still belongs to ElevenLabs, so the media
+        # stream runs client to vendor and nothing about latency or the wire
+        # protocol changes. ``api_key`` then carries the virtual key.
+        self._mint: Optional[ElevenLabsMintEndpoint]
+        if mint is False:
+            self._mint = None
+        elif isinstance(mint, ElevenLabsMintEndpoint):
+            self._mint = mint
+        else:
+            self._mint = resolve_elevenlabs_mint_endpoint(
+                base_url=base_url, api_key=api_key
+            )
+        #: The gateway's id for the current session, empty unless a gateway
+        #: minted it.
+        self._broker_session_id: str = ""
         # Per-session overrides applied via conversation_initiation_client_data
         # at the start of every WS connect. Used by demos that need a
         # different prompt shape (e.g. verbose for interrupt demos) without
@@ -290,6 +374,17 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     def url(self) -> str:
         return CONVAI_URL_TEMPLATE.format(agent_id=self.agent_id)
 
+    @property
+    def brokered(self) -> bool:
+        """Whether the live session was minted by a gateway, not the vendor.
+
+        Only true after ``connect()``, and only when the mint answered with
+        ``X-LangWatch-Session-Id``. Configuration cannot set it, because the
+        response is the one thing that cannot be told a lie about what
+        answered.
+        """
+        return self._broker_session_id != ""
+
     def __repr__(self) -> str:  # redact credentials
         return f"ElevenLabsAgentAdapter(agent_id={self.agent_id!r}, api_key='***')"  # noqa: S105
 
@@ -308,11 +403,36 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         """
         import websockets
 
+        self._broker_session_id = ""
+
+        # A minted signed URL already carries the session's authentication in
+        # its query string, so no key travels on the socket. Without a mint
+        # endpoint the adapter dials the vendor's own websocket with
+        # ``xi-api-key``, exactly as it always has.
+        target_url = self.url
+        headers = {"xi-api-key": self._api_key}
+        if self._mint is not None:
+            result = await mint_elevenlabs_signed_url(self._mint, self.agent_id)
+            if result.minted:
+                target_url = result.credential
+                headers = {}
+                self._broker_session_id = result.session_id
+            else:
+                # No mint route: a plain proxy, or a gateway older than this
+                # feature. Dial the vendor directly, and say so, because an
+                # unbilled session otherwise looks identical to a billed one.
+                # A refusal never reaches here: it raises inside the mint.
+                warn_direct_dial_fallback(
+                    self._mint.base_url,
+                    ELEVENLABS_SIGNED_URL_PATH,
+                    "the api_key passed to the adapter",
+                )
+
         self._ws = await websockets.connect(
-            self.url,
-            additional_headers={"xi-api-key": self._api_key},
+            target_url,
+            additional_headers=headers,
         )
-        logger.debug("ElevenLabsAgentAdapter: connected to %s", self.url)
+        logger.debug("ElevenLabsAgentAdapter: connected (brokered=%s)", self.brokered)
 
         # Stamp EL-specific attrs onto the active ``voice.adapter.connect`` span
         # (opened by the executor connect loop). Base spans are name-owned; the
@@ -322,7 +442,11 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
 
         set_span_attributes(
             _otel_trace.get_current_span(),
-            {"voice.elevenlabs.agent_id": self.agent_id},
+            {
+                "voice.elevenlabs.agent_id": self.agent_id,
+                "voice.elevenlabs.brokered": self.brokered,
+                "voice.elevenlabs.session_id": self._broker_session_id or None,
+            },
         )
 
         # The NARROW prompt/first-message knobs build an `agent` override that is
@@ -780,15 +904,34 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # turn); with only the ping-resettable idle ``deadline`` this loop would
         # wedge forever. The ceiling bounds that pings-but-no-audio case. At
         # least ``timeout`` so it never pre-empts the idle deadline.
-        hard_deadline = start + max(timeout, KEEPALIVE_HARD_CEILING_S)
+        ceiling = max(timeout, KEEPALIVE_HARD_CEILING_S)
+        hard_deadline = start + ceiling
+        # Whether ANY inbound frame arrived. It is what tells the two rejections
+        # apart when both bounds land on the same instant, which is the default
+        # case: idle 60s, ceiling max(60, 45) = 60s. Nothing received means the
+        # socket was silent throughout, so the idle diagnosis is the true one.
+        saw_inbound_frame = False
+
+        def timeout_error() -> asyncio.TimeoutError:
+            """The rejection for whichever bound expired. A socket that went
+            completely quiet and one that pings steadily without ever speaking
+            are different problems, so they get different messages."""
+            if saw_inbound_frame and hard_deadline <= deadline:
+                return asyncio.TimeoutError(_ceiling_timeout_message(timeout, ceiling))
+            return asyncio.TimeoutError(_idle_timeout_message(timeout))
+
         while True:
             now = asyncio.get_running_loop().time()
             remaining = min(deadline, hard_deadline) - now
             if remaining <= 0:
-                raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
+                raise timeout_error()
 
             try:
                 raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            except asyncio.TimeoutError as err:
+                # ``wait_for`` raises a bare TimeoutError with an empty message,
+                # which is how both bounds used to reach the caller indistinguishable.
+                raise timeout_error() from err
             except websockets.exceptions.ConnectionClosed:
                 # Issue #648: the hosted agent finished its turn and the server
                 # closed the socket WITHOUT a trailing audio frame (a silent /
@@ -805,6 +948,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             # A received message (ping included) proves the socket is alive, so
             # re-arm the idle deadline. Placed BEFORE json.loads so ANY frame —
             # even a non-JSON/malformed one — counts as a liveness signal.
+            saw_inbound_frame = True
             deadline = asyncio.get_running_loop().time() + timeout
             try:
                 event = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())

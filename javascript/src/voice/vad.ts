@@ -108,7 +108,19 @@ export class WebRTCVadFallback {
   private readonly onSpeechStart: () => void;
   private readonly onSpeechEnd: () => void;
   private speaking = false;
-  private buf: number[] = [];
+  /**
+   * Incoming bytes awaiting a whole frame.
+   *
+   * A `Uint8Array` with a length, not a `number[]`: the source is already a
+   * `Uint8Array`, so the old buffer was a scatter copy that unpacked every
+   * byte into a boxed slot, and `splice(0, BYTES_PER_FRAME)` then shifted the
+   * whole remainder once PER FRAME. Frames are now read as `subarray` views,
+   * which copy nothing, and the remainder is compacted once per `process()`
+   * call rather than once per frame.
+   */
+  private buf = new Uint8Array(BYTES_PER_FRAME * 2);
+  /** Bytes currently valid in {@link buf}, always starting at index 0. */
+  private bufLen = 0;
   /** Count of consecutive frames in the candidate state (speech or silence). */
   private candidateRun = 0;
   /** The candidate state being voted on by the run counter. */
@@ -134,22 +146,48 @@ export class WebRTCVadFallback {
    */
   process(chunk: AudioChunk): void {
     const data = chunk.data;
-    for (let i = 0; i < data.length; i++) {
-      this.buf.push(data[i]);
+    this.reserve(this.bufLen + data.length);
+    this.buf.set(data, this.bufLen);
+    this.bufLen += data.length;
+
+    // `offset` walks the frames instead of the buffer shrinking under each
+    // one, so a chunk carrying N frames costs one compaction rather than N
+    // shifts of everything behind it.
+    let offset = 0;
+    while (this.bufLen - offset >= BYTES_PER_FRAME) {
+      const frame = this.buf.subarray(offset, offset + BYTES_PER_FRAME);
+      offset += BYTES_PER_FRAME;
+      this.observe(this.classifyFrame(frame));
     }
-    while (this.buf.length >= BYTES_PER_FRAME) {
-      const frame = this.buf.slice(0, BYTES_PER_FRAME);
-      this.buf.splice(0, BYTES_PER_FRAME);
-      const isSpeech = this.classifyFrame(frame);
-      this.observe(isSpeech);
+
+    if (offset > 0) {
+      this.buf.copyWithin(0, offset, this.bufLen);
+      this.bufLen -= offset;
     }
   }
 
   /**
-   * RMS energy classification of a 30 ms PCM16 frame. Pure function over
-   * the byte slice — no IO, no allocation outside the loop.
+   * Ensure {@link buf} can hold `needed` bytes, growing by doubling.
+   *
+   * Only reached when a single chunk is larger than what is already
+   * allocated; the steady state is a transport emitting chunks smaller than
+   * two frames, which never grows.
    */
-  private classifyFrame(frame: number[]): boolean {
+  private reserve(needed: number): void {
+    if (needed <= this.buf.length) return;
+    let capacity = this.buf.length;
+    while (capacity < needed) capacity *= 2;
+    const grown = new Uint8Array(capacity);
+    grown.set(this.buf.subarray(0, this.bufLen));
+    this.buf = grown;
+  }
+
+  /**
+   * RMS energy classification of a 30 ms PCM16 frame. A pure function over
+   * the byte view, with no IO and no allocation at all: the frame is a
+   * `subarray` window onto the ring buffer, not a copy of it.
+   */
+  private classifyFrame(frame: Uint8Array): boolean {
     let sumSquares = 0;
     const sampleCount = frame.length / 2;
     for (let i = 0; i < frame.length; i += 2) {

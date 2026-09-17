@@ -4,8 +4,9 @@ import { LogLevel, LOG_LEVELS } from "../config/log-levels";
 /**
  * Simple logger that respects LOG_LEVEL environment variable.
  *
- * Supports standard log levels: error, warn, info, debug
- * Silent by default (good for library usage)
+ * Supports standard log levels: error, warn, info, debug. `LOG_LEVEL` unset
+ * resolves to `INFO`, so errors, warnings and info all print; set `LOG_LEVEL`
+ * to `error` or `warn` to quiet a library consumer down.
  */
 export class Logger {
   /**
@@ -41,7 +42,6 @@ export class Logger {
     const currentLevelIndex = this.getLogLevelIndexFor(this.LOG_LEVEL);
     const requestedLevelIndex = this.getLogLevelIndexFor(level);
 
-    // If LOG_LEVEL is not set or invalid, don't log (silent by default)
     return currentLevelIndex >= 0 && requestedLevelIndex <= currentLevelIndex;
   }
 

@@ -8,19 +8,14 @@
  * the transport level (no real Twilio account, no tunnel).
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
 import { afterAll, expect } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 import { TwilioAgentAdapter } from "../twilio";
 import { TwilioRESTHelper } from "../twilio-shared";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "..", "specs", "voice-agents.feature");
-
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 const trackedAdapters: TwilioAgentAdapter[] = [];
 

@@ -79,8 +79,21 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
     return defaultVoiceCall(this, input);
   }
 
-  /** Seconds to wait for agent audio after sending user audio. */
-  responseTimeout = 30.0;
+  /**
+   * Seconds to wait for agent audio after sending user audio: the STT + LLM +
+   * TTS budget for one agent turn. Kept identical to Python's
+   * `VoiceAgentAdapter.response_timeout` so the same scenario passes or fails
+   * the same way in both SDKs.
+   *
+   * Raise it for an agent that runs a tool call or a retrieval step before it
+   * speaks:
+   *
+   * ```ts
+   * const agent = elevenLabsAgent({ agentId, apiKey });
+   * agent.responseTimeout = 180; // wait up to 3 minutes
+   * ```
+   */
+  responseTimeout = 60.0;
 
   /**
    * Tail silence: once the first agent chunk arrives, keep draining

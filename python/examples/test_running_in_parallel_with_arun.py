@@ -57,9 +57,11 @@ class VegetarianRecipeAgentAdapter(AgentAdapter):
         return [cast(ChatCompletionMessageParam, message)]
 
 
-@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent_arun")
 async def test_vegetarian_recipe_agent_via_arun():
+    # No ``flaky`` marker: reruns declared on a test that
+    # pytest-asyncio-concurrent owns never happen, because the group protocol
+    # never calls the hook pytest-rerunfailures implements.
     result = await scenario.arun(
         name="dinner idea (arun)",
         description="User is looking for a dinner idea",
@@ -84,12 +86,13 @@ async def test_vegetarian_recipe_agent_via_arun():
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent_arun")
-@pytest.mark.flaky(reruns=3)
 async def test_user_is_hungry_via_arun():
     # Follow-up prompts are fixed strings rather than free-form
     # ``scenario.user()`` calls so the UserSimulator's LLM noise
     # can't pivot the conversation away from vegetarian criteria
-    # the judge checks.
+    # the judge checks. That determinism is what keeps this test stable,
+    # not the ``flaky`` marker that used to sit here: reruns never run on a
+    # test that pytest-asyncio-concurrent owns.
     result = await scenario.arun(
         name="hungry user (arun)",
         description="User is very very hungry and wants a big, filling meal",
