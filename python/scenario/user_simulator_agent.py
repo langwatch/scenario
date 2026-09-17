@@ -277,6 +277,8 @@ class UserSimulatorAgent(AgentAdapter):
         voice, api_key = self._effective_tts(input.scenario_state.config.voice)
         if not voice:
             return text_message
+        # _generate_text's AgentReturnTypes union hides the dict message shape
+        # _voiceify reads; the dict is the only value it produces here.
         return await self._voiceify(text_message, voice=voice, api_key=api_key)  # type: ignore[arg-type]
 
     def _effective_voice(self, voice_config) -> Optional[str]:
@@ -304,10 +306,14 @@ class UserSimulatorAgent(AgentAdapter):
 
         content = text_message.get("content", "")
         if not isinstance(content, str) or not content:
+            # text_message is the dict from _generate_text, which satisfies
+            # the audio-message branch of the AgentReturnTypes union at runtime.
             return text_message  # type: ignore[return-value]
         if self._voice_style_override is not None:
             self._warn_voice_style_not_wired_once()
         kwargs = {"api_key": api_key} if api_key else {}
+        # voice is truthy here (the empty case returned above); the Optional
+        # is the declared type of _effective_tts, not a reachable None.
         chunk = await synthesize(content, voice or self.voice, **kwargs)  # type: ignore[arg-type]
         audio_bytes = chunk.data
         effects = self._effective_audio_effects()
