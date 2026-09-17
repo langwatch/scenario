@@ -18,7 +18,7 @@ from scenario.voice import (
     get_stt_provider,
     set_stt_provider,
 )
-from scenario.voice.config import resolve_voice_config
+from scenario.voice.config import SttConfig, TtsConfig, resolve_voice_config
 from scenario.voice.recording import AudioSegment, VoiceRecording
 
 
@@ -193,21 +193,16 @@ async def test_audio_only_adapter_transcribes_with_the_runs_provider() -> None:
                 return AudioChunk(data=b"\x00\x01" * 1200)
             return AudioChunk(data=b"")
 
-    class _OkJudge(JudgeAgent):
-        def __init__(self) -> None:
-            super().__init__(
-                criteria=[], model="openai/gpt-4.1-mini", include_audio=False
-            )
-
-        async def call(self, input: AgentInput) -> AgentReturnTypes:
-            return ScenarioResult(success=True, messages=[], reasoning="ok")
-
     try:
         result = await scenario.arun(
             name="voice-adapter-per-turn-stt",
             description="adapter per-turn STT resolves the run provider",
-            agents=[_AudioOnlyAgent(), _User(), _OkJudge()],
-            script=[scenario.user("hello"), scenario.agent(), scenario.judge()],
+            agents=[_AudioOnlyAgent(), _User()],
+            script=[
+                scenario.user("hello"),
+                scenario.agent(),
+                scenario.succeed("adapter turn transcribed"),
+            ],
             voice=VoiceConfig(stt=run_provider),
         )
         assert result.success
@@ -221,3 +216,79 @@ def test_unsupported_voice_value_is_rejected() -> None:
     """A voice= typo fails loudly instead of silently using a fresh default."""
     with pytest.raises(TypeError, match="voice expects a VoiceConfig"):
         resolve_voice_config(scenario_level="openai/whisper-1")
+
+
+def test_unset_runs_mint_their_own_default_provider() -> None:
+    """Without a registered legacy provider, each read mints a fresh default."""
+    import scenario.voice.stt as stt_module
+    from scenario.voice.stt import OpenAISTTProvider
+
+    previous = stt_module._legacy_provider
+    stt_module._legacy_provider = None
+    try:
+        first = stt_module.get_stt_provider()
+        second = stt_module.get_stt_provider()
+        assert isinstance(first, OpenAISTTProvider)
+        assert first is not second
+    finally:
+        stt_module._legacy_provider = previous
+
+
+def test_falsey_explicit_provider_is_not_replaced() -> None:
+    """A provider whose __bool__ is False is still the configured provider."""
+
+    class _Falsey(_STT):
+        def __bool__(self) -> bool:
+            return False
+
+    provider = _Falsey("falsey", _MeetingPoint(parties=1))
+    resolved = resolve_voice_config(scenario_level=VoiceConfig(stt=provider))
+    assert resolved.stt is provider
+
+
+@pytest.mark.asyncio
+async def test_shared_voice_config_is_not_stamped_across_runs() -> None:
+    """A VoiceConfig reused across runs is copied, never written into."""
+    shared = VoiceConfig()
+
+    async def one_run() -> None:
+        await scenario.arun(
+            name="shared-voice-carrier",
+            description="executor copies the caller carrier",
+            agents=[_Agent(), _User()],
+            script=[scenario.user("hello"), scenario.succeed("done")],
+            voice=shared,
+        )
+
+    await one_run()
+    assert shared.stt is None
+    await one_run()
+    assert shared.stt is None
+
+
+def test_mapping_stt_descriptor_holds_no_credential_after_dump() -> None:
+    """Mapping descriptors normalize to SttConfig, whose key never serializes."""
+    carrier = VoiceConfig(stt={"model": "openai/whisper-1", "api_key": "sk-secret"})
+    assert isinstance(carrier.stt, SttConfig)
+    assert "sk-secret" not in str(carrier.model_dump())
+
+
+@pytest.mark.parametrize("as_mapping", [False, True], ids=["typed", "mapping"])
+def test_snapshot_copies_nested_descriptors_not_providers(as_mapping: bool) -> None:
+    """Descriptor values are snapshotted in both carrier forms; providers shared."""
+    stt = SttConfig(model="openai/whisper-1", api_key="a")
+    tts = TtsConfig(voice="openai/alloy", api_key="b")
+    carrier = (
+        VoiceConfig.model_validate({"stt": stt, "tts": tts})
+        if as_mapping
+        else VoiceConfig(stt=stt, tts=tts)
+    )
+
+    snap = carrier.snapshot()
+    assert snap.stt is not stt
+    assert snap.tts is not tts
+    stt.api_key = "changed"
+    assert snap.stt.api_key == "a"
+
+    provider = _STT("shared", _MeetingPoint(parties=1))
+    assert VoiceConfig(stt=provider).snapshot().stt is provider

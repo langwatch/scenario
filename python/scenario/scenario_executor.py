@@ -287,7 +287,14 @@ class ScenarioExecutor:
         from .voice.config import VoiceConfig
         from .voice.stt import get_stt_provider
 
-        voice_config = VoiceConfig.model_validate(self.config.voice or {})
+        carrier = self.config.voice
+        # validation returns already-modeled nested values as the same
+        # objects, so stamping below must not write into a caller-shared carrier
+        voice_config = (
+            carrier
+            if isinstance(carrier, VoiceConfig)
+            else VoiceConfig.model_validate(carrier or {})
+        ).snapshot()
         if voice_config.stt is None:
             voice_config.stt = get_stt_provider()
         self.config.voice = voice_config

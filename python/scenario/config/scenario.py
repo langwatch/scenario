@@ -89,8 +89,6 @@ class ScenarioConfig(BaseModel):
         default=None, gt=0, allow_inf_nan=False
     )
     observability: Optional[Dict[str, Any]] = None
-    # Per-run voice carrier; configure()'s process-wide defaults cannot select
-    # providers for concurrent runs.
     voice: Optional[Any] = None
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None
