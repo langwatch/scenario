@@ -11,8 +11,10 @@ Users who prefer Deepgram, Whisper, local inference, etc. implement
 That per-run carrier reaches the judge without process-wide mutable state.
 
 ``set_stt_provider()`` remains a deprecated compatibility helper for direct
-``transcribe()``/``transcribe_segments()`` utility calls. It is not used by the
-judge path and will be removed in the next major version.
+``transcribe()``/``transcribe_segments()`` utility calls. A run with no voice
+configuration snapshots the registered provider once, at executor construction,
+so a later ``set_stt_provider()`` cannot change an in-flight run; the helper
+itself will be removed in the next major version.
 
 The OpenAI default chunks audio longer than 25 minutes per request (the API
 hard limit). Transcription happens per turn, so this is rarely triggered.
@@ -155,7 +157,6 @@ class ElevenLabsSTTProvider(STTProvider):
 
 
 _legacy_provider: Optional[STTProvider] = None
-_default_legacy_provider: STTProvider = OpenAISTTProvider()
 
 
 def set_stt_provider(provider: STTProvider) -> None:
@@ -192,7 +193,9 @@ def set_stt_provider(provider: STTProvider) -> None:
 
 
 def get_stt_provider() -> STTProvider:
-    return _legacy_provider or _default_legacy_provider
+    if _legacy_provider is not None:
+        return _legacy_provider
+    return OpenAISTTProvider()
 
 
 async def transcribe(audio: AudioChunk) -> str:

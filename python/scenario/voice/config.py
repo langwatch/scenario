@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..config.voice_models import OPENAI_STT_MODEL
 from .stt import ElevenLabsSTTProvider, OpenAISTTProvider, STTProvider
@@ -18,7 +18,7 @@ class SttConfig(BaseModel):
 
     model: str
     language: Optional[str] = None
-    api_key: Optional[str] = None
+    api_key: Optional[str] = Field(default=None, exclude=True)
 
 
 class TtsConfig(BaseModel):
@@ -27,7 +27,17 @@ class TtsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     voice: str
-    api_key: Optional[str] = None
+    api_key: Optional[str] = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _reject_unsupported_api_key(self) -> "TtsConfig":
+        if self.api_key:
+            provider, _, _ = self.voice.partition("/")
+            if provider.lower() not in {"openai", "elevenlabs"}:
+                raise ValueError(
+                    f"TTS provider {provider!r} does not support a per-run api_key."
+                )
+        return self
 
 
 class VoiceConfig(BaseModel):
@@ -37,6 +47,28 @@ class VoiceConfig(BaseModel):
 
     stt: Optional[Any] = None
     tts: Optional[TtsConfig] = None
+
+    @field_validator("stt", mode="before")
+    @classmethod
+    def _coerce_stt_descriptor(cls, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return SttConfig.model_validate(value)
+        return value
+
+    def snapshot(self) -> "VoiceConfig":
+        """Copy this carrier and its descriptor values for one run.
+
+        Explicit ``STTProvider`` instances are shared on purpose: a run that
+        names one uses that exact object. Descriptor values (``SttConfig`` /
+        ``TtsConfig``) are copied so a caller mutating its own descriptors
+        cannot change a run that already started.
+        """
+        copy = self.model_copy()
+        if isinstance(copy.stt, SttConfig):
+            copy.stt = copy.stt.model_copy()
+        if isinstance(copy.tts, TtsConfig):
+            copy.tts = copy.tts.model_copy()
+        return copy
 
 
 class ResolvedVoiceConfig(BaseModel):
@@ -97,7 +129,7 @@ def resolve_voice_config(
     if stt is None:
         stt = _resolve_stt(scenario_level.stt if scenario_level else None)
     return ResolvedVoiceConfig(
-        stt=stt or OpenAISTTProvider(),
+        stt=stt if stt is not None else OpenAISTTProvider(),
         tts=(option_level.tts if option_level and option_level.tts else None)
         or (scenario_level.tts if scenario_level else None),
     )

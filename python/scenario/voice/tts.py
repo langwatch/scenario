@@ -31,9 +31,7 @@ TTSCallable = Callable[[str, str], Awaitable[bytes]]
 
 
 _PROVIDERS: Dict[str, TTSCallable] = {}
-# LRU keyed on (sha256(text), voice, sha256(api_key)): no raw text or
-# credentials in the key, and one account's audio cannot cross into another's
-# run. 64 entries bounds a 5-minute clip (~14 MB each) to ~900 MB.
+# 64 entries bounds a 5-minute clip (~14 MB each) to ~900 MB.
 _CACHE_MAX_ENTRIES = 64
 _CACHE: "OrderedDict[Tuple[str, str, str], bytes]" = OrderedDict()
 
