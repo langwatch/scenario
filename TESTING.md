@@ -144,12 +144,12 @@ unbounded. That is the number #791 needs.
 
 ### Running the multi-turn demos
 
-**Always pass an explicit `--timeout`.** `pytest.ini` sets `timeout = 60` and it
-**wins over** `pyproject.toml` (pytest says so: `configfile: pytest.ini (WARNING:
-ignoring pytest config in pyproject.toml!)`). Worse, `timeout_method = thread` kills
-the **entire pytest process**, not just the slow test — so one demo over the cap
-takes the whole suite down with a thread dump, which looks exactly like a hang. Three
-of these demos exceed 60s even with telemetry off, and the drain above adds far more.
+**Always pass an explicit `--timeout`.** `pyproject.toml` sets `timeout = 60` for
+the unit suite and is the single source of truth — there is no `pytest.ini`
+(issue #985). Worse, `timeout_method = thread` kills the **entire pytest
+process**, not just the slow test — so one demo over the cap takes the whole
+suite down with a thread dump, which looks exactly like a hang. Three of these
+demos exceed 60s even with telemetry off, and the drain above adds far more.
 
 ```bash
 # Supported: one process per demo (what voice-integration.yml does).
