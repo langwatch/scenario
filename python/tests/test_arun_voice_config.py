@@ -215,3 +215,9 @@ async def test_audio_only_adapter_transcribes_with_the_runs_provider() -> None:
         assert forbidden.calls == 0
     finally:
         set_stt_provider(previous)
+
+
+def test_unsupported_voice_value_is_rejected() -> None:
+    """A voice= typo fails loudly instead of silently using a fresh default."""
+    with pytest.raises(TypeError, match="voice expects a VoiceConfig"):
+        resolve_voice_config(scenario_level="openai/whisper-1")
