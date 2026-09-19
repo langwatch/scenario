@@ -12,12 +12,12 @@ import type { LanguageModel } from "ai";
 import { describe, it, expect } from "vitest";
 
 import scenario, { voice } from "../../index";
-import { PipecatAgentAdapter } from "../adapters/pipecat";
-import { OpenAIRealtimeAgentAdapter } from "../adapters/openai-realtime";
-import { GeminiLiveAgentAdapter } from "../adapters/gemini-live";
-import { TwilioAgentAdapter } from "../adapters/twilio";
-import { ElevenLabsAgentAdapter, ComposableVoiceAgent } from "../adapters";
 import { VoiceAgentAdapter } from "../adapter";
+import { ElevenLabsAgentAdapter, ComposableVoiceAgent } from "../adapters";
+import { GeminiLiveAgentAdapter } from "../adapters/gemini-live";
+import { OpenAIRealtimeAgentAdapter } from "../adapters/openai-realtime";
+import { PipecatAgentAdapter } from "../adapters/pipecat";
+import { TwilioAgentAdapter } from "../adapters/twilio";
 import type { AudioChunk } from "../audio-chunk";
 import type { STTProvider } from "../stt";
 

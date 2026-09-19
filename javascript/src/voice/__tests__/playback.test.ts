@@ -11,6 +11,7 @@
  *    when audioPlayback: false, sink is NOT constructed.
  */
 
+import { spawn } from "node:child_process";
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -83,13 +84,19 @@ vi.mock("node:child_process", () => ({
   spawn: vi.fn().mockReturnValue(mockProc),
 }));
 
-// ---------------------------------------------------------------------------
-// Imports after mock declaration (vitest hoists vi.mock to module-scope).
-// ---------------------------------------------------------------------------
-
-import { spawn } from "node:child_process";
-import { AudioPlaybackSink } from "../playback";
+import { configure } from "../../config/configure";
+import {
+  AgentRole,
+  type AgentInput,
+  type AgentReturnTypes,
+  JudgeAgentAdapter,
+  UserSimulatorAgentAdapter,
+} from "../../domain";
+import { ScenarioExecution } from "../../execution/scenario-execution";
+import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
+import { AdapterCapabilities } from "../capabilities";
+import { AudioPlaybackSink } from "../playback";
 
 // Minimal real PCM16 chunk: 4 bytes = two int16 samples = valid PCM16.
 function makeChunk(): AudioChunk {
@@ -246,17 +253,6 @@ describe("AudioPlaybackSink", () => {
 // Suite 2: executor wiring (via ScenarioExecution)
 // ---------------------------------------------------------------------------
 
-import {
-  AgentRole,
-  type AgentInput,
-  type AgentReturnTypes,
-  JudgeAgentAdapter,
-  UserSimulatorAgentAdapter,
-} from "../../domain";
-import { ScenarioExecution } from "../../execution/scenario-execution";
-import { VoiceAgentAdapter } from "../adapter";
-import { AdapterCapabilities } from "../capabilities";
-import { configure } from "../../config/configure";
 
 // Minimal fake adapters for the executor wiring tests.
 class FakeVoiceAgent extends VoiceAgentAdapter {
