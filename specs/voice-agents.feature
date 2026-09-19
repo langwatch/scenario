@@ -311,13 +311,10 @@ Feature: Voice agent testing in Scenario SDK
     Then the TTS synthesis is cached on (text, voice) and only called once
     And effects are applied to the cached audio after retrieval, never baked in
 
-  @unit @todo
+  @unit @ts-simulator
   Scenario: Per-step voice override applies to only that step
     # Source §4.2, L290-294
-    # @todo for the AUDIBLE voiceStyle effect — no TTS backend changes timbre
-    # by style yet (the simulator emits a one-shot warning). The per-step
-    # override PLUMBING (one-turn install + revert) IS wired; covered by
-    # script/__tests__/interrupt-after-and-user-overrides.test.ts.
+    # Bound by javascript/src/agents/__tests__/user-simulator-voice.test.ts
     Given scenario.user("I'm really upset about this!", voice_style="angry")
     When the step runs
     Then the style "angry" is applied only to that turn
