@@ -528,6 +528,12 @@ export class TwilioRESTHelper {
      * they have always been.
      */
     timeLimitSeconds?: number;
+    /**
+     * When true, sends Twilio's `Record=true` on `Calls.create` so the whole
+     * call is recorded server-side. Omitted from the request entirely when
+     * false/undefined — dual-channel recording is not requested.
+     */
+    record?: boolean;
   }): Promise<string> {
     const body = new URLSearchParams({
       To: args.to,
@@ -536,6 +542,9 @@ export class TwilioRESTHelper {
     });
     if (args.timeLimitSeconds !== undefined) {
       body.set("TimeLimit", String(args.timeLimitSeconds));
+    }
+    if (args.record) {
+      body.set("Record", "true");
     }
     const data = (await this._request("POST", `/Calls.json`, body)) as { sid?: string };
     if (!data.sid) {
@@ -584,18 +593,26 @@ export function redactE164(number: string | undefined | null): string {
 /**
  * Derive the Media Streams WebSocket URL from the adapter's public base URL.
  *
- * `https:` → `wss:` (`http:` → `ws:`), trailing slash stripped,
- * `/twilio/stream` appended. Single source of truth for the string-munging:
- * both the inbound webhook ({@link TwilioWebhookServer}) and the A-leg
- * origination TwiML (`TwilioAgentAdapter.placeCall`) route through here.
+ * `https:` -> `wss:` (`http:` -> `ws:`), trailing slash stripped, then either
+ * `/twilio/<nonce>` (when a nonce is supplied) or `/twilio/stream` (legacy,
+ * fixed path -- used when there is no nonce, e.g. b-leg/inbound calls).
+ *
+ * The nonce-in-path shape matches what the LangWatch platform's upgrade
+ * listener requires: it must route an incoming socket to the right child
+ * process BEFORE the handshake completes, so it cannot wait for the first
+ * media `start` frame to learn the nonce the way this SDK's own embedded
+ * server ({@link TwilioWebhookServer}) can.
+ *
+ * Single source of truth for the string-munging: both the inbound webhook
+ * ({@link TwilioWebhookServer}) and the A-leg origination TwiML
+ * (`TwilioAgentAdapter.placeCall`) route through here.
  */
-export function streamWsUrl(publicBaseUrl: string): string {
-  return (
-    publicBaseUrl
-      .replace(/^https:/, "wss:")
-      .replace(/^http:/, "ws:")
-      .replace(/\/$/, "") + "/twilio/stream"
-  );
+export function streamWsUrl(publicBaseUrl: string, nonce?: string): string {
+  const base = publicBaseUrl
+    .replace(/^https:/, "wss:")
+    .replace(/^http:/, "ws:")
+    .replace(/\/$/, "");
+  return `${base}/twilio/${nonce !== undefined ? nonce : "stream"}`;
 }
 
 /**
@@ -621,6 +638,23 @@ export function escapeXmlAttr(value: string): string {
  * `MAX_CALL_DURATION_CAP_SECONDS`.
  */
 export const MAX_CALL_DURATION_CAP_SECONDS = 300;
+
+/**
+ * Default budget `placeCall`/`waitForCall` wait for the Media Streams socket
+ * to CONNECT (their `timeoutMs`), in milliseconds. Twilio may ring the callee
+ * for tens of seconds before either side answers, so this covers ring time
+ * PLUS the socket connect itself, not just the connect.
+ *
+ * Exported so a host platform that authenticates the socket at a public
+ * listener in a SEPARATE process (the LangWatch platform's split-process
+ * handoff — see `voice-nonce-handoff.ts`/`voice-nonce-registry.ts`) can size
+ * its own nonce lifetime against this exact number rather than guessing a
+ * value that happens to agree with it today. A nonce that expires before this
+ * wait elapses turns a legitimate slow-to-answer call into a false "stream
+ * never connected" failure — the registering TTL must stay >= this constant,
+ * with headroom for the registration round trip itself.
+ */
+export const DEFAULT_STREAM_CONNECT_TIMEOUT_MS = 120_000;
 
 /**
  * Applied when an a-leg `placeCall` names no duration. Equal to the cap: an

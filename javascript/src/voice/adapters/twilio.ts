@@ -18,6 +18,8 @@
  * codec live in `./twilio-shared.ts`.
  */
 
+import type { Socket } from "node:net";
+
 import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
@@ -26,8 +28,13 @@ import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { sleep } from "../utils";
 
 import { twilioLogger } from "./twilio-logger";
-import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
 import {
+  TwilioWebhookServer,
+  type ExternalUpgradeRequest,
+  type MediaStreamWebSocket,
+} from "./twilio-server";
+import {
+  DEFAULT_STREAM_CONNECT_TIMEOUT_MS,
   TWILIO_FRAME_MS,
   TunnelNotReadyError,
   type TunnelReadiness,
@@ -44,6 +51,7 @@ import {
   streamWsUrl,
   validateE164,
 } from "./twilio-shared";
+import { TwilioSpeechGate, type TwilioSpeechGateOptions } from "./twilio-speech-gate";
 
 export { TunnelNotReadyError, type TunnelReadiness } from "./twilio-shared";
 
@@ -176,6 +184,17 @@ export interface TwilioAgentAdapterOptions {
    * inject a fully-stubbed REST surface.
    */
   rest?: TwilioRESTHelper;
+  /**
+   * Energy gate on INBOUND call audio (see `./twilio-speech-gate.ts`). On by
+   * default with the measured phone-line thresholds: Twilio streams a media
+   * frame every 20 ms for the life of the call, silence included, so without
+   * the gate the drain's tail-silence turn end (`responseTailSilence`) can
+   * never fire and the callee's turn only ends on hangup or the hard ceiling.
+   * Pass an object to tune the thresholds, or `false` to admit every frame
+   * (the pre-gate behaviour — only sensible for a transport that already
+   * stops sending during silence).
+   */
+  speechGate?: TwilioSpeechGateOptions | false;
 }
 
 export class TwilioAgentAdapter extends VoiceAgentAdapter {
@@ -246,6 +265,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   private _maxDurationTimeout: ReturnType<typeof setTimeout> | null = null;
   private _streamConnected = makeDeferred<void>();
   private _inboundQueue: InboundQueue = new InboundQueue();
+  // Sits between the media loop and `_inboundQueue` (see `_enqueueInbound`).
+  // `null` when constructed with `speechGate: false`. Per-call state is reset
+  // wherever the queue's buffered audio is cleared; the lifetime counters are
+  // stamped onto the disconnect span next to the frame counters.
+  private readonly _speechGate: TwilioSpeechGate | null;
   private _connected = false;
   // Set true by the media-stream loop's terminal path (stop / socket close /
   // throw) the moment it enqueues the end-of-call sentinel. Once the call has
@@ -257,6 +281,19 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   // and at media-stream-loop entry (per-call scope — a second session on the
   // same connected adapter must not inherit the previous session's flag).
   private _streamEnded = false;
+  // Whether the media stream ever went live (a `start` frame adopted the
+  // socket / set a stream sid). Guards `agentHungUp` against a stream that
+  // ends before it ever connected — that's a failed dial, not a far-end
+  // hangup. Reset on connect(), like `_streamEnded`.
+  private _sawLiveStream = false;
+  // Set for the duration of `disconnect()` so the media loop's resulting
+  // socket-close can be told apart from a genuine remote hangup — both land
+  // on the same `_streamEndedReason` ("close") once the socket goes down.
+  // (The max-duration watchdog doesn't need this: it stamps "max_duration"
+  // as the reason BEFORE closing the socket, and `_setStreamEndedReason`
+  // never lets a later reason overwrite it.) Reset on connect() and cleared
+  // at the end of disconnect().
+  private _localDisconnect = false;
   // Call-lifetime counters stamped onto `voice.adapter.disconnect` from inside
   // disconnect() (#775 Tier 2b — mirrors ElevenLabs' pump-counter seam).
   // Accumulated by the media loop (twilio-server.ts) and the `/twilio/voice`
@@ -290,6 +327,8 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this.validateSignature = options.validateSignature ?? true;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this._rest = options.rest ?? null;
+    this._speechGate =
+      options.speechGate === false ? null : new TwilioSpeechGate(options.speechGate ?? {});
   }
 
   // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
@@ -333,7 +372,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._callGeneration += 1;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
+    this._speechGate?.resetCounters();
     this._streamEnded = false;
+    this._sawLiveStream = false;
+    this._localDisconnect = false;
+    this.agentHungUp = false;
     this._framesReceived = 0;
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
@@ -348,13 +391,31 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._connected = true;
   }
 
-  /** Whether the Media Stream transport is open (Gap #11). */
+  /**
+   * Whether the Media Stream transport is open (Gap #11). Also false once the
+   * stream has ended (`_streamEnded`) even if `disconnect()` was never
+   * called — a remote hangup (Twilio `stop` / socket close) must trip the
+   * runtime's `isConnected()` gate on its own, not only after we tear down.
+   *
+   * Exception: while a farewell recorded before the hangup is still sitting
+   * in the inbound queue, this stays `true` so `defaultVoiceCall` drains it
+   * instead of taking the `agentHungUp` early return and dropping it on the
+   * floor. Once the queue holds nothing but the terminal sentinel (or is
+   * empty), later turns see `false` and conclude via `agentHungUp`.
+   */
   override isConnected(): boolean {
-    return this._connected;
+    return this._connected && (!this._streamEnded || this._inboundQueue.hasBufferedAudio());
   }
 
   async disconnect(): Promise<void> {
     if (!this._connected) return;
+
+    // Mark this teardown as ours BEFORE closing anything: `_webhookServer
+    // .stop()` below force-closes the live socket, which the media loop
+    // reports as `_streamEndedReason: "close"` — the same reason a genuine
+    // remote drop produces. This flag is how `_markStreamEnded()` tells the
+    // two apart.
+    this._localDisconnect = true;
 
     // Restore prior voice_url (answer mode only). `restRestoreFailed` tracks
     // whether either restore below threw — previously fully swallowed; now
@@ -413,6 +474,13 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       "voice.twilio.webhook_invocations": this._webhookInvocations,
       "voice.twilio.webhook_rejected": this.rejectedCount,
       "voice.twilio.rest_restore_failed": restRestoreFailed,
+      // Speech-gate lifetime counters: how much inbound audio never reached
+      // the drain, and how many callee utterances the gate heard. `enabled`
+      // false stamps zeros so a trace still says the gate was off.
+      "voice.twilio.speech_gate.enabled": this._speechGate !== null,
+      "voice.twilio.speech_gate.dropped_chunks": this._speechGate?.droppedChunks ?? 0,
+      "voice.twilio.speech_gate.dropped_ms": Math.round(this._speechGate?.droppedMs ?? 0),
+      "voice.twilio.speech_gate.onsets": this._speechGate?.onsets ?? 0,
     });
 
     this._connected = false;
@@ -430,7 +498,10 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._cancelMaxDurationTimer();
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
+    this._speechGate?.resetCounters();
     this._streamEnded = false;
+    this._sawLiveStream = false;
+    this._localDisconnect = false;
     this._framesReceived = 0;
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
@@ -477,6 +548,24 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
      * call up via REST and closes the socket.
      */
     maxCallDurationSeconds?: number;
+    /**
+     * Request Twilio-side call recording (`Record=true` on `Calls.create`).
+     * Stamped onto the `voice.adapter.dial` span when set so "was this call
+     * recorded" is answerable from the trace alone.
+     */
+    record?: boolean;
+    /**
+     * Caller-supplied a-leg stream nonce, overriding this adapter's own
+     * {@link mintStreamNonce} call. Exists for a host platform that runs the
+     * media listener Twilio actually dials back in a SEPARATE process from
+     * the one placing this call (e.g. a parent worker process fronting a pool
+     * of scenario-execution child processes): that platform must register the
+     * nonce with its own listener BEFORE Twilio can possibly connect, which
+     * means it must know the nonce before `placeCall` runs — impossible if
+     * this adapter mints it internally. Ignored outside a-leg mode, the only
+     * mode a stream nonce means anything in.
+     */
+    streamNonce?: string;
   }): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
@@ -490,7 +579,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     // Resolve the effective stream-attach mode BEFORE any REST call so a
     // conflicting-parameter caller error surfaces before we dial.
     const mode = resolveStreamMode(args.attachStream, args.attachStreamToSelf);
-    const timeoutMs = args.timeoutMs ?? 120_000;
+    const timeoutMs = args.timeoutMs ?? DEFAULT_STREAM_CONNECT_TIMEOUT_MS;
     // Only a-leg loses <Pause>'s implicit ceiling, so only a-leg carries a
     // duration cap. Naming one in another mode is rejected rather than ignored:
     // silently dropping it would leave the caller believing the call is bounded
@@ -559,11 +648,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         // Other modes: play a short deterministic <Say> anchor (Whisper
         // hallucinates on bare <Pause> silence, #465), then hold the bridge open
         // while B's webhook attaches the Media Stream.
-        const nonce = mode === "a-leg" ? mintStreamNonce() : undefined;
+        const nonce =
+          mode === "a-leg" ? (args.streamNonce ?? mintStreamNonce()) : undefined;
         this._streamNonce = nonce;
         const originationTwiml =
           nonce !== undefined
-            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl), { nonce })
+            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl, nonce), { nonce })
             : `<?xml version="1.0" encoding="UTF-8"?>` +
               `<Response>` +
               `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
@@ -574,8 +664,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           from: this.phoneNumber,
           twiml: originationTwiml,
           timeLimitSeconds: maxCallDuration,
+          record: args.record,
         });
         setSpanAttributes(span, { "voice.twilio.call_sid": this._callSid });
+        if (args.record) {
+          setSpanAttributes(span, { "voice.twilio.record": true });
+        }
 
         if (maxCallDuration !== undefined) {
           this._armMaxDurationTimer(maxCallDuration, this._callSid, args.to);
@@ -690,7 +784,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     }
   }
 
-  async waitForCall(timeoutMs = 120_000): Promise<void> {
+  async waitForCall(timeoutMs = DEFAULT_STREAM_CONNECT_TIMEOUT_MS): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
     const publicBaseUrl = this.publicBaseUrl;
@@ -880,6 +974,15 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   // ------------------------------------------------------------------ I/O
 
   override async sendAudio(chunk: AudioChunk): Promise<void> {
+    // Defense in depth: once the stream has ended (remote stop/close, or our
+    // own disconnect), there is nobody left to send audio to. The runtime
+    // gate (`isConnected()` / `agentHungUp`, `adapter.runtime.ts`) is what's
+    // supposed to stop `call()` from reaching here at all — but a caller
+    // that talks to the adapter directly (or a scripted turn already in
+    // flight when the far end hangs up) must get a silent no-op, not the
+    // "no live media stream" error, which is reserved for the genuinely
+    // never-connected case below.
+    if (this._streamEnded) return;
     this._assertStreamLive();
     const streamWs = this._streamWs;
     const streamSid = this._streamSid;
@@ -966,6 +1069,34 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
 
   /**
+   * Production entry for a host platform that accepts Twilio's public
+   * connection in a SEPARATE process from the one this adapter runs in (an
+   * a-leg call whose parent worker process owns the public listener and
+   * routes by nonce to the child that placed the call). That parent accepts
+   * the raw TCP upgrade, does NOT complete the WebSocket handshake, and hands
+   * the still-unhandshaked socket to this process over IPC — this method is
+   * where it arrives. Delegates to
+   * {@link TwilioWebhookServer.receiveExternalUpgrade}, which re-enters this
+   * adapter's ordinary upgrade path, so the a-leg nonce check and the media
+   * loop behave identically to a locally-received upgrade.
+   *
+   * A call placed with no host-supplied `placeCall({ streamNonce })` never
+   * needs this: this adapter's own local server receives Twilio's dial-back
+   * directly, the ordinary way.
+   */
+  receiveExternalMediaSocket(params: {
+    req: ExternalUpgradeRequest;
+    socket: Socket;
+    head: Buffer;
+  }): void {
+    if (!this._webhookServer) {
+      params.socket.destroy();
+      return;
+    }
+    this._webhookServer.receiveExternalUpgrade(params);
+  }
+
+  /**
    * Test seam: directly drive a media-stream loop over a provided socket.
    * Production code reaches the loop via the `/twilio/stream` route.
    */
@@ -1005,6 +1136,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
   /** @internal */ _setStreamSid(sid: string | undefined): void {
     this._streamSid = sid;
+    if (sid !== undefined) this._sawLiveStream = true;
   }
   /** @internal */ _setCallSid(sid: string | undefined): void {
     if (!this._callSid) this._callSid = sid;
@@ -1022,14 +1154,47 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   get _callSidForServer(): string | undefined {
     return this._callSid;
   }
+  /** The Twilio call SID for the current/last call, once origination has
+   * returned it. `undefined` before a call is placed or after disconnect. */
+  get callSid(): string | undefined {
+    return this._callSid;
+  }
   /** @internal */ _signalStreamConnected(): void {
     this._streamConnected.resolve();
   }
-  /** @internal */ _enqueueInbound(chunk: AudioChunk): void {
-    this._inboundQueue.put(chunk);
+  /** @internal Single inbound entry point for the media loop. With the speech
+   * gate on, only chunks the gate admits (speech, hangover, pre-roll, the
+   * terminal sentinel) reach the queue — that arrival gap during the callee's
+   * silence is what lets the drain's tail-silence path end the turn. */
+  _enqueueInbound(chunk: AudioChunk): void {
+    if (!this._speechGate) {
+      this._inboundQueue.put(chunk);
+      return;
+    }
+    for (const admitted of this._speechGate.admit(chunk)) {
+      this._inboundQueue.put(admitted);
+    }
+  }
+  /** @internal Test-only view of the inbound speech gate (`null` when off). */
+  get _speechGateForTest(): TwilioSpeechGate | null {
+    return this._speechGate;
   }
   /** @internal */ _markStreamEnded(): void {
     this._streamEnded = true;
+    // Mirrors ElevenLabs' `agentHungUp` contract (`adapters/elevenlabs.ts`,
+    // the `end_call` tool): a "stop"/"close" that arrives on a stream that
+    // actually went live, and that we didn't ourselves tear down via
+    // `disconnect()`, is the far end hanging up — not a dropped transport.
+    // "max_duration"/"error"/"none" are excluded: the watchdog and genuine
+    // transport errors aren't a remote hangup, and a stream that never
+    // adopted (`_sawLiveStream` false) never had anyone to hang up on.
+    if (
+      (this._streamEndedReason === "stop" || this._streamEndedReason === "close") &&
+      this._sawLiveStream &&
+      !this._localDisconnect
+    ) {
+      this.agentHungUp = true;
+    }
   }
   /**
    * @internal Re-arm per-CALL state at media-stream-loop entry. All three parts
@@ -1054,6 +1219,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamEnded = false;
     this._streamEndedReason = "none";
     this._inboundQueue.clearBuffered();
+    // Same per-call scope: held pre-roll and a speaking flag from the previous
+    // session must not leak into this call's first turn.
+    this._speechGate?.reset();
   }
   /**
    * @internal The call generation captured by the media loop at adoption (#762
@@ -1085,6 +1253,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamSid = undefined;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.clearBuffered();
+    this._speechGate?.reset();
     this._streamEnded = false;
     this._streamEndedReason = "none";
     this._framesReceived = 0;
@@ -1239,6 +1408,17 @@ class InboundQueue {
   /** True when no buffered chunk is immediately available to `take()`. */
   isEmpty(): boolean {
     return this._items.length === 0;
+  }
+
+  /**
+   * True when at least one buffered chunk carries real audio — as opposed to
+   * only the zero-length terminal sentinel(s) `_markStreamEnded`'s caller
+   * enqueues. Distinguishes "call ended, nothing left to hand the drain" from
+   * "call ended, but a farewell is still sitting in the queue" for
+   * `isConnected()` below.
+   */
+  hasBufferedAudio(): boolean {
+    return this._items.some((chunk) => chunk.data.length > 0);
   }
 
   /**

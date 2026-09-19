@@ -194,6 +194,12 @@ function makeAdapter(opts?: {
     validateSignature: opts?.validateSignature ?? false,
     httpPort: opts?.httpPort ?? 0,
     rest: opts?.rest ?? stubRest(PHONE_NUMBER_SID).rest,
+    // Span-shape tests only: the µ-law fixtures here are constant bytes that
+    // decode to near-silence, which the inbound speech gate would (correctly)
+    // drop before the drain. The gate has its own suite
+    // (`twilio-speech-gate*.test.ts`); its disconnect counters are stamped
+    // (as zeros / enabled=false) regardless.
+    speechGate: false,
   });
 }
 
@@ -618,6 +624,20 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       // redactE164-style last-4 form.
       expect(String(dial.attributes["voice.twilio.to"])).toMatch(/7777$/);
       expect(String(dial.attributes["voice.twilio.from"])).toMatch(/1234$/);
+    });
+
+    it("stamps voice.twilio.record on the dial span only when record: true was requested", async () => {
+      const { rest } = stubRest(PHONE_NUMBER_SID);
+      const adapter = makeAdapter({ rest });
+      tracked.push(adapter);
+      await adapter.connect();
+      await dialAndConnect(
+        adapter,
+        adapter.placeCall({ to: "+14155557777", record: true }),
+      );
+
+      const dial = byName(exporter.getFinishedSpans())["voice.adapter.dial"];
+      expect(dial.attributes["voice.twilio.record"]).toBe(true);
     });
 
     it("T5: waitForCall emits voice.adapter.dial, direction=='inbound'", async () => {
