@@ -469,12 +469,17 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     // User to assistant role reversal (mirrors Python's role reversal to avoid LLM bias).
     const reversedMessages = messageRoleReversal(messages);
 
-    const completion = await this.invokeLLM({
+    const invokeParams = {
       model: mergedConfig.model,
       messages: reversedMessages,
       temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,
-    });
+    };
+
+    let completion = await this.invokeLLM(invokeParams);
+    if (!completion.text) {
+      completion = await this.invokeLLM(invokeParams);
+    }
 
     const messageContent = completion.text;
     if (!messageContent) {
