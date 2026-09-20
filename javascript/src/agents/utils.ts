@@ -153,3 +153,40 @@ export const criterionToParamName = (criterion: string): string => {
     .toLowerCase()
     .substring(0, 70);
 };
+
+/**
+ * The schema keys the verdict tool exposes for a list of criteria, one per
+ * criterion, in the same order.
+ *
+ * {@link criterionToParamName} alone is not enough to key a verdict by: it
+ * truncates, so two criteria sharing their first characters collapse onto the
+ * same key and the verdict can only answer one of them. Colliding names get a
+ * `_<index>` suffix here, and the base is cut to 66 characters so the suffixed
+ * name still fits the 70-character budget.
+ *
+ * Both the schema builder and the verdict parser read the keys from here, so
+ * an answer always lands on the criterion it was written for.
+ *
+ * @param criteria - The criteria to name, in judging order
+ * @returns One unique parameter name per criterion, in the same order
+ *
+ * @example
+ * ```ts
+ * criteriaParamNames({ criteria: ["Ships fast", "Ships fast"] })
+ * // Returns: ["ships_fast", "ships_fast_1"]
+ * ```
+ */
+export const criteriaParamNames = ({
+  criteria,
+}: {
+  criteria: string[];
+}): string[] => {
+  const taken = new Set<string>();
+
+  return criteria.map((criterion, index) => {
+    const base = criterionToParamName(criterion).substring(0, 66);
+    const name = taken.has(base) ? `${base}_${index}` : base;
+    taken.add(name);
+    return name;
+  });
+};

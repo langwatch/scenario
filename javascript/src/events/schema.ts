@@ -134,6 +134,11 @@ export const scenarioResultsSchema = z.object({
   reasoning: z.string().optional(),
   metCriteria: z.array(z.string()),
   unmetCriteria: z.array(z.string()),
+  /**
+   * The criteria the judge could not decide. A subset of `unmetCriteria`,
+   * sent so the platform can tell "could not tell" from "judged false".
+   */
+  inconclusiveCriteria: z.array(z.string()).optional(),
   error: z.string().optional(),
   evaluations: z.array(scenarioEvaluationResultSchema).optional(),
 });

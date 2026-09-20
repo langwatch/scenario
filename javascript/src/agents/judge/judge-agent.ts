@@ -154,7 +154,7 @@ import {
   InvokeLLMParams,
   InvokeLLMResult,
 } from "../types";
-import { criterionToParamName } from "../utils";
+import { criteriaParamNames } from "../utils";
 
 
 /**
@@ -397,7 +397,7 @@ function buildWaitForTracesTool(): Tool {
 }
 
 function buildFinishTestTool(criteria: string[]): Tool {
-  const criteriaNames = criteria.map(criterionToParamName);
+  const criteriaNames = criteriaParamNames({ criteria });
 
   return tool({
     description: "Complete the test with a final verdict",
@@ -1283,19 +1283,36 @@ export class JudgeAgent extends JudgeAgentAdapter {
           }
           const reasoning = args.reasoning || "No reasoning provided";
           const criteriaArgs = args.criteria || {};
-          const criteriaValues = Object.values(criteriaArgs);
-          const metCriteria = criteria.filter(
-            (_, i) => criteriaValues[i] === "true"
-          );
-          const unmetCriteria = criteria.filter(
-            (_, i) => criteriaValues[i] !== "true"
-          );
+          // Read each criterion's answer by its own schema key. Zipping the
+          // answers onto the criteria by position shifted every later
+          // criterion onto its neighbour's answer as soon as the model
+          // omitted or reordered one key.
+          const paramNames = criteriaParamNames({ criteria });
+          const metCriteria: string[] = [];
+          const unmetCriteria: string[] = [];
+          const inconclusiveCriteria: string[] = [];
+          criteria.forEach((criterion, i) => {
+            const answer = criteriaArgs[paramNames[i]];
+            if (answer === "true") {
+              metCriteria.push(criterion);
+              return;
+            }
+            // An inconclusive criterion stays inside unmetCriteria: success
+            // is still "nothing unmet", and the reporters and the platform
+            // read that list. inconclusiveCriteria says which of them the
+            // judge could not decide rather than judged false.
+            unmetCriteria.push(criterion);
+            if (answer === "inconclusive") inconclusiveCriteria.push(criterion);
+          });
 
           const result = {
             success: verdict === "success",
             reasoning,
             metCriteria,
             unmetCriteria,
+            ...(inconclusiveCriteria.length > 0
+              ? { inconclusiveCriteria }
+              : {}),
           };
           this.logger.debug("finish_test result", result);
           return result;

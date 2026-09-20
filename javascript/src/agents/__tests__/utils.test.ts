@@ -1,6 +1,10 @@
 import { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
-import { messageRoleReversal, criterionToParamName } from "../utils";
+import {
+  messageRoleReversal,
+  criterionToParamName,
+  criteriaParamNames,
+} from "../utils";
 
 describe("messageRoleReversal", () => {
   it("should reverse user messages to assistant messages in simple segment", () => {
@@ -334,5 +338,58 @@ describe("criterionToParamName", () => {
   it("should handle multiple consecutive spaces and special characters", () => {
     const result = criterionToParamName("Test   ---   Multiple    Spaces");
     expect(result).toBe("test_________multiple____spaces");
+  });
+});
+
+describe("criteriaParamNames", () => {
+  describe("given criteria with distinct names", () => {
+    it("names each criterion the way criterionToParamName does", () => {
+      const names = criteriaParamNames({
+        criteria: ["Response Quality", "Tool Usage"],
+      });
+
+      expect(names).toEqual(["response_quality", "tool_usage"]);
+    });
+  });
+
+  describe("given two criteria that share their first seventy characters", () => {
+    /** @scenario "Two criteria that share their first seventy characters keep separate keys" */
+    it("gives them distinct names", () => {
+      const shared = "a".repeat(80);
+
+      const names = criteriaParamNames({
+        criteria: [`${shared} one`, `${shared} two`],
+      });
+
+      expect(names[0]).not.toBe(names[1]);
+      expect(new Set(names).size).toBe(2);
+    });
+
+    it("keeps every name within the seventy character budget", () => {
+      const shared = "a".repeat(200);
+
+      const names = criteriaParamNames({
+        criteria: Array.from({ length: 12 }, (_, i) => `${shared} ${i}`),
+      });
+
+      expect(new Set(names).size).toBe(12);
+      for (const name of names) expect(name.length).toBeLessThanOrEqual(70);
+    });
+  });
+
+  describe("given a suffixed name that collides with another criterion", () => {
+    it("suffixes again rather than repeating a name", () => {
+      const names = criteriaParamNames({
+        criteria: ["Ships fast", "Ships fast", "Ships fast 1"],
+      });
+
+      expect(names).toEqual(["ships_fast", "ships_fast_1", "ships_fast_1_2"]);
+    });
+  });
+
+  describe("given no criteria", () => {
+    it("returns no names", () => {
+      expect(criteriaParamNames({ criteria: [] })).toEqual([]);
+    });
   });
 });
