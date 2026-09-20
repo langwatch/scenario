@@ -31,8 +31,10 @@ describe("given a results payload for the run finished event", () => {
   });
 
   describe("when the field is left out", () => {
-    it("accepts the payload", () => {
-      expect(scenarioResultsSchema.parse(results({}))).toBeDefined();
+    it("accepts the payload and leaves the field out", () => {
+      const parsed = scenarioResultsSchema.parse(results({}));
+
+      expect(parsed).not.toHaveProperty("inconclusiveCriteria");
     });
   });
 
