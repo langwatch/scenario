@@ -38,6 +38,11 @@ export const scenarioProjectConfigSchema = z
      * per-run value on the scenario config wins over this default.
      */
     traceWaitExtensionMs: z.number().positive().optional(),
+    /**
+     * Project-wide default for `ScenarioConfig.traceQuietPeriodMs`. A per-run
+     * value on the scenario config wins over this default.
+     */
+    traceQuietPeriodMs: z.number().nonnegative().optional(),
   })
   .strict();
 

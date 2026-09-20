@@ -136,6 +136,7 @@ import {
   JudgeAgentAdapter,
   AgentRole,
   DEFAULT_MAX_TURNS,
+  DEFAULT_TRACE_QUIET_PERIOD_MS,
   DEFAULT_TRACE_WAIT_TIMEOUT_MS,
 } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
@@ -715,6 +716,17 @@ export class JudgeAgent extends JudgeAgentAdapter {
       ],
       fallback: traceWaitTimeoutMs,
     });
+    // How long a complete-looking trace has to hold still before the judge
+    // reads it. Paid once per verdict when there is anything to fetch.
+    const traceQuietPeriodMs = this.resolveWaitBudgetMs({
+      field: "traceQuietPeriodMs",
+      values: [
+        input.scenarioConfig.traceQuietPeriodMs,
+        projectConfig?.traceQuietPeriodMs,
+      ],
+      fallback: DEFAULT_TRACE_QUIET_PERIOD_MS,
+      allowZero: true,
+    });
     const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
 
     // Automatic STT pre-pass (EDR §3.3 / §7.7): when the conversation carries
@@ -766,6 +778,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       fetchRemoteTraces,
       traceWaitTimeoutMs,
       traceWaitExtensionMs,
+      traceQuietPeriodMs,
       traceFetcher,
       mergedConfig,
       verdictForced,
@@ -787,16 +800,25 @@ export class JudgeAgent extends JudgeAgentAdapter {
     field,
     values,
     fallback,
+    allowZero = false,
   }: {
     field: string;
     values: (number | undefined)[];
     fallback: number;
+    /** Zero is a meaningful setting for a quiet period: settle on the first
+     * complete poll. It is not one for a budget, which would then wait for
+     * nothing at all. */
+    allowZero?: boolean;
   }): number {
     for (const value of values) {
       if (value == null) continue;
-      if (Number.isFinite(value) && value > 0) return value;
+      if (Number.isFinite(value) && (value > 0 || (allowZero && value === 0))) {
+        return value;
+      }
       this.logger.warn(
-        `${field} must be a finite positive number of milliseconds; ignoring it`,
+        `${field} must be a finite ${
+          allowZero ? "non-negative" : "positive"
+        } number of milliseconds; ignoring it`,
         { value: String(value) }
       );
     }
@@ -946,6 +968,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     fetchRemoteTraces,
     traceWaitTimeoutMs,
     traceWaitExtensionMs,
+    traceQuietPeriodMs,
     traceFetcher,
     mergedConfig,
     verdictForced,
@@ -958,6 +981,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     fetchRemoteTraces: boolean;
     traceWaitTimeoutMs: number;
     traceWaitExtensionMs: number;
+    traceQuietPeriodMs: number;
     traceFetcher: RemoteTraceFetcher;
     mergedConfig: ReturnType<typeof modelSchema.parse>;
     verdictForced: boolean;
@@ -972,6 +996,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       traceIds: remoteTraceIds,
       collector: this.spanCollector,
       langwatch: input.scenarioConfig.langwatch,
+      quietPeriodMs: traceQuietPeriodMs,
     };
     let allSettled = true;
     if (fetchRemoteTraces && remoteTraceIds.length > 0) {

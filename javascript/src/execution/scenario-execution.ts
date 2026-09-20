@@ -27,6 +27,7 @@ import {
   ScenarioExecutionStateLike,
   ScenarioConfigFinal,
   DEFAULT_MAX_TURNS,
+  DEFAULT_TRACE_QUIET_PERIOD_MS,
   DEFAULT_TRACE_WAIT_TIMEOUT_MS,
   DEFAULT_VERBOSE,
   resolveAgentName,
@@ -434,6 +435,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       fetchRemoteTraces: config.fetchRemoteTraces,
       traceWaitTimeoutMs: config.traceWaitTimeoutMs,
       traceWaitExtensionMs: config.traceWaitExtensionMs,
+      traceQuietPeriodMs: config.traceQuietPeriodMs,
       langwatch: config.langwatch,
       // Voice carriers (ADR-002): the per-run voice config + audio hooks must
       // survive onto `this.config` so they reach every `call()` via
@@ -2824,6 +2826,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           this.config.traceWaitTimeoutMs ??
           projectConfig?.traceWaitTimeoutMs ??
           DEFAULT_TRACE_WAIT_TIMEOUT_MS,
+        quietPeriodMs:
+          this.config.traceQuietPeriodMs ??
+          projectConfig?.traceQuietPeriodMs ??
+          DEFAULT_TRACE_QUIET_PERIOD_MS,
       });
     };
 
