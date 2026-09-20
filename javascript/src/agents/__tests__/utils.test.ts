@@ -385,6 +385,14 @@ describe("criteriaParamNames", () => {
 
       expect(names).toEqual(["ships_fast", "ships_fast_1", "ships_fast_1_2"]);
     });
+
+    it("does not hand a criterion the name an earlier one already took", () => {
+      // The third criterion's suffixed candidate is the second one's name.
+      const names = criteriaParamNames({ criteria: ["x", "x_2", "x"] });
+
+      expect(new Set(names).size).toBe(3);
+      expect(names).toEqual(["x", "x_2", "x_3"]);
+    });
   });
 
   describe("given no criteria", () => {

@@ -129,19 +129,34 @@ export type ScenarioEvaluationResult = z.infer<
  * `evaluations` is present only when the run itself ran evaluators; the
  * platform then stores them as they are instead of running its own.
  */
-export const scenarioResultsSchema = z.object({
-  verdict: z.nativeEnum(Verdict),
-  reasoning: z.string().optional(),
-  metCriteria: z.array(z.string()),
-  unmetCriteria: z.array(z.string()),
-  /**
-   * The criteria the judge could not decide. A subset of `unmetCriteria`,
-   * sent so the platform can tell "could not tell" from "judged false".
-   */
-  inconclusiveCriteria: z.array(z.string()).optional(),
-  error: z.string().optional(),
-  evaluations: z.array(scenarioEvaluationResultSchema).optional(),
-});
+export const scenarioResultsSchema = z
+  .object({
+    verdict: z.nativeEnum(Verdict),
+    reasoning: z.string().optional(),
+    metCriteria: z.array(z.string()),
+    unmetCriteria: z.array(z.string()),
+    /**
+     * The criteria the judge could not decide. A subset of `unmetCriteria`,
+     * sent so the platform can tell "could not tell" from "judged false".
+     * Omitted, never empty, when the verdict left nothing inconclusive.
+     */
+    inconclusiveCriteria: z.array(z.string()).min(1).optional(),
+    error: z.string().optional(),
+    evaluations: z.array(scenarioEvaluationResultSchema).optional(),
+  })
+  // An inconclusive criterion that is not also unmet would make a result
+  // report "could not tell" about a criterion the run counts as met, which
+  // is the one thing this field must never do.
+  .refine(
+    (results) =>
+      (results.inconclusiveCriteria ?? []).every((criterion) =>
+        results.unmetCriteria.includes(criterion)
+      ),
+    {
+      message: "every inconclusiveCriteria entry must also be in unmetCriteria",
+      path: ["inconclusiveCriteria"],
+    }
+  );
 export type ScenarioResults = z.infer<typeof scenarioResultsSchema>;
 
 /**

@@ -247,6 +247,68 @@ describe("RemoteTraceFetcher", () => {
       expect(names).not.toContain("langwatch.span_collection.error");
     });
 
+    it("reports an incomplete trace when every poll after the candidate failed", async () => {
+      const collector = new JudgeSpanCollector();
+      // Complete on the first poll, then the API stops answering: nothing
+      // ever confirms the span set held still.
+      const { fetchFn } = fakeTraceApi([
+        [apiSpan()],
+        new Error("connection reset"),
+      ]);
+      const fetcher = makeFetcher(fetchFn);
+
+      const { allSettled } = await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: 60_000,
+        timeoutMs: 40,
+      });
+
+      expect(allSettled).toBe(false);
+      const spans = collector.getSpansForThread(THREAD_ID);
+      const names = spans.map((s) => s.name);
+      expect(names).toContain("get_weather");
+      expect(names).toContain("langwatch.span_collection.error");
+      const reason = String(
+        spans.find((s) => s.name === "langwatch.span_collection.error")
+          ?.attributes["langwatch.span_collection.error.reason"]
+      );
+      expect(reason).toContain("connection reset");
+    });
+
+    it("falls back to the default quiet period for a value that is not a number of milliseconds", async () => {
+      const collector = new JudgeSpanCollector();
+      const { fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      // NaN would never satisfy the quiet period and a negative value would
+      // settle on the first poll; both take the 2s default, which the 40ms
+      // budget then cuts short with a clean settle.
+      const { allSettled } = await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: Number.NaN,
+        timeoutMs: 40,
+      });
+
+      expect(allSettled).toBe(true);
+      const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
+      expect(names).toEqual(["get_weather"]);
+    });
+
+    it("falls back to the default quiet period for a negative value", async () => {
+      const collector = new JudgeSpanCollector();
+      const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: -1,
+        timeoutMs: 40,
+      });
+
+      // The default held the wait open instead of settling on the first poll.
+      expect(calls.length).toBeGreaterThan(1);
+    });
+
     it("does not settle on a repeated partial chunk while parents are unresolved", async () => {
       const collector = new JudgeSpanCollector();
       const orphanChunk = [

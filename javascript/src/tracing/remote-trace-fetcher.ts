@@ -229,7 +229,7 @@ export class RemoteTraceFetcher {
       return { allSettled: false };
     }
 
-    const quietPeriodMs = target.quietPeriodMs ?? DEFAULT_TRACE_QUIET_PERIOD_MS;
+    const quietPeriodMs = this.resolveQuietPeriodMs(target.quietPeriodMs);
     await Promise.all(
       pending.map((traceId) =>
         this.settleOne({
@@ -269,6 +269,25 @@ export class RemoteTraceFetcher {
       state.candidateSince = undefined;
     }
     return this.settleWait(target);
+  }
+
+  /**
+   * The quiet period to poll with. The judge validates its own config, but
+   * this target is public and the evaluator path forwards a per-run value as
+   * it stands, so anything that is not a finite number of milliseconds of
+   * zero or more falls back to the default rather than reaching the loop: a
+   * negative value would settle on the first poll and NaN would never settle.
+   */
+  private resolveQuietPeriodMs(quietPeriodMs: number | undefined): number {
+    if (quietPeriodMs == null) return DEFAULT_TRACE_QUIET_PERIOD_MS;
+    if (Number.isFinite(quietPeriodMs) && quietPeriodMs >= 0) {
+      return quietPeriodMs;
+    }
+    this.logger.warn(
+      "quietPeriodMs must be a finite number of milliseconds of zero or more; using the default",
+      { value: String(quietPeriodMs), default: DEFAULT_TRACE_QUIET_PERIOD_MS }
+    );
+    return DEFAULT_TRACE_QUIET_PERIOD_MS;
   }
 
   private allSettled(threadId: string, traceIds: string[]): boolean {
@@ -389,6 +408,12 @@ export class RemoteTraceFetcher {
         const reason = error instanceof Error ? error.message : String(error);
         if (!(error instanceof DeadlineAbortError)) {
           lastFetchError = reason;
+          // A poll that never answered cannot vouch for the span set holding
+          // still, so the candidate from the last successful poll is dropped:
+          // a deadline reached this way reports an incomplete trace instead
+          // of settling on evidence nobody confirmed.
+          state.candidateKey = undefined;
+          state.candidateSince = undefined;
         }
         this.logger.debug("Trace poll failed; retrying until the deadline", {
           traceId,
