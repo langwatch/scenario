@@ -8,6 +8,7 @@ conversation history.
 """
 
 import logging
+from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Callable, Iterator, List, Optional, cast
 
@@ -272,12 +273,31 @@ class UserSimulatorAgent(AgentAdapter):
         self,
         input: AgentInput,
     ) -> AgentReturnTypes:
-        text_message = await self._generate_text(input)
-        if not self.voice:
+        voice, api_key = self._effective_tts(input.scenario_state.config.voice)
+        text_message = await self._generate_text(input, voice=voice)
+        if not voice:
             return text_message
-        return await self._voiceify(text_message)  # type: ignore[arg-type]
+        # _generate_text's AgentReturnTypes union hides the dict message shape
+        # _voiceify reads; the dict is the only value it produces here.
+        return await self._voiceify(text_message, voice=voice, api_key=api_key)  # type: ignore[arg-type]
 
-    async def _voiceify(self, text_message: dict) -> AgentReturnTypes:
+    def _effective_tts(self, voice_config) -> tuple[Optional[str], Optional[str]]:
+        from .voice.config import VoiceConfig
+
+        if isinstance(voice_config, Mapping):
+            voice_config = VoiceConfig.model_validate(voice_config)
+        if not isinstance(voice_config, VoiceConfig):
+            return self.voice, None
+        tts = getattr(voice_config, "tts", None)
+        return getattr(tts, "voice", None) or self.voice, getattr(tts, "api_key", None)
+
+    async def _voiceify(
+        self,
+        text_message: dict,
+        *,
+        voice: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> AgentReturnTypes:
         """Convert a text user message into an audio message via TTS + effects."""
         from .voice import AudioChunk, create_audio_message, synthesize
 
@@ -286,7 +306,8 @@ class UserSimulatorAgent(AgentAdapter):
             return text_message  # type: ignore[return-value]
         if self._voice_style_override is not None:
             self._warn_voice_style_not_wired_once()
-        chunk = await synthesize(content, self.voice)  # type: ignore[arg-type]
+        kwargs = {"api_key": api_key} if api_key else {}
+        chunk = await synthesize(content, voice or self.voice, **kwargs)  # type: ignore[arg-type]
         audio_bytes = chunk.data
         effects = self._effective_audio_effects()
         for effect in effects:
@@ -349,6 +370,8 @@ class UserSimulatorAgent(AgentAdapter):
     async def _generate_text(
         self,
         input: AgentInput,
+        *,
+        voice: Optional[str] = None,
     ) -> AgentReturnTypes:
         """
         Generate the next user message in the conversation.
@@ -407,7 +430,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <rules>
 - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user, send the user message and just STOP.
 </rules>
-{persona_block}""" if self.voice else f"""
+{persona_block}""" if voice or self.voice else f"""
 <role>
 You are pretending to be a user, you are testing an AI Agent (shown as the user role) based on a scenario.
 Approach this naturally, as a human user would, with very short inputs, few words, all lowercase, imperative, not periods, like when they google or talk to chatgpt.
