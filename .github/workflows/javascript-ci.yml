@@ -33,6 +33,12 @@ on:
     branches:
       - main
   pull_request:
+    # `ready_for_review` is what runs the heavy job for a pull request that
+    # opened as a draft, which every release-please pull request now does. The
+    # default trigger types do not include it, so without this line the last run
+    # on a draft, with the heavy job skipped, would stand as the required check
+    # for a release nobody tested. See specs/release-pr-drafts.feature.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:

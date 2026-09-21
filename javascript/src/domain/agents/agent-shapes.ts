@@ -107,22 +107,6 @@ export interface VoiceUserSimulator {
 }
 
 /**
- * A `UserSimulatorAgent` narrowed to one that has a concrete voice set.
- *
- * The public `UserSimulatorAgent.voice` getter is typed `string | undefined`
- * (optional voice). This intersection narrows it to `string` (non-optional),
- * so the executor can use the return value of `findVoiceUserSim` without
- * additional null-guards on the `voice` field.
- *
- * Usage: callers that need the narrowed type should use
- * {@link isVoiceUserSim} as a type guard — it already enforces `voice.length > 0`.
- */
-export type UserSimulatorAgentWithVoice = {
-  readonly voice: string;
-  voiceifyText(text: string, cfg?: { tts?: { voice?: string } }): Promise<ModelMessage>;
-};
-
-/**
  * Returns `true` when `agent` structurally satisfies {@link RealtimeUserAgent}.
  *
  * Requires BOTH `sendText` and `speakUserTurn` — the executor's #705 bridge

@@ -114,6 +114,36 @@ function makeJudge(spans: ReadableSpan[] = []) {
   return { agent, calls };
 }
 
+/** A judge over the given criteria, always judging on an explicit request. */
+function makeJudgeWith(criteria: string[]) {
+  const agent = judgeAgent({
+    criteria,
+    spanCollector: new JudgeSpanCollector(),
+  });
+  const calls: InvokeLLMParams[] = [];
+  const answerWith = (criteriaArgs: Record<string, string>) => {
+    agent.invokeLLM = async (params) => {
+      calls.push(params);
+      return mockLLMResult("finish_test", {
+        criteria: criteriaArgs,
+        reasoning: "Verdict delivered.",
+        verdict: "failure",
+      });
+    };
+  };
+  const judge = () =>
+    agent.call(createInput({ judgmentRequest: { criteria } }));
+  return { agent, calls, answerWith, judge };
+}
+
+/** The per-criterion keys of the finish_test tool's criteria object. */
+function criteriaSchemaKeys(params: InvokeLLMParams | undefined): string[] {
+  const finishTest = (params?.tools ?? {}).finish_test as unknown as {
+    inputSchema?: { shape?: { criteria?: { shape?: object } } };
+  };
+  return Object.keys(finishTest?.inputSchema?.shape?.criteria?.shape ?? {});
+}
+
 function schemaShapeKeys(tool: unknown): string[] {
   const inputSchema = (tool as { inputSchema?: { shape?: object } })
     .inputSchema;
@@ -484,6 +514,161 @@ describeFeature(
             );
           }
         );
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    const THREE_CRITERIA = [
+      "Agent greets the user",
+      "Agent looks up the order",
+      "Agent closes politely",
+    ];
+
+    Scenario(
+      "A verdict maps each criterion by its schema key, not by position",
+      ({ Given, When, Then }) => {
+        const { calls, answerWith, judge } = makeJudgeWith(THREE_CRITERIA);
+        let result: Awaited<ReturnType<typeof judge>>;
+
+        Given("a judge with three criteria", () => {
+          // Answers are written in the reverse of the criteria order, so a
+          // positional read hands each criterion the wrong answer.
+          answerWith({
+            agent_closes_politely: "true",
+            agent_looks_up_the_order: "true",
+            agent_greets_the_user: "false",
+          });
+        });
+
+        When("the verdict call answers the criteria keys out of order", async () => {
+          result = await judge();
+          expect(calls).toHaveLength(1);
+        });
+
+        Then("each criterion takes the answer filed under its own key", () => {
+          expect(result!.metCriteria).toEqual([
+            "Agent looks up the order",
+            "Agent closes politely",
+          ]);
+          expect(result!.unmetCriteria).toEqual(["Agent greets the user"]);
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "A verdict that omits a criterion marks that criterion unmet, never its neighbour",
+      ({ Given, When, Then, And }) => {
+        const { answerWith, judge } = makeJudgeWith(THREE_CRITERIA);
+        let result: Awaited<ReturnType<typeof judge>>;
+
+        Given("a judge with three criteria", () => {
+          answerWith({
+            agent_greets_the_user: "true",
+            agent_closes_politely: "true",
+          });
+        });
+
+        When("the verdict call answers only the first and the third key", async () => {
+          result = await judge();
+        });
+
+        Then("the omitted criterion is unmet", () => {
+          expect(result!.unmetCriteria).toEqual(["Agent looks up the order"]);
+        });
+
+        And("the criteria that were answered keep their own answers", () => {
+          expect(result!.metCriteria).toEqual([
+            "Agent greets the user",
+            "Agent closes politely",
+          ]);
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Two criteria that share their first seventy characters keep separate keys",
+      ({ Given, When, Then, And }) => {
+        const shared = "The agent confirms the shipping address before it charges the card and";
+        const twinCriteria = [
+          `${shared} says the street`,
+          `${shared} says the city`,
+        ];
+        const { calls, answerWith, judge } = makeJudgeWith(twinCriteria);
+        let result: Awaited<ReturnType<typeof judge>>;
+        let criteriaKeys: string[];
+
+        Given(
+          "a judge with two criteria that differ only after the seventieth character",
+          () => {
+            expect(shared.length).toBeGreaterThanOrEqual(70);
+          }
+        );
+
+        When("the verdict tool schema is built", async () => {
+          answerWith({});
+          await judge();
+          criteriaKeys = criteriaSchemaKeys(calls[0]);
+        });
+
+        Then("the two criteria have distinct schema keys", () => {
+          expect(criteriaKeys).toHaveLength(2);
+          expect(new Set(criteriaKeys).size).toBe(2);
+        });
+
+        And("a verdict answering both keys judges them separately", async () => {
+          answerWith({
+            [criteriaKeys[0]!]: "true",
+            [criteriaKeys[1]!]: "false",
+          });
+          result = await judge();
+          expect(result!.metCriteria).toEqual([twinCriteria[0]]);
+          expect(result!.unmetCriteria).toEqual([twinCriteria[1]]);
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "An inconclusive criterion is reported apart from the unmet ones",
+      ({ Given, When, Then, And }) => {
+        const { answerWith, judge } = makeJudgeWith(THREE_CRITERIA);
+        let result: Awaited<ReturnType<typeof judge>>;
+
+        Given("a judge with three criteria", () => {
+          answerWith({
+            agent_greets_the_user: "true",
+            agent_looks_up_the_order: "inconclusive",
+            agent_closes_politely: "false",
+          });
+        });
+
+        When(
+          "the verdict call marks one criterion inconclusive and one false",
+          async () => {
+            result = await judge();
+          }
+        );
+
+        Then("the inconclusive criterion is listed as inconclusive", () => {
+          expect(result!.inconclusiveCriteria).toEqual([
+            "Agent looks up the order",
+          ]);
+        });
+
+        And("the inconclusive criterion is still listed as unmet", () => {
+          expect(result!.unmetCriteria).toEqual([
+            "Agent looks up the order",
+            "Agent closes politely",
+          ]);
+        });
+
+        And("the false criterion is not listed as inconclusive", () => {
+          expect(result!.inconclusiveCriteria).not.toContain(
+            "Agent closes politely"
+          );
+        });
       }
     );
   },

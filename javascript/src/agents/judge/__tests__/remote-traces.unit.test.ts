@@ -169,6 +169,9 @@ function judgeInput({
       maxTurns,
       fetchRemoteTraces: true,
       traceWaitTimeoutMs: 5_000,
+      // Off unless a scenario is about it, so poll counts here count only
+      // the settle rule under test.
+      traceQuietPeriodMs: 0,
       langwatch: LANGWATCH,
       ...scenarioConfigExtra,
     } as unknown as AgentInput["scenarioConfig"],
@@ -551,6 +554,7 @@ describeFeature(
             collector,
             langwatch: LANGWATCH,
             timeoutMs: 5_000,
+            quietPeriodMs: 0,
           });
         });
 
@@ -753,6 +757,7 @@ describeFeature(
             collector,
             langwatch: LANGWATCH,
             timeoutMs: 5_000,
+            quietPeriodMs: 0,
           });
         });
 
@@ -926,6 +931,7 @@ describeFeature(
             collector,
             langwatch: LANGWATCH,
             timeoutMs: 25_242.1875,
+            quietPeriodMs: 0,
           });
         });
 
@@ -1039,6 +1045,7 @@ describeFeature(
             collector,
             langwatch: LANGWATCH,
             timeoutMs: 5_000,
+            quietPeriodMs: 0,
           });
         });
 
@@ -1177,6 +1184,7 @@ describeFeature(
               collector,
               langwatch: LANGWATCH,
               timeoutMs: 5_000,
+              quietPeriodMs: 0,
             });
           }
         );
@@ -1409,9 +1417,17 @@ describeFeature(
     class ExtensionStubFetcher {
       settleBudgets: number[] = [];
       extendBudgets: number[] = [];
+      quietPeriods: (number | undefined)[] = [];
       private extended = false;
-      async settleWait({ timeoutMs }: { timeoutMs: number }) {
+      async settleWait({
+        timeoutMs,
+        quietPeriodMs,
+      }: {
+        timeoutMs: number;
+        quietPeriodMs?: number;
+      }) {
         this.settleBudgets.push(timeoutMs);
+        this.quietPeriods.push(quietPeriodMs);
         return { allSettled: false };
       }
       async extendSettle({ timeoutMs }: { timeoutMs: number }) {
@@ -1515,6 +1531,7 @@ describeFeature(
               traceIds: [TRACE_A],
               collector,
               langwatch: LANGWATCH,
+              quietPeriodMs: 0,
             };
             await realFetcher.settleWait({ ...settleTarget, timeoutMs: 10 });
             expect(
@@ -1574,6 +1591,183 @@ describeFeature(
             type: "tool",
             toolName: "finish_test",
           });
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    /**
+     * Runs a judge over one trace with a real fetcher and a named quiet
+     * period, and reports how many times the trace API was asked.
+     */
+    async function judgeWithQuietPeriod({
+      script,
+      quietPeriodMs,
+      timeoutMs = 5_000,
+    }: {
+      script: Array<LangWatchApiSpan[] | "404">;
+      quietPeriodMs: number;
+      timeoutMs?: number;
+    }) {
+      const api = fakeTraceApi({ [TRACE_A]: script });
+      const collector = new JudgeSpanCollector();
+      const fetcher = new RemoteTraceFetcher({
+        fetchFn: api.fetchFn,
+        pollIntervalMs: 1,
+      });
+      const judge = makeJudge({ collector, fetcher });
+      judge.invokeLLM = async () => finishTest("success");
+
+      const startedAt = Date.now();
+      await judge.call(
+        judgeInput({
+          messages: [
+            tracedMessage("user", "write the order"),
+            tracedMessage("assistant", "I wrote it", TRACE_A),
+          ],
+          scenarioConfigExtra: {
+            traceQuietPeriodMs: quietPeriodMs,
+            traceWaitTimeoutMs: timeoutMs,
+          },
+          judgmentRequest: {},
+        })
+      );
+
+      return {
+        collector,
+        elapsed: Date.now() - startedAt,
+        polls: api.requestedTraceIds.length,
+        spanNames: collector.getSpansForThread(THREAD_ID).map((s) => s.name),
+      };
+    }
+
+    Scenario(
+      "A parent-resolved trace settles only after its span set is unchanged for the quiet period",
+      ({ Given, When, Then, And }) => {
+        let run: Awaited<ReturnType<typeof judgeWithQuietPeriod>>;
+        const complete = [toolSpan(TRACE_A, "c000000000000001")];
+
+        Given("a remote trace whose fetched spans all resolve their parents", () => {
+          // `complete` holds a single parentless span: nothing about it says
+          // more spans are on the way.
+          expect(complete[0]!.parent_id).toBeUndefined();
+        });
+
+        When("the judge issues its verdict", async () => {
+          run = await judgeWithQuietPeriod({
+            script: [complete],
+            quietPeriodMs: 50,
+          });
+        });
+
+        Then(
+          "the fetcher keeps polling until the span set stays unchanged for the quiet period",
+          () => {
+            expect(run.polls).toBeGreaterThan(1);
+            expect(run.elapsed).toBeGreaterThanOrEqual(50);
+          }
+        );
+
+        And("the trace settles cleanly", () => {
+          expect(run.spanNames).toEqual(["db.write_orders"]);
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "A leaf span that lands after the parents resolved is fetched before the verdict",
+      ({ Given, When, Then }) => {
+        let run: Awaited<ReturnType<typeof judgeWithQuietPeriod>>;
+        const root = toolSpan(TRACE_A, "c000000000000001");
+        const withLeaf = [
+          root,
+          {
+            ...toolSpan(TRACE_A, "c000000000000002"),
+            name: "tools.late_leaf",
+            parent_id: "c000000000000001",
+          },
+        ];
+
+        Given(
+          "a remote trace that gains a leaf tool span one poll after its parents resolved",
+          () => {
+            // The first response is already parent-resolved, so only the
+            // quiet period gives the leaf time to land.
+            expect(root.parent_id).toBeUndefined();
+          }
+        );
+
+        When("the judge issues its verdict", async () => {
+          run = await judgeWithQuietPeriod({
+            script: [[root], withLeaf],
+            quietPeriodMs: 30,
+          });
+        });
+
+        Then("the late leaf span is present in the judge's trace digest", () => {
+          expect(run.spanNames).toContain("tools.late_leaf");
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "The deadline settles a parent-resolved trace cleanly when the quiet period is still running",
+      ({ Given, When, Then, And }) => {
+        let run: Awaited<ReturnType<typeof judgeWithQuietPeriod>>;
+
+        Given("a quiet period longer than the wait budget", () => {
+          // Set on the call below: 60s of quiet under a 30ms budget.
+        });
+
+        When("the judge issues its verdict", async () => {
+          run = await judgeWithQuietPeriod({
+            script: [[toolSpan(TRACE_A, "c000000000000001")]],
+            quietPeriodMs: 60_000,
+            timeoutMs: 30,
+          });
+        });
+
+        Then("the trace settles cleanly at the deadline", () => {
+          expect(run.spanNames).toEqual(["db.write_orders"]);
+        });
+
+        And("no span collection error span is added", () => {
+          expect(run.spanNames).not.toContain("langwatch.span_collection.error");
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "The quiet period defaults to two seconds",
+      ({ Given, When, Then }) => {
+        let stub: ExtensionStubFetcher;
+        let judge: ReturnType<typeof judgeAgent>;
+
+        Given(
+          "a scenario with fetch_remote_traces enabled and no trace_quiet_period configured",
+          () => {
+            ({ stub, judge } = waitFlowJudge(new JudgeSpanCollector()));
+          }
+        );
+
+        When("the judge settle-waits for the remote traces", async () => {
+          await judge.call(
+            judgeInput({
+              messages: [
+                tracedMessage("user", "write the order"),
+                tracedMessage("assistant", "I wrote it", TRACE_A),
+              ],
+              scenarioConfigExtra: { traceQuietPeriodMs: undefined },
+              judgmentRequest: {},
+            })
+          );
+        });
+
+        Then("the settle-wait quiet period is 2 seconds", () => {
+          expect(stub.quietPeriods).toEqual([2_000]);
         });
       }
     );

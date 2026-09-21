@@ -49,10 +49,28 @@ export {
 } from "./adapters/gemini-live";
 
 export {
+  TunnelNotReadyError,
   TwilioAgentAdapter,
+  type TunnelReadiness,
   type TwilioAdapterMode,
   type TwilioAgentAdapterOptions,
 } from "./adapters/twilio";
+
+export type { ExternalUpgradeRequest } from "./adapters/twilio-server";
+
+// Inbound speech gate for the Twilio transport — exported so a caller can
+// reuse the measured defaults (or the gate itself) when tuning
+// `twilioAgent({ speechGate })` for a different line.
+export {
+  DEFAULT_SPEECH_GATE_HANGOVER_MS,
+  DEFAULT_SPEECH_GATE_PREROLL_MS,
+  DEFAULT_SPEECH_GATE_RMS_THRESHOLD,
+  TwilioSpeechGate,
+  pcm16Rms,
+  type TwilioSpeechGateOptions,
+} from "./adapters/twilio-speech-gate";
+
+export { DEFAULT_STREAM_CONNECT_TIMEOUT_MS } from "./adapters/twilio-shared";
 
 export {
   openTwilioTunnel,
@@ -70,12 +88,16 @@ export type {
   VoiceRecording,
 } from "./recording.types";
 
+// The canonical location is the domain layer: these describe the shape of an
+// agent the executor calls into, not a capability the voice channel imposes.
+// Re-exported here rather than imported from `./agent-shapes`, which was a
+// deprecated shim pointing at the same place (#579).
 export {
   isRealtimeUserAgent,
   isVoiceUserSim,
   type RealtimeUserAgent,
   type VoiceUserSimulator,
-} from "./agent-shapes";
+} from "../domain/agents/agent-shapes";
 
 export {
   VoiceRecordingRuntime,

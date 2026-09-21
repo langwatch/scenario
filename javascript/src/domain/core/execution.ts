@@ -54,6 +54,14 @@ export interface ScenarioResult {
   unmetCriteria: string[];
 
   /**
+   * The criteria the judge could not decide from the evidence. Also present
+   * in {@link unmetCriteria}, so success semantics are unchanged; this list
+   * only separates "could not tell" from "judged false". Absent when the
+   * verdict left nothing inconclusive.
+   */
+  inconclusiveCriteria?: string[];
+
+  /**
    * The total time taken for the scenario execution in seconds.
    */
   totalTime?: number;

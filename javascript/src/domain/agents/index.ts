@@ -9,7 +9,6 @@ export {
   isVoiceUserSim,
   type RealtimeUserAgent,
   type VoiceUserSimulator,
-  type UserSimulatorAgentWithVoice,
 } from "./agent-shapes";
 
 export enum AgentRole {
