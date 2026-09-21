@@ -80,11 +80,16 @@ def test_no_shipped_source_advertises_configure_stt():
 
 def test_set_stt_provider_rejects_a_non_provider():
     """A bad provider fails at the user's call, not inside a transcription pass."""
-    previous = get_stt_provider()
-    with pytest.raises(TypeError) as excinfo:
-        set_stt_provider(object())  # type: ignore[arg-type]  # Passing an invalid provider is the contract under test.
-    assert "STTProvider" in str(excinfo.value)
-    assert get_stt_provider() is previous
+    import scenario.voice.stt as stt_module
+
+    previous = stt_module._legacy_provider
+    try:
+        with pytest.raises(TypeError) as excinfo:
+            set_stt_provider(object())  # type: ignore[arg-type]  # Passing an invalid provider is the contract under test.
+        assert "STTProvider" in str(excinfo.value)
+        assert stt_module._legacy_provider is previous
+    finally:
+        stt_module._legacy_provider = previous
 
 
 @pytest.mark.asyncio
@@ -101,19 +106,23 @@ async def test_set_stt_provider_accepts_a_structural_provider():
         async def transcribe(self, audio: AudioChunk) -> str:
             return "duck typed"
 
-    previous = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    previous = stt_module._legacy_provider
     duck = DuckSTT()
     set_stt_provider(duck)  # type: ignore[arg-type]  # Structural acceptance is the contract under test.
     try:
         assert get_stt_provider() is duck
         assert await transcribe(AudioChunk(data=b"\x00\x00" * 1200)) == "duck typed"
     finally:
-        set_stt_provider(previous)
+        stt_module._legacy_provider = previous
 
 
 @pytest.mark.asyncio
 async def test_set_stt_provider_is_used_by_transcribe():
-    prev = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    prev = stt_module._legacy_provider
     fake = FakeSTT()
     set_stt_provider(fake)
     try:
@@ -122,12 +131,14 @@ async def test_set_stt_provider_is_used_by_transcribe():
         assert result == "canned transcript"
         assert len(fake.calls) == 1
     finally:
-        set_stt_provider(prev)
+        stt_module._legacy_provider = prev
 
 
 @pytest.mark.asyncio
 async def test_transcribe_uses_existing_transcript_when_present():
-    prev = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    prev = stt_module._legacy_provider
     fake = FakeSTT(canned="should not be called")
     set_stt_provider(fake)
     try:
@@ -136,7 +147,7 @@ async def test_transcribe_uses_existing_transcript_when_present():
         assert result == "already transcribed"
         assert fake.calls == []
     finally:
-        set_stt_provider(prev)
+        stt_module._legacy_provider = prev
 
 
 def test_stt_provider_is_abstract():
@@ -243,4 +254,6 @@ async def test_openai_stt_provider_uses_its_descriptor_credentials(monkeypatch) 
         )
 
     client_factory.assert_called_once_with(api_key="stt-key")
-    assert client.audio.transcriptions.create.await_args.kwargs["language"] == "fr"
+    create_call = client.audio.transcriptions.create.await_args
+    assert create_call is not None
+    assert create_call.kwargs["language"] == "fr"
