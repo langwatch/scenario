@@ -12,10 +12,10 @@ from scenario.judge_agent import JudgeAgent
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 from scenario.voice import (
     AudioChunk,
+    STTProvider,
     VoiceConfig,
     VoiceAgentAdapter,
     create_audio_message,
-    get_stt_provider,
     set_stt_provider,
 )
 from scenario.voice.config import SttConfig, TtsConfig, resolve_voice_config
@@ -35,7 +35,7 @@ class _MeetingPoint:
         await asyncio.wait_for(self._released.wait(), timeout=5)
 
 
-class _STT:
+class _STT(STTProvider):
     def __init__(self, transcript: str, barrier: _MeetingPoint) -> None:
         self.transcript = transcript
         self.barrier = barrier
@@ -121,7 +121,9 @@ async def test_concurrent_arun_uses_each_runs_stt_provider() -> None:
 @pytest.mark.asyncio
 async def test_arun_without_voice_snapshots_the_legacy_stt_provider() -> None:
     """Legacy configuration is sampled at the run boundary, not by the judge."""
-    previous = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    previous = stt_module._legacy_provider
     provider = _STT("legacy", _MeetingPoint(parties=1))
     replacement = _STT("replacement", _MeetingPoint(parties=1))
     started = asyncio.Event()
@@ -149,7 +151,7 @@ async def test_arun_without_voice_snapshots_the_legacy_stt_provider() -> None:
         release.set()
         result = await run
     finally:
-        set_stt_provider(previous)
+        stt_module._legacy_provider = previous
 
     assert result.success
     assert provider.calls == 1
@@ -165,7 +167,9 @@ async def test_audio_only_adapter_transcribes_with_the_runs_provider() -> None:
     ``only_missing`` backfill skip the segment, so the run's provider would
     never see the audio at all.
     """
-    previous = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    previous = stt_module._legacy_provider
     run_provider = _STT("run", _MeetingPoint(parties=1))
     forbidden = _STT("global", _MeetingPoint(parties=1))
     set_stt_provider(forbidden)
@@ -209,13 +213,15 @@ async def test_audio_only_adapter_transcribes_with_the_runs_provider() -> None:
         assert run_provider.calls >= 1
         assert forbidden.calls == 0
     finally:
-        set_stt_provider(previous)
+        stt_module._legacy_provider = previous
 
 
 def test_unsupported_voice_value_is_rejected() -> None:
     """A voice= typo fails loudly instead of silently using a fresh default."""
     with pytest.raises(TypeError, match="voice expects a VoiceConfig"):
-        resolve_voice_config(scenario_level="openai/whisper-1")
+        resolve_voice_config(
+            scenario_level="openai/whisper-1"  # type: ignore[arg-type]  # the rejected string is the case under test
+        )
 
 
 def test_unset_runs_mint_their_own_default_provider() -> None:
@@ -285,6 +291,8 @@ def test_snapshot_copies_nested_descriptors_not_providers(as_mapping: bool) -> N
     )
 
     snap = carrier.snapshot()
+    assert snap.stt is not None
+    assert snap.tts is not None
     assert snap.stt is not stt
     assert snap.tts is not tts
     stt.api_key = "changed"
