@@ -138,6 +138,32 @@ Feature: Remote trace fetching for judge evaluation
     And the extension budget defaults to the resolved wait budget
 
   @unit
+  Scenario: A parent-resolved trace settles only after its span set is unchanged for the quiet period
+    Given a remote trace whose fetched spans all resolve their parents
+    When the judge issues its verdict
+    Then the fetcher keeps polling until the span set stays unchanged for the quiet period
+    And the trace settles cleanly
+
+  @unit
+  Scenario: A leaf span that lands after the parents resolved is fetched before the verdict
+    Given a remote trace that gains a leaf tool span one poll after its parents resolved
+    When the judge issues its verdict
+    Then the late leaf span is present in the judge's trace digest
+
+  @unit
+  Scenario: The deadline settles a parent-resolved trace cleanly when the quiet period is still running
+    Given a quiet period longer than the wait budget
+    When the judge issues its verdict
+    Then the trace settles cleanly at the deadline
+    And no span collection error span is added
+
+  @unit
+  Scenario: The quiet period defaults to two seconds
+    Given a scenario with fetch_remote_traces enabled and no trace_quiet_period configured
+    When the judge settle-waits for the remote traces
+    Then the settle-wait quiet period is 2 seconds
+
+  @unit
   Scenario: Remote spans deduplicate against locally collected spans
     Given the scenario's own spans were exported to LangWatch and also collected locally
     When remote traces are merged into the judge span collector

@@ -57,8 +57,19 @@ function makeFetcher(fetchFn: typeof fetch): RemoteTraceFetcher {
   return new RemoteTraceFetcher({ fetchFn, pollIntervalMs: 1 });
 }
 
+/**
+ * A settle target with the quiet period switched off, so a test that counts
+ * polls counts only the settle rule it is about. The quiet-period tests below
+ * set their own value.
+ */
 function target(collector: JudgeSpanCollector, traceIds: string[] = [TRACE_ID]) {
-  return { threadId: THREAD_ID, traceIds, collector, langwatch: LANGWATCH };
+  return {
+    threadId: THREAD_ID,
+    traceIds,
+    collector,
+    langwatch: LANGWATCH,
+    quietPeriodMs: 0,
+  };
 }
 
 describe("RemoteTraceFetcher", () => {
@@ -168,6 +179,134 @@ describe("RemoteTraceFetcher", () => {
 
       expect(calls).toHaveLength(3);
       expect(collector.getSpansForThread(THREAD_ID)).toHaveLength(1);
+    });
+
+    /** @scenario "A parent-resolved trace settles only after its span set is unchanged for the quiet period" */
+    it("keeps polling a complete trace until its span set holds still for the quiet period", async () => {
+      const collector = new JudgeSpanCollector();
+      const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      const startedAt = Date.now();
+      await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: 50,
+        timeoutMs: 5_000,
+      });
+      const elapsed = Date.now() - startedAt;
+
+      // One poll would have settled it before this change.
+      expect(calls.length).toBeGreaterThan(1);
+      expect(elapsed).toBeGreaterThanOrEqual(50);
+      expect(collector.getSpansForThread(THREAD_ID)).toHaveLength(1);
+    });
+
+    /** @scenario "A leaf span that lands after the parents resolved is fetched before the verdict" */
+    it("fetches a leaf tool span that lands after the parents resolved", async () => {
+      const collector = new JudgeSpanCollector();
+      const root = apiSpan({ span_id: "b000000000000001", name: "agent.request" });
+      const withLeaf = [
+        root,
+        apiSpan({
+          span_id: "b000000000000002",
+          name: "tools.late_leaf",
+          parent_id: "b000000000000001",
+        }),
+      ];
+      // The first response is already parent-resolved: nothing in it says a
+      // leaf is still on the way. Only the quiet period catches it.
+      const { fetchFn } = fakeTraceApi([[root], withLeaf]);
+      const fetcher = makeFetcher(fetchFn);
+
+      await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: 30,
+        timeoutMs: 5_000,
+      });
+
+      const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
+      expect(names).toContain("tools.late_leaf");
+    });
+
+    /** @scenario "The deadline settles a parent-resolved trace cleanly when the quiet period is still running" */
+    it("settles a complete trace cleanly at the deadline instead of failing it", async () => {
+      const collector = new JudgeSpanCollector();
+      const { fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      const { allSettled } = await fetcher.settleWait({
+        ...target(collector),
+        // Longer than the budget: the deadline always arrives first.
+        quietPeriodMs: 60_000,
+        timeoutMs: 30,
+      });
+
+      expect(allSettled).toBe(true);
+      const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
+      expect(names).toEqual(["get_weather"]);
+      expect(names).not.toContain("langwatch.span_collection.error");
+    });
+
+    it("reports an incomplete trace when every poll after the candidate failed", async () => {
+      const collector = new JudgeSpanCollector();
+      // Complete on the first poll, then the API stops answering: nothing
+      // ever confirms the span set held still.
+      const { fetchFn } = fakeTraceApi([
+        [apiSpan()],
+        new Error("connection reset"),
+      ]);
+      const fetcher = makeFetcher(fetchFn);
+
+      const { allSettled } = await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: 60_000,
+        timeoutMs: 40,
+      });
+
+      expect(allSettled).toBe(false);
+      const spans = collector.getSpansForThread(THREAD_ID);
+      const names = spans.map((s) => s.name);
+      expect(names).toContain("get_weather");
+      expect(names).toContain("langwatch.span_collection.error");
+      const reason = String(
+        spans.find((s) => s.name === "langwatch.span_collection.error")
+          ?.attributes["langwatch.span_collection.error.reason"]
+      );
+      expect(reason).toContain("connection reset");
+    });
+
+    it("falls back to the default quiet period for a value that is not a number of milliseconds", async () => {
+      const collector = new JudgeSpanCollector();
+      const { fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      // NaN would never satisfy the quiet period and a negative value would
+      // settle on the first poll; both take the 2s default, which the 40ms
+      // budget then cuts short with a clean settle.
+      const { allSettled } = await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: Number.NaN,
+        timeoutMs: 40,
+      });
+
+      expect(allSettled).toBe(true);
+      const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
+      expect(names).toEqual(["get_weather"]);
+    });
+
+    it("falls back to the default quiet period for a negative value", async () => {
+      const collector = new JudgeSpanCollector();
+      const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      await fetcher.settleWait({
+        ...target(collector),
+        quietPeriodMs: -1,
+        timeoutMs: 40,
+      });
+
+      // The default held the wait open instead of settling on the first poll.
+      expect(calls.length).toBeGreaterThan(1);
     });
 
     it("does not settle on a repeated partial chunk while parents are unresolved", async () => {

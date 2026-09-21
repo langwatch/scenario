@@ -136,6 +136,7 @@ import {
   JudgeAgentAdapter,
   AgentRole,
   DEFAULT_MAX_TURNS,
+  DEFAULT_TRACE_QUIET_PERIOD_MS,
   DEFAULT_TRACE_WAIT_TIMEOUT_MS,
 } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
@@ -154,7 +155,7 @@ import {
   InvokeLLMParams,
   InvokeLLMResult,
 } from "../types";
-import { criterionToParamName } from "../utils";
+import { criteriaParamNames } from "../utils";
 
 
 /**
@@ -397,7 +398,7 @@ function buildWaitForTracesTool(): Tool {
 }
 
 function buildFinishTestTool(criteria: string[]): Tool {
-  const criteriaNames = criteria.map(criterionToParamName);
+  const criteriaNames = criteriaParamNames({ criteria });
 
   return tool({
     description: "Complete the test with a final verdict",
@@ -715,6 +716,17 @@ export class JudgeAgent extends JudgeAgentAdapter {
       ],
       fallback: traceWaitTimeoutMs,
     });
+    // How long a complete-looking trace has to hold still before the judge
+    // reads it. Paid once per verdict when there is anything to fetch.
+    const traceQuietPeriodMs = this.resolveWaitBudgetMs({
+      field: "traceQuietPeriodMs",
+      values: [
+        input.scenarioConfig.traceQuietPeriodMs,
+        projectConfig?.traceQuietPeriodMs,
+      ],
+      fallback: DEFAULT_TRACE_QUIET_PERIOD_MS,
+      allowZero: true,
+    });
     const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
 
     // Automatic STT pre-pass (EDR §3.3 / §7.7): when the conversation carries
@@ -766,6 +778,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       fetchRemoteTraces,
       traceWaitTimeoutMs,
       traceWaitExtensionMs,
+      traceQuietPeriodMs,
       traceFetcher,
       mergedConfig,
       verdictForced,
@@ -787,16 +800,25 @@ export class JudgeAgent extends JudgeAgentAdapter {
     field,
     values,
     fallback,
+    allowZero = false,
   }: {
     field: string;
     values: (number | undefined)[];
     fallback: number;
+    /** Zero is a meaningful setting for a quiet period: settle on the first
+     * complete poll. It is not one for a budget, which would then wait for
+     * nothing at all. */
+    allowZero?: boolean;
   }): number {
     for (const value of values) {
       if (value == null) continue;
-      if (Number.isFinite(value) && value > 0) return value;
+      if (Number.isFinite(value) && (value > 0 || (allowZero && value === 0))) {
+        return value;
+      }
       this.logger.warn(
-        `${field} must be a finite positive number of milliseconds; ignoring it`,
+        `${field} must be a finite ${
+          allowZero ? "non-negative" : "positive"
+        } number of milliseconds; ignoring it`,
         { value: String(value) }
       );
     }
@@ -946,6 +968,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     fetchRemoteTraces,
     traceWaitTimeoutMs,
     traceWaitExtensionMs,
+    traceQuietPeriodMs,
     traceFetcher,
     mergedConfig,
     verdictForced,
@@ -958,6 +981,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     fetchRemoteTraces: boolean;
     traceWaitTimeoutMs: number;
     traceWaitExtensionMs: number;
+    traceQuietPeriodMs: number;
     traceFetcher: RemoteTraceFetcher;
     mergedConfig: ReturnType<typeof modelSchema.parse>;
     verdictForced: boolean;
@@ -972,6 +996,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       traceIds: remoteTraceIds,
       collector: this.spanCollector,
       langwatch: input.scenarioConfig.langwatch,
+      quietPeriodMs: traceQuietPeriodMs,
     };
     let allSettled = true;
     if (fetchRemoteTraces && remoteTraceIds.length > 0) {
@@ -1283,19 +1308,36 @@ export class JudgeAgent extends JudgeAgentAdapter {
           }
           const reasoning = args.reasoning || "No reasoning provided";
           const criteriaArgs = args.criteria || {};
-          const criteriaValues = Object.values(criteriaArgs);
-          const metCriteria = criteria.filter(
-            (_, i) => criteriaValues[i] === "true"
-          );
-          const unmetCriteria = criteria.filter(
-            (_, i) => criteriaValues[i] !== "true"
-          );
+          // Read each criterion's answer by its own schema key. Zipping the
+          // answers onto the criteria by position shifted every later
+          // criterion onto its neighbour's answer as soon as the model
+          // omitted or reordered one key.
+          const paramNames = criteriaParamNames({ criteria });
+          const metCriteria: string[] = [];
+          const unmetCriteria: string[] = [];
+          const inconclusiveCriteria: string[] = [];
+          criteria.forEach((criterion, i) => {
+            const answer = criteriaArgs[paramNames[i]];
+            if (answer === "true") {
+              metCriteria.push(criterion);
+              return;
+            }
+            // An inconclusive criterion stays inside unmetCriteria: success
+            // is still "nothing unmet", and the reporters and the platform
+            // read that list. inconclusiveCriteria says which of them the
+            // judge could not decide rather than judged false.
+            unmetCriteria.push(criterion);
+            if (answer === "inconclusive") inconclusiveCriteria.push(criterion);
+          });
 
           const result = {
             success: verdict === "success",
             reasoning,
             metCriteria,
             unmetCriteria,
+            ...(inconclusiveCriteria.length > 0
+              ? { inconclusiveCriteria }
+              : {}),
           };
           this.logger.debug("finish_test result", result);
           return result;

@@ -27,6 +27,7 @@ import {
   ScenarioExecutionStateLike,
   ScenarioConfigFinal,
   DEFAULT_MAX_TURNS,
+  DEFAULT_TRACE_QUIET_PERIOD_MS,
   DEFAULT_TRACE_WAIT_TIMEOUT_MS,
   DEFAULT_VERBOSE,
   resolveAgentName,
@@ -243,6 +244,17 @@ function makeTaskEntry(run: () => Promise<unknown>): AgentTaskEntry {
   return entry;
 }
 
+/**
+ * The criteria an inline `judge()` checkpoint decided, accumulated across the
+ * checkpoints of one run and compiled into the final result.
+ */
+interface CheckpointCriteria {
+  metCriteria: string[];
+  unmetCriteria: string[];
+  /** Subset of {@link unmetCriteria} the judge could not decide. */
+  inconclusiveCriteria?: string[];
+}
+
 export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorState {
   /** LangWatch tracer for scenario execution */
   private tracer = getLangWatchTracer("@langwatch/scenario");
@@ -365,7 +377,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   private totalStartTime: number = 0;
 
   /** Accumulated results from inline judge checkpoints */
-  private checkpointResults: { metCriteria: string[]; unmetCriteria: string[] }[] = [];
+  private checkpointResults: CheckpointCriteria[] = [];
 
   /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
@@ -436,6 +448,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       fetchRemoteTraces: config.fetchRemoteTraces,
       traceWaitTimeoutMs: config.traceWaitTimeoutMs,
       traceWaitExtensionMs: config.traceWaitExtensionMs,
+      traceQuietPeriodMs: config.traceQuietPeriodMs,
       langwatch: config.langwatch,
       // Voice carriers (ADR-002): the per-run voice config + audio hooks must
       // survive onto `this.config` so they reach every `call()` via
@@ -793,6 +806,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           reasoning: "All inline criteria checkpoints passed",
           metCriteria: cp.metCriteria,
           unmetCriteria: cp.unmetCriteria,
+          inconclusiveCriteria: cp.inconclusiveCriteria,
         });
 
         return await this.finishRun({ scenarioRunId, result });
@@ -2491,6 +2505,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       this.checkpointResults.push({
         metCriteria: this.result.metCriteria,
         unmetCriteria: this.result.unmetCriteria,
+        inconclusiveCriteria: this.result.inconclusiveCriteria,
       });
 
       if (this.result.success) {
@@ -2502,6 +2517,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         const cp = this.compiledCheckpoints;
         this.result.metCriteria = cp.metCriteria;
         this.result.unmetCriteria = cp.unmetCriteria;
+        this.result.inconclusiveCriteria = cp.inconclusiveCriteria;
         return this.result;
       }
     }
@@ -2573,15 +2589,17 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     });
   }
 
-  /** Compiles all accumulated checkpoint results into aggregated met/unmet criteria. */
-  private get compiledCheckpoints(): { metCriteria: string[]; unmetCriteria: string[] } {
+  /** Compiles all accumulated checkpoint results into aggregated criteria. */
+  private get compiledCheckpoints(): CheckpointCriteria {
     const metCriteria: string[] = [];
     const unmetCriteria: string[] = [];
+    const inconclusiveCriteria: string[] = [];
     for (const cp of this.checkpointResults) {
       metCriteria.push(...cp.metCriteria);
       unmetCriteria.push(...cp.unmetCriteria);
+      inconclusiveCriteria.push(...(cp.inconclusiveCriteria ?? []));
     }
-    return { metCriteria, unmetCriteria };
+    return { metCriteria, unmetCriteria, inconclusiveCriteria };
   }
 
   /**
@@ -2940,6 +2958,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           this.config.traceWaitTimeoutMs ??
           projectConfig?.traceWaitTimeoutMs ??
           DEFAULT_TRACE_WAIT_TIMEOUT_MS,
+        quietPeriodMs:
+          this.config.traceQuietPeriodMs ??
+          projectConfig?.traceQuietPeriodMs ??
+          DEFAULT_TRACE_QUIET_PERIOD_MS,
       });
     };
 
@@ -2978,6 +3000,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         verdict: result?.success ? Verdict.SUCCESS : Verdict.FAILURE,
         metCriteria: result?.metCriteria ?? [],
         unmetCriteria: result?.unmetCriteria ?? [],
+        ...(result?.inconclusiveCriteria?.length
+          ? { inconclusiveCriteria: result.inconclusiveCriteria }
+          : {}),
         reasoning: result?.reasoning,
         error: result?.error,
         ...(result?.evaluations ? { evaluations: result.evaluations } : {}),
