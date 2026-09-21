@@ -273,8 +273,8 @@ class UserSimulatorAgent(AgentAdapter):
         self,
         input: AgentInput,
     ) -> AgentReturnTypes:
-        text_message = await self._generate_text(input)
         voice, api_key = self._effective_tts(input.scenario_state.config.voice)
+        text_message = await self._generate_text(input, voice=voice)
         if not voice:
             return text_message
         # _generate_text's AgentReturnTypes union hides the dict message shape
@@ -370,6 +370,8 @@ class UserSimulatorAgent(AgentAdapter):
     async def _generate_text(
         self,
         input: AgentInput,
+        *,
+        voice: Optional[str] = None,
     ) -> AgentReturnTypes:
         """
         Generate the next user message in the conversation.
@@ -428,7 +430,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <rules>
 - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user, send the user message and just STOP.
 </rules>
-{persona_block}""" if self.voice else f"""
+{persona_block}""" if voice or self.voice else f"""
 <role>
 You are pretending to be a user, you are testing an AI Agent (shown as the user role) based on a scenario.
 Approach this naturally, as a human user would, with very short inputs, few words, all lowercase, imperative, not periods, like when they google or talk to chatgpt.
