@@ -12,7 +12,7 @@ from __future__ import annotations
 from ._stub import PendingTransportError
 from .composable import ComposableVoiceAgent, ElevenLabsVoiceAgent
 from .elevenlabs import ElevenLabsAgentAdapter
-from .gemini_live import GeminiLiveAgentAdapter
+from .gemini_live import GeminiLiveAgentAdapter, GeminiLiveRecvError
 from .livekit import LiveKitAgentAdapter
 from .openai_realtime import OpenAIRealtimeAgentAdapter
 from .pipecat import PipecatAgentAdapter, PipecatRecvError
@@ -26,6 +26,7 @@ __all__ = [
     "ElevenLabsAgentAdapter",
     "ElevenLabsVoiceAgent",
     "GeminiLiveAgentAdapter",
+    "GeminiLiveRecvError",
     "LiveKitAgentAdapter",
     "OpenAIRealtimeAgentAdapter",
     "PendingTransportError",
