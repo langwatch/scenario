@@ -15,8 +15,8 @@
  * AC-ERR1 is a control test — PASSES on pre-fix code (existing error path).
  */
 
-import { describe, it, expect } from "vitest";
 import { EventEmitter } from "node:events";
+import { describe, it, expect } from "vitest";
 import type WebSocket from "ws";
 import { OpenAIRealtimeAgentAdapter } from "../openai-realtime";
 

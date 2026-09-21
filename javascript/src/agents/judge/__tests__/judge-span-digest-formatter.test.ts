@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import { attributes } from "langwatch/observability";
+import { describe, it, expect } from "vitest";
 import { JudgeSpanDigestFormatter } from "../judge-span-digest-formatter";
 import { createSpan } from "./helpers/create-span";
 

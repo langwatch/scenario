@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import { ModelMessage } from "ai";
+import { describe, it, expect } from "vitest";
 import { JudgeUtils } from "../judge-utils";
 
 describe("JudgeUtils.buildTranscriptFromMessages", () => {
