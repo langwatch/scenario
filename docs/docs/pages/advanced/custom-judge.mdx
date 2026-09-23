@@ -366,6 +366,115 @@ Return a result for each criterion using the exact criterion text.`,
 
 :::
 
+### Returning extra fields
+
+A verdict is often more than pass or fail. You may want a **severity** per scenario, a **reason code** per failed criterion, or a numeric **score**, so that a script can rank prompts or models without anyone re-reading transcripts.
+
+You do not need to smuggle this through the `reasoning` string. A custom judge can return a `ScenarioResult` with extra fields, and `scenario.run()` hands the same object back to you.
+
+In Python, subclass `ScenarioResult`. The executor only checks `isinstance(result, ScenarioResult)`, so a subclass passes and keeps its fields. In TypeScript, `ScenarioResult` is a plain interface, and the executor spreads whatever the judge returns into the final result, so extra properties survive.
+
+:::code-group
+
+```python [python]
+from typing import Dict, Literal
+import scenario
+from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
+
+ReasonCode = Literal["wrong_question", "invented_fact", "missed_followup", "wording", "other"]
+
+class GradedResult(ScenarioResult):
+    severity: Literal["critical", "major", "minor", "style"] = "critical"
+    reason_codes: Dict[str, ReasonCode] = {}  # failed criterion -> code
+
+class GradingJudge(scenario.AgentAdapter):
+    role = scenario.AgentRole.JUDGE
+
+    async def call(self, input: AgentInput) -> AgentReturnTypes:
+        if not input.judgment_request:
+            return []
+
+        # ... ask your LLM for a structured verdict, see the example above ...
+        verdict = await self.evaluate(input)
+
+        return GradedResult(
+            success=verdict.passed,
+            messages=[],
+            reasoning=verdict.reasoning,
+            passed_criteria=verdict.passed_criteria,
+            failed_criteria=verdict.failed_criteria,
+            severity=verdict.severity,
+            reason_codes=verdict.reason_codes,
+        )
+
+# The extra fields come back on the result:
+result = await scenario.run(
+    name="notice period",
+    description="Candidate is asked for their notice period",
+    agents=[MyAgent(), scenario.UserSimulatorAgent(), GradingJudge()],
+)
+if isinstance(result, GradedResult):
+    print(result.severity)      # "critical"
+    print(result.reason_codes)  # {"records the answer under the asked question": "wrong_question"}
+```
+
+```typescript [typescript]
+import scenario, {
+  type AgentInput,
+  type AgentReturnTypes,
+  type ScenarioResult,
+  AgentAdapter,
+  AgentRole,
+} from "@langwatch/scenario";
+
+type ReasonCode = "wrong_question" | "invented_fact" | "missed_followup" | "wording" | "other";
+
+type GradedResult = ScenarioResult & {
+  severity: "critical" | "major" | "minor" | "style";
+  reasonCodes: Record<string, ReasonCode>; // failed criterion -> code
+};
+
+class GradingJudge extends AgentAdapter {
+  role = AgentRole.JUDGE;
+
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    if (!input.judgmentRequest) {
+      return null;
+    }
+
+    // ... ask your LLM for a structured verdict, see the example above ...
+    const verdict = await this.evaluate(input);
+
+    return {
+      success: verdict.passed,
+      reasoning: verdict.reasoning,
+      metCriteria: verdict.metCriteria,
+      unmetCriteria: verdict.unmetCriteria,
+      severity: verdict.severity,
+      reasonCodes: verdict.reasonCodes,
+    } satisfies Omit<GradedResult, "runId" | "messages">;
+  }
+}
+
+// The extra fields come back on the result:
+const result = (await scenario.run({
+  name: "notice period",
+  description: "Candidate is asked for their notice period",
+  agents: [myAgent, scenario.userSimulatorAgent(), new GradingJudge()],
+})) as GradedResult;
+
+console.log(result.severity);    // "critical"
+console.log(result.reasonCodes); // { "records the answer under the asked question": "wrong_question" }
+```
+
+:::
+
+This is the recommended way to build scoring on top of Scenario, for example a gate on critical failures plus a weighted score across repeated runs. Keep the mapping from reason code to severity in your own code, not in the judge prompt, so the judge classifies and never sees the cost of each class.
+
+<Callout type="info">
+  Extra fields stay in your process. The run reported to LangWatch carries the verdict, the reasoning, the met and unmet criteria, and any [evaluator results](/advanced/evaluators). To tag a run for grouping on the platform, pass labels through the `metadata` argument of `scenario.run()` instead, for example `metadata={"arm": "prompt-v2"}`.
+</Callout>
+
 ## Accessing Traces in Custom Judges
 
 The built-in judge automatically receives OpenTelemetry traces from your agent's execution. When building a custom judge, you can access these traces too — useful for verifying tool calls, checking LLM prompts, or inspecting execution flow beyond what's visible in the conversation transcript.
