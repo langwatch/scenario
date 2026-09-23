@@ -368,57 +368,169 @@ Return a result for each criterion using the exact criterion text.`,
 
 ### Returning extra fields
 
-A verdict is often more than pass or fail. You may want a **severity** per scenario, a **reason code** per failed criterion, or a numeric **score**, so that a script can rank prompts or models without anyone re-reading transcripts.
+A verdict is often more than pass or fail. You may want a **reason code** per failed criterion, a **severity** per run, or a numeric **score**, so that a script can rank prompts or models without anyone re-reading transcripts.
 
-You do not need to smuggle this through the `reasoning` string. A custom judge can return a `ScenarioResult` with extra fields, and `scenario.run()` hands the same object back to you.
+You do not need to smuggle this through the `reasoning` string. Ask the model for the extra fields in the same structured output you already use for the verdict, then return a `ScenarioResult` that carries them. `scenario.run()` hands the same object back to you.
 
 In Python, subclass `ScenarioResult`. The executor only checks `isinstance(result, ScenarioResult)`, so a subclass passes and keeps its fields. In TypeScript, `ScenarioResult` is a plain interface, and the executor spreads whatever the judge returns into the final result, so extra properties survive.
+
+The example below extends the judge above with a closed list of reason codes. The judge picks a code for every criterion it marks as unmet. Severity is derived from the codes in your own code, so the judge classifies and never sees the cost of each class.
 
 :::code-group
 
 ```python [python]
+import json
 from typing import Dict, Literal
+
+import litellm
 import scenario
 from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
 
-ReasonCode = Literal["wrong_question", "invented_fact", "missed_followup", "wording", "other"]
+REASON_CODES = {
+    "wrong_question": "the answer was recorded under a different question than the one asked",
+    "invented_fact": "the agent stated something the user never said",
+    "missed_followup": "the agent skipped a required follow-up",
+    "wording": "only phrasing or tone is off",
+    "other": "none of the above",
+}
+
+Severity = Literal["critical", "major", "minor", "style"]
+
+# The judge never sees this table. It classifies, your code decides the cost.
+SEVERITY_BY_CODE: Dict[str, Severity] = {
+    "wrong_question": "critical",
+    "invented_fact": "critical",
+    "missed_followup": "major",
+    "wording": "style",
+    "other": "major",
+}
+RANK = {"critical": 3, "major": 2, "minor": 1, "style": 0}
+
 
 class GradedResult(ScenarioResult):
-    severity: Literal["critical", "major", "minor", "style"] = "critical"
-    reason_codes: Dict[str, ReasonCode] = {}  # failed criterion -> code
+    reason_codes: Dict[str, str] = {}  # failed criterion -> reason code
+
+    @property
+    def severity(self) -> Severity:
+        codes = self.reason_codes.values()
+        return max((SEVERITY_BY_CODE[c] for c in codes), key=RANK.__getitem__, default="style")
+
 
 class GradingJudge(scenario.AgentAdapter):
     role = scenario.AgentRole.JUDGE
+
+    def __init__(self, criteria: list[str], model: str = "openai/gpt-4o-mini"):
+        self.criteria = criteria
+        self.model = model
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         if not input.judgment_request:
             return []
 
-        # ... ask your LLM for a structured verdict, see the example above ...
-        verdict = await self.evaluate(input)
+        criteria = (
+            input.judgment_request.criteria
+            if input.judgment_request.criteria is not None
+            else self.criteria
+        )
+        transcript = "\n".join(
+            f"{m['role']}: {m.get('content', '[tool call]')}" for m in input.messages
+        )
+        criteria_numbered = "\n".join(f"{i + 1}. {c}" for i, c in enumerate(criteria))
+        codes_glossed = "\n".join(f"- {k}: {v}" for k, v in REASON_CODES.items())
+
+        response = await litellm.acompletion(
+            model=self.model,
+            temperature=0.0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"""Evaluate this conversation against the criteria.
+
+Criteria:
+{criteria_numbered}
+
+For every criterion return met true or false, using the exact criterion text.
+For every criterion that is not met, pick one reason code:
+{codes_glossed}""",
+                },
+                {"role": "user", "content": transcript},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "graded_verdict",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "pass": {"type": "boolean"},
+                            "reasoning": {"type": "string"},
+                            "results": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "criterion": {"type": "string"},
+                                        "met": {"type": "boolean"},
+                                        "reason_code": {
+                                            "type": ["string", "null"],
+                                            "enum": list(REASON_CODES) + [None],
+                                        },
+                                    },
+                                    "required": ["criterion", "met", "reason_code"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["pass", "reasoning", "results"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        )
+
+        verdict = json.loads(response.choices[0].message.content)
+        by_criterion = {r["criterion"]: r for r in verdict["results"]}
+        passed = [c for c in criteria if by_criterion.get(c, {}).get("met")]
+        failed = [c for c in criteria if c not in passed]
 
         return GradedResult(
-            success=verdict.passed,
+            success=verdict["pass"] and not failed,
             messages=[],
-            reasoning=verdict.reasoning,
-            passed_criteria=verdict.passed_criteria,
-            failed_criteria=verdict.failed_criteria,
-            severity=verdict.severity,
-            reason_codes=verdict.reason_codes,
+            reasoning=verdict["reasoning"],
+            passed_criteria=passed,
+            failed_criteria=failed,
+            reason_codes={
+                c: by_criterion[c]["reason_code"]
+                for c in failed
+                if by_criterion.get(c, {}).get("reason_code")
+            },
         )
+
 
 # The extra fields come back on the result:
 result = await scenario.run(
     name="notice period",
-    description="Candidate is asked for their notice period",
-    agents=[MyAgent(), scenario.UserSimulatorAgent(), GradingJudge()],
+    description="Candidate is asked for their notice period and answers it",
+    agents=[
+        MyAgent(),
+        scenario.UserSimulatorAgent(),
+        GradingJudge([
+            "Agent records the candidate's answer under the question that was actually asked",
+            "Agent asks a follow-up question after recording an answer",
+        ]),
+    ],
 )
 if isinstance(result, GradedResult):
-    print(result.severity)      # "critical"
-    print(result.reason_codes)  # {"records the answer under the asked question": "wrong_question"}
+    print(result.reason_codes)
+    # {"Agent records the candidate's answer under the question that was actually asked": "wrong_question"}
+    print(result.severity)  # "critical"
 ```
 
 ```typescript [typescript]
+import { generateObject } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { z } from "zod";
 import scenario, {
   type AgentInput,
   type AgentReturnTypes,
@@ -427,31 +539,107 @@ import scenario, {
   AgentRole,
 } from "@langwatch/scenario";
 
-type ReasonCode = "wrong_question" | "invented_fact" | "missed_followup" | "wording" | "other";
+const REASON_CODES = {
+  wrong_question: "the answer was recorded under a different question than the one asked",
+  invented_fact: "the agent stated something the user never said",
+  missed_followup: "the agent skipped a required follow-up",
+  wording: "only phrasing or tone is off",
+  other: "none of the above",
+} as const;
+type ReasonCode = keyof typeof REASON_CODES;
+
+type Severity = "critical" | "major" | "minor" | "style";
+
+// The judge never sees this table. It classifies, your code decides the cost.
+const SEVERITY_BY_CODE: Record<ReasonCode, Severity> = {
+  wrong_question: "critical",
+  invented_fact: "critical",
+  missed_followup: "major",
+  wording: "style",
+  other: "major",
+};
+const RANK: Record<Severity, number> = { critical: 3, major: 2, minor: 1, style: 0 };
 
 type GradedResult = ScenarioResult & {
-  severity: "critical" | "major" | "minor" | "style";
-  reasonCodes: Record<string, ReasonCode>; // failed criterion -> code
+  reasonCodes: Record<string, ReasonCode>; // failed criterion -> reason code
 };
+
+function severityOf(result: GradedResult): Severity {
+  return Object.values(result.reasonCodes)
+    .map((code) => SEVERITY_BY_CODE[code])
+    .reduce((worst, s) => (RANK[s] > RANK[worst] ? s : worst), "style" as Severity);
+}
 
 class GradingJudge extends AgentAdapter {
   role = AgentRole.JUDGE;
+  criteria: string[];
+
+  constructor(criteria: string[]) {
+    super();
+    this.criteria = criteria;
+  }
 
   async call(input: AgentInput): Promise<AgentReturnTypes> {
     if (!input.judgmentRequest) {
       return null;
     }
 
-    // ... ask your LLM for a structured verdict, see the example above ...
-    const verdict = await this.evaluate(input);
+    const criteria = input.judgmentRequest.criteria ?? this.criteria;
+
+    const transcript = input.messages
+      .map((m) => {
+        if ("content" in m && typeof m.content === "string") {
+          return `${m.role}: ${m.content}`;
+        }
+        return `${m.role}: [tool call]`;
+      })
+      .join("\n");
+
+    const codes = Object.keys(REASON_CODES) as [ReasonCode, ...ReasonCode[]];
+
+    const { object: verdict } = await generateObject({
+      model: openai("gpt-4o-mini"),
+      temperature: 0,
+      schema: z.object({
+        pass: z.boolean(),
+        reasoning: z.string(),
+        results: z.array(
+          z.object({
+            criterion: z.string(),
+            met: z.boolean(),
+            reasonCode: z.enum(codes).nullable(),
+          })
+        ),
+      }),
+      prompt: `Evaluate this conversation against the criteria.
+
+Criteria:
+${criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}
+
+Conversation:
+${transcript}
+
+For every criterion return met true or false, using the exact criterion text.
+For every criterion that is not met, pick one reason code:
+${Object.entries(REASON_CODES).map(([k, v]) => `- ${k}: ${v}`).join("\n")}`,
+    });
+
+    const byCriterion = new Map(verdict.results.map((r) => [r.criterion, r]));
+    const passed = criteria.filter((c) => byCriterion.get(c)?.met);
+    const failed = criteria.filter((c) => !byCriterion.get(c)?.met);
+
+    const reasonCodes: Record<string, ReasonCode> = {};
+    for (const c of failed) {
+      const code = byCriterion.get(c)?.reasonCode;
+      if (code) reasonCodes[c] = code;
+    }
 
     return {
-      success: verdict.passed,
+      success: verdict.pass && failed.length === 0,
       reasoning: verdict.reasoning,
-      metCriteria: verdict.metCriteria,
-      unmetCriteria: verdict.unmetCriteria,
-      severity: verdict.severity,
-      reasonCodes: verdict.reasonCodes,
+      metCriteria: passed,
+      unmetCriteria: failed,
+      reasonCodes,
     } satisfies Omit<GradedResult, "runId" | "messages">;
   }
 }
@@ -459,17 +647,25 @@ class GradingJudge extends AgentAdapter {
 // The extra fields come back on the result:
 const result = (await scenario.run({
   name: "notice period",
-  description: "Candidate is asked for their notice period",
-  agents: [myAgent, scenario.userSimulatorAgent(), new GradingJudge()],
+  description: "Candidate is asked for their notice period and answers it",
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+    new GradingJudge([
+      "Agent records the candidate's answer under the question that was actually asked",
+      "Agent asks a follow-up question after recording an answer",
+    ]),
+  ],
 })) as GradedResult;
 
-console.log(result.severity);    // "critical"
-console.log(result.reasonCodes); // { "records the answer under the asked question": "wrong_question" }
+console.log(result.reasonCodes);
+// { "Agent records the candidate's answer under the question that was actually asked": "wrong_question" }
+console.log(severityOf(result)); // "critical"
 ```
 
 :::
 
-This is the recommended way to build scoring on top of Scenario, for example a gate on critical failures plus a weighted score across repeated runs. Keep the mapping from reason code to severity in your own code, not in the judge prompt, so the judge classifies and never sees the cost of each class.
+This is the recommended way to build scoring on top of Scenario, for example a gate on critical failures plus a weighted score across repeated runs.
 
 <Callout type="info">
   Extra fields stay in your process. The run reported to LangWatch carries the verdict, the reasoning, the met and unmet criteria, and any [evaluator results](/advanced/evaluators). To tag a run for grouping on the platform, pass labels through the `metadata` argument of `scenario.run()` instead, for example `metadata={"arm": "prompt-v2"}`.
