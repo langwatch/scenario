@@ -518,6 +518,53 @@ describeFeature(
     );
 
     // -----------------------------------------------------------------------
+    Scenario(
+      "The decision prompt does not end the conversation over a criterion not reached yet",
+      ({ Given, When, Then, And }) => {
+        const UNMET_RULE =
+          "A criterion the agent has not met yet is not a reason to end the conversation";
+        const { agent, calls } = makeJudge();
+
+        Given("the decision call is being prepared", () => {
+          agent.invokeLLM = async (params) => {
+            calls.push(params);
+            return mockLLMResult("continue_test", {});
+          };
+        });
+
+        When("the system prompt is built", async () => {
+          await agent.call(createInput());
+        });
+
+        Then(
+          "it tells the judge an unmet criterion is not a reason to end the conversation",
+          () => {
+            expect(systemPromptOf(calls[0])).toContain(UNMET_RULE);
+          }
+        );
+
+        And("a custom system prompt carries the same rule", async () => {
+          const custom = judgeAgent({
+            criteria: CRITERIA,
+            spanCollector: new JudgeSpanCollector(),
+            systemPrompt: "You are a strict reviewer.",
+          });
+          const customCalls: InvokeLLMParams[] = [];
+          custom.invokeLLM = async (params) => {
+            customCalls.push(params);
+            return mockLLMResult("continue_test", {});
+          };
+
+          await custom.call(createInput());
+
+          const prompt = systemPromptOf(customCalls[0]);
+          expect(prompt).toContain("You are a strict reviewer.");
+          expect(prompt).toContain(UNMET_RULE);
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
     const THREE_CRITERIA = [
       "Agent greets the user",
       "Agent looks up the order",

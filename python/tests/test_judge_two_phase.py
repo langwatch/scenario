@@ -213,3 +213,28 @@ async def test_decision_prompt_defers_judgment_and_leans_towards_continuing():
         "while the conversation is still short, lean towards continuing"
         in system_content
     )
+
+
+@pytest.mark.asyncio
+async def test_decision_prompt_does_not_end_over_a_criterion_not_reached_yet():
+    """@scenario The decision prompt does not end the conversation over a criterion not reached yet"""
+    unmet_rule = (
+        "A criterion the agent has not met yet is not a reason to end the "
+        "conversation"
+    )
+    _, calls = await _call_judge(
+        responses=[_tool_response("continue_test")],
+        agent_input=_agent_input(current_turn=1),
+    )
+    assert unmet_rule in calls[0]["messages"][0]["content"]
+
+    custom_judge = JudgeAgent(
+        model="openai/gpt-5-mini",
+        criteria=CRITERIA,
+        system_prompt="You are a strict reviewer.",
+    )
+    custom_prompt = custom_judge._build_decision_system_prompt(
+        description="Test scenario", criteria=CRITERIA, fetch_remote_traces=False
+    )
+    assert custom_prompt.startswith("You are a strict reviewer.")
+    assert unmet_rule in custom_prompt
