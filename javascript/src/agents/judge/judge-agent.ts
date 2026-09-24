@@ -243,6 +243,15 @@ const DECISION_PHASE_RULE =
   "In this step, only decide whether the conversation has collected enough information to evaluate the criteria: call make_verdict when it has, or continue_test to let the conversation play out. Do not decide whether the criteria pass or fail now: that evaluation happens in a separate step after the conversation ends.";
 
 /**
+ * Decision-phase rule separating a criterion that has not been reached yet
+ * from one the conversation has ruled out, so an unfinished conversation is
+ * not ended as a failure (#980). Used by both the built-in and the custom
+ * decision prompt. The Python SDK uses the same text; keep them in sync.
+ */
+const UNMET_CRITERION_DECISION_RULE =
+  "A criterion the agent has not met yet is not a reason to end the conversation: continue while the conversation can still get there. End it over an unmet criterion only when something in the conversation rules that criterion out, such as a refusal, an error the agent does not recover from, a reply that contradicts the criterion, or the user leaving.";
+
+/**
  * Appended to the decision system prompt when remote trace fetching is
  * enabled. The Python SDK uses the same text; keep them in sync.
  */
@@ -294,6 +303,7 @@ ${buildCriteriaList(criteria)}
 
 <rules>
 - Call make_verdict as soon as the agent has clearly broken one of the "do not" or "should not" criteria; more conversation cannot repair a violation.
+- ${UNMET_CRITERION_DECISION_RULE}
 - Scenario simulations exist to exercise multi-turn conversations: while the conversation is still short, lean towards continuing, and end it only when more turns would clearly add no information for the criteria.${remoteRule}
 </rules>
 `.trim();
@@ -865,6 +875,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     const systemPrompt = this.cfg.systemPrompt
       ? this.cfg.systemPrompt +
         `\n\n${DECISION_PHASE_RULE}` +
+        `\n\n${UNMET_CRITERION_DECISION_RULE}` +
         (fetchRemoteTraces ? `\n\n${REMOTE_TRACE_DECISION_RULE}` : "")
       : buildDecisionSystemPrompt({
           criteria,
