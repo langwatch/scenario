@@ -234,6 +234,8 @@ def validate_sql_execution(state):
 **Why this matters**: An agent might give a verbal answer without actually querying the database. This test verifies three things: (1) SQL was executed, (2) it passed safety validation, and (3) it queried the correct table. See the [Tool Calling guide](/testing-guides/tool-calling) for more patterns.
 :::
 
+**Also check:** `ragas/sql_query_equivalence` on [Evaluators on Scenarios](/advanced/evaluators) compares the SQL the agent ran against a golden query the scenario carries, so the equivalence check runs on the platform and reports next to the criteria.
+
 ## Scenario 3: Multi-Turn Conversation with Context Maintenance
 
 Analytics is inherently conversational. Users start broad and refine based on results. Test that your SQL agent maintains context across multiple turns:

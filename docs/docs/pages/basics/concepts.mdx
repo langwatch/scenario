@@ -105,10 +105,11 @@ const agents = [
 
 ### 3. Evaluation
 
-There are two ways to evaluate a scenario:
+There are three ways to evaluate a scenario:
 
 - **Automatically**, by the judge agent
 - **Manually**, by specifying assertions on scripted scenarios
+- **With evaluators**, LangWatch evaluators attached to the run that compare a value of the run against a reference once the judge has decided (see [Evaluators on Scenarios](/advanced/evaluators))
 
 :::code-group
 
@@ -120,6 +121,8 @@ scenario.JudgeAgent(criteria=[
 ])
 
 assert state.has_tool_call("get_billing_info") # manual assertion
+
+scenario.evaluator("langevals/exact_match", required=True) # evaluator on the run
 ```
 
 ```typescript [typescript]
@@ -137,9 +140,14 @@ scenario.judgeAgent({
     throw new Error("Tool not called");
   }
 };
+
+// Evaluator on the run:
+scenario.evaluator("langevals/exact_match", { required: true });
 ```
 
 :::
+
+**Also check:** [Judge Criteria, Script Assertions and Evaluators](/testing-guides/judge-assertions-and-evaluators) for which check goes where and how the three combine into one verdict.
 
 ## The Simulation Loop
 
