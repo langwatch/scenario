@@ -8,6 +8,7 @@ from scenario._tracing.setup import (
     setup_scenario_tracing,
     ensure_tracing_initialized,
     _get_concrete_provider,
+    _do_setup,
     _reset_tracing_for_tests,
 )
 
@@ -92,6 +93,17 @@ class TestGetConcreteProvider:
 
         assert result is provider
 
+    def test_returns_public_provider_with_span_processor_support(self) -> None:
+        class PublicProvider:
+            def add_span_processor(self, span_processor) -> None:
+                del span_processor
+
+        provider = PublicProvider()
+
+        result = _get_concrete_provider(provider)
+
+        assert result is provider
+
     def test_returns_delegate_from_get_delegate(self) -> None:
         concrete = TracerProvider()
 
@@ -127,6 +139,20 @@ class TestGetConcreteProvider:
         result = _get_concrete_provider(proxy)
 
         assert result is None
+
+
+def test_instruments_an_existing_public_provider() -> None:
+    class PublicProvider:
+        def add_span_processor(self, span_processor) -> None:
+            del span_processor
+
+    provider = PublicProvider()
+    instrumentor = MagicMock()
+
+    with patch("scenario._tracing.setup.trace.get_tracer_provider", return_value=provider):
+        _do_setup(instrumentors=[instrumentor])
+
+    instrumentor.instrument.assert_called_once_with(tracer_provider=provider)
 
 
 class TestResetTracingForTests:
