@@ -212,7 +212,7 @@ Each entry has:
 
 ## Model Compatibility
 
-The judge answers through tool calls with a forced tool choice. Some models refuse parts of that call: Claude Opus 5.5 (including on Bedrock) refuses a forced tool choice, Claude Sonnet 5 refuses any `temperature`, GPT-5.5 refuses a `temperature` other than the default, and GPT-5.6 models refuse function tools with reasoning on the Chat Completions API that the Python SDK uses. When a provider refuses a call for one of these reasons, the judge sends it again without that parameter (tool choice `auto` plus an instruction to answer with the tool, no temperature, or reasoning off) and keeps that change for its later calls. No configuration is needed. The same applies to the user simulator.
+The judge answers through tool calls with a forced tool choice. Some models refuse parts of that call: Claude Opus 5.5 (including on Bedrock) refuses a forced tool choice, Claude Sonnet 5 refuses any `temperature`, GPT-5.5 refuses a `temperature` other than the default, and GPT-5.6 models refuse function tools with reasoning on the Chat Completions API that the Python SDK uses. When a provider refuses a call for one of these reasons, the judge and the user simulator send it again without that parameter and keep that change for their later calls: tool choice `auto` plus an instruction to answer with the tool, or no temperature, in both SDKs, and `reasoning_effort: "none"` in the Python SDK. The TypeScript SDK needs no reasoning retry, because it calls OpenAI through the Responses API. No configuration is needed.
 
 ## Guaranteeing a Minimum Number of Turns
 

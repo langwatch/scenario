@@ -6,7 +6,7 @@ declared criteria. The JavaScript SDK uses the same text; keep them in sync.
 
 import re
 from dataclasses import dataclass
-from typing import Any, List, Literal, Optional, Sequence
+from typing import Any, List, Literal, Optional, Sequence, cast
 
 from ..types import CriterionResult, CriterionStatus
 
@@ -141,7 +141,9 @@ def _read_answer(answer: Any) -> Optional[CriterionResult]:
         return CriterionResult(criterion="", status="passed" if answer else "failed")
     if isinstance(answer, str):
         status = answer if answer in _STATUSES else _LEGACY_STATUS.get(answer)
-        return CriterionResult(criterion="", status=status) if status else None  # type: ignore[arg-type]
+        if status is None:
+            return None
+        return CriterionResult(criterion="", status=cast(CriterionStatus, status))
     if isinstance(answer, dict):
         status = answer.get("status")
         if status not in _STATUSES:
@@ -151,7 +153,7 @@ def _read_answer(answer: Any) -> Optional[CriterionResult]:
         return CriterionResult(
             criterion="",
             requirement=requirement if isinstance(requirement, str) else "",
-            status=status,
+            status=cast(CriterionStatus, status),
             reasoning=reasoning if isinstance(reasoning, str) else "",
         )
     return None

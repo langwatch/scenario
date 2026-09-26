@@ -758,12 +758,17 @@ class ScenarioExecutor:
                 # AssertionError (#922).
                 try:
                     compiled_passed, compiled_failed = self._compiled_checkpoints
+                    compiled_inconclusive, compiled_criteria = (
+                        self._compiled_checkpoint_verdicts
+                    )
                     error_result = ScenarioResult(
                         success=False,
                         messages=self._state.messages,
                         reasoning=f"Scenario failed with error: {str(_check_failure)}",
                         passed_criteria=compiled_passed,
                         failed_criteria=compiled_failed + [str(_check_failure)],
+                        inconclusive_criteria=compiled_inconclusive,
+                        criteria=compiled_criteria,
                         total_time=time.time() - self._total_start_time,
                         agent_time=0,
                     )
