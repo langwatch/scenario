@@ -15,6 +15,7 @@ import { getProjectConfig } from "../config/get-project-config";
 import {
   type EvaluationResult,
   type ScenarioResult,
+  type CriterionResult,
   type ScenarioConfig,
   AgentRole,
   type AgentInput,
@@ -253,6 +254,8 @@ interface CheckpointCriteria {
   unmetCriteria: string[];
   /** Subset of {@link unmetCriteria} the judge could not decide. */
   inconclusiveCriteria?: string[];
+  /** The per-criterion verdicts, in declared order. */
+  criteria?: CriterionResult[];
 }
 
 export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorState {
@@ -781,6 +784,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
             reasoning: `Scenario failed with error: ${checkFailure.message}`,
             metCriteria: cp.metCriteria,
             unmetCriteria: [...cp.unmetCriteria, checkFailure.message],
+            criteria: cp.criteria,
           });
         } catch (buildError) {
           this.logger.warn(
@@ -807,6 +811,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           metCriteria: cp.metCriteria,
           unmetCriteria: cp.unmetCriteria,
           inconclusiveCriteria: cp.inconclusiveCriteria,
+          criteria: cp.criteria,
         });
 
         return await this.finishRun({ scenarioRunId, result });
@@ -2506,6 +2511,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         metCriteria: this.result.metCriteria,
         unmetCriteria: this.result.unmetCriteria,
         inconclusiveCriteria: this.result.inconclusiveCriteria,
+        criteria: this.result.criteria,
       });
 
       if (this.result.success) {
@@ -2518,6 +2524,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         this.result.metCriteria = cp.metCriteria;
         this.result.unmetCriteria = cp.unmetCriteria;
         this.result.inconclusiveCriteria = cp.inconclusiveCriteria;
+        this.result.criteria = cp.criteria;
         return this.result;
       }
     }
@@ -2526,6 +2533,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (this.result) {
       const cp = this.compiledCheckpoints;
       this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
+      if (cp.criteria?.length) {
+        this.result.criteria = [...cp.criteria, ...(this.result.criteria ?? [])];
+      }
     }
 
     return this.result ?? null;
@@ -2594,12 +2604,14 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     const metCriteria: string[] = [];
     const unmetCriteria: string[] = [];
     const inconclusiveCriteria: string[] = [];
+    const criteria: CriterionResult[] = [];
     for (const cp of this.checkpointResults) {
       metCriteria.push(...cp.metCriteria);
       unmetCriteria.push(...cp.unmetCriteria);
       inconclusiveCriteria.push(...(cp.inconclusiveCriteria ?? []));
+      criteria.push(...(cp.criteria ?? []));
     }
-    return { metCriteria, unmetCriteria, inconclusiveCriteria };
+    return { metCriteria, unmetCriteria, inconclusiveCriteria, criteria };
   }
 
   /**
@@ -3003,6 +3015,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         ...(result?.inconclusiveCriteria?.length
           ? { inconclusiveCriteria: result.inconclusiveCriteria }
           : {}),
+        ...(result?.criteria?.length ? { criteria: result.criteria } : {}),
         reasoning: result?.reasoning,
         error: result?.error,
         ...(result?.evaluations ? { evaluations: result.evaluations } : {}),

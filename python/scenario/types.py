@@ -11,6 +11,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Literal,
     Optional,
     TypeAlias,
     Union,
@@ -233,6 +234,36 @@ class AgentInput(BaseModel):
         return content
 
 
+CriterionStatus: TypeAlias = Literal["passed", "failed", "inconclusive"]
+"""
+How the judge settled one criterion.
+
+- ``passed``: the agent satisfied what the criterion asks for. For a criterion
+  phrased as a fail condition ("the agent must not X"), it means X did not
+  happen.
+- ``failed``: the agent did not satisfy it.
+- ``inconclusive``: the evidence to decide was not available, so the test
+  could not check it. It still fails the run.
+"""
+
+
+class CriterionResult(BaseModel):
+    """
+    The judge's verdict on one criterion, with its own reasoning.
+
+    Attributes:
+        criterion: The criterion as the scenario declared it
+        requirement: The criterion restated by the judge as a positive requirement
+        status: passed, failed or inconclusive
+        reasoning: What the judge checked, written before it chose the status
+    """
+
+    criterion: str
+    requirement: str = ""
+    status: CriterionStatus
+    reasoning: str = ""
+
+
 class ScenarioResult(BaseModel):
     """
     Represents the final result of a scenario test execution.
@@ -246,7 +277,12 @@ class ScenarioResult(BaseModel):
         messages: Complete conversation history that occurred during the scenario
         reasoning: Detailed explanation of why the scenario succeeded or failed
         passed_criteria: List of success criteria that were satisfied
-        failed_criteria: List of success criteria that were not satisfied
+        failed_criteria: List of success criteria that were not satisfied,
+            including the inconclusive ones
+        inconclusive_criteria: The failed criteria the judge could not decide
+            from the evidence, as opposed to judged failed
+        criteria: The verdict on each judged criterion with its own
+            reasoning, in the order the scenario declared them
         total_time: Total execution time in seconds (if measured)
         agent_time: Time spent in agent calls in seconds (if measured)
         evaluations: One result per evaluator attached to the run, in the
@@ -285,6 +321,8 @@ class ScenarioResult(BaseModel):
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
+    inconclusive_criteria: List[str] = []
+    criteria: List[CriterionResult] = []
     total_time: Optional[float] = None
     agent_time: Optional[float] = None
     evaluations: List[EvaluationResult] = []
