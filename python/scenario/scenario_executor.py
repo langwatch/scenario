@@ -57,6 +57,7 @@ from .types import (
     AgentInput,
     AgentRole,
     ChatCompletionMessageParamWithTrace,
+    CriterionResult,
     JudgmentRequest,
     ScenarioResult,
     ScriptStep,
@@ -357,6 +358,16 @@ class ScenarioExecutor:
             passed.extend(cp["passed_criteria"])
             failed.extend(cp["failed_criteria"])
         return passed, failed
+
+    @property
+    def _compiled_checkpoint_verdicts(self) -> tuple[List[str], List[CriterionResult]]:
+        """The inconclusive criteria and per-criterion verdicts of all checkpoints."""
+        inconclusive: List[str] = []
+        criteria: List[CriterionResult] = []
+        for cp in self._checkpoint_results:
+            inconclusive.extend(cp.get("inconclusive_criteria", []))
+            criteria.extend(cp.get("criteria", []))
+        return inconclusive, criteria
 
     def add_message(
         self, message: ChatCompletionMessageParam, from_agent_idx: Optional[int] = None
@@ -719,6 +730,13 @@ class ScenarioExecutor:
                 if isinstance(result, ScenarioResult):
                     compiled_passed, _ = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed + result.passed_criteria
+                    compiled_inconclusive, compiled_criteria = (
+                        self._compiled_checkpoint_verdicts
+                    )
+                    result.inconclusive_criteria = (
+                        compiled_inconclusive + result.inconclusive_criteria
+                    )
+                    result.criteria = compiled_criteria + result.criteria
 
                     status = (
                         ScenarioRunFinishedEventStatus.SUCCESS
@@ -788,12 +806,17 @@ class ScenarioExecutor:
                 ]
                 agent_time = sum(agent_times)
 
+                compiled_inconclusive, compiled_criteria = (
+                    self._compiled_checkpoint_verdicts
+                )
                 result = ScenarioResult(
                     success=len(compiled_failed) == 0,
                     messages=self._state.messages,
                     reasoning="All inline criteria checkpoints passed",
                     passed_criteria=compiled_passed,
                     failed_criteria=compiled_failed,
+                    inconclusive_criteria=compiled_inconclusive,
+                    criteria=compiled_criteria,
                     total_time=time.time() - self._total_start_time,
                     agent_time=agent_time,
                 )
@@ -1859,6 +1882,8 @@ class ScenarioExecutor:
                 self._checkpoint_results.append({
                     "passed_criteria": result.passed_criteria,
                     "failed_criteria": result.failed_criteria,
+                    "inconclusive_criteria": result.inconclusive_criteria,
+                    "criteria": result.criteria,
                 })
 
                 if result.success:
@@ -1873,6 +1898,8 @@ class ScenarioExecutor:
                     _, compiled_failed = self._compiled_checkpoints
                     result.passed_criteria = []
                     result.failed_criteria = compiled_failed
+                    result.inconclusive_criteria = []
+                    result.criteria = []
                     return result
             else:
                 # Final judge evaluation. Prior checkpoint criteria are merged
@@ -2111,6 +2138,10 @@ class ScenarioExecutor:
             met_criteria=result.passed_criteria,
             unmet_criteria=result.failed_criteria,
         )
+        if result.inconclusive_criteria:
+            results.inconclusive_criteria = list(result.inconclusive_criteria)
+        if result.criteria:
+            results.criteria = [c.model_dump() for c in result.criteria]
         # Sent only when the run ran evaluators: an absent key is what lets a
         # platform-run scenario evaluate server-side.
         if self.evaluators:

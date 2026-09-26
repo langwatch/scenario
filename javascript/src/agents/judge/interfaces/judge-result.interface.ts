@@ -1,3 +1,5 @@
+import type { CriterionResult } from "../../../domain/core/execution";
+
 export interface JudgeResult {
   success: boolean;
   reasoning: string;
@@ -11,4 +13,9 @@ export interface JudgeResult {
    * left nothing inconclusive.
    */
   inconclusiveCriteria?: string[];
+  /**
+   * The verdict on each criterion with its own reasoning, in declared order.
+   * Absent when the judge failed before judging any criterion.
+   */
+  criteria?: CriterionResult[];
 }

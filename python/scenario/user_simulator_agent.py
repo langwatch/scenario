@@ -21,6 +21,7 @@ from scenario._utils.utils import reverse_roles
 from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
+from ._utils.provider_compat import ProviderCompat
 from .types import AgentInput, AgentReturnTypes, AgentRole
 from .voice.modality_resolver import ModalityTier, resolve_modality
 
@@ -225,6 +226,7 @@ class UserSimulatorAgent(AgentAdapter):
             raise ValueError("interrupt_probability must be in [0, 1]")
         self.interrupt_probability = interrupt_probability
         self.modality = modality
+        self._provider_compat = ProviderCompat()
 
         if model:
             self.model = model
@@ -437,7 +439,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 
         response = cast(
             ModelResponse,
-            litellm.completion(
+            self._provider_compat.completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,

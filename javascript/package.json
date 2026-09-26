@@ -76,6 +76,8 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.183",
+    "@ai-sdk/google": "^3.0.127",
     "@amiceli/vitest-cucumber": "^7.0.0",
     "@elevenlabs/elevenlabs-js": "^2.51.0",
     "@eslint/js": "^9.39.1",
