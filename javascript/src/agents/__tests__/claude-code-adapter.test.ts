@@ -2595,8 +2595,8 @@ describe.skipIf(!posix)("ClaudeCodeAgentAdapter process lifecycle", () => {
     expect(argv[0]).toBe("-c");
     expect(argv.slice(2)).toEqual(["claude-code-watchdog", String(process.pid), "4102"]);
     expect(argv[1]).toContain('kill -0 "$harness"');
-    expect(argv[1]).toContain('kill -TERM -- "-$child"');
-    expect(argv[1]).toContain('kill -KILL -- "-$child"');
+    expect(argv[1]).toContain('kill -TERM "-$child"');
+    expect(argv[1]).toContain('kill -KILL "-$child"');
     expect(options).toMatchObject({ detached: true, stdio: "ignore" });
     expect(watchdog.unref).toHaveBeenCalledTimes(1);
   });
