@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, List, Optional, Sequence, Union, cast
+from typing import Any, Final, List, Optional, Sequence, Union, cast
 
 import litellm
 from litellm import Choices
@@ -111,7 +111,7 @@ DECISION_PHASE_RULE = (
 personas still drive the argument-free decision tools correctly."""
 
 
-UNMET_CRITERION_DECISION_RULE = (
+UNMET_CRITERION_DECISION_RULE: Final[str] = (
     "A criterion the agent has not met yet is not a reason to end the "
     "conversation: continue while the conversation can still get there. End "
     "it over an unmet criterion only when something in the conversation rules "

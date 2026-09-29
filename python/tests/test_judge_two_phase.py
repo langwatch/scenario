@@ -216,7 +216,7 @@ async def test_decision_prompt_defers_judgment_and_leans_towards_continuing():
 
 
 @pytest.mark.asyncio
-async def test_decision_prompt_does_not_end_over_a_criterion_not_reached_yet():
+async def test_decision_prompt_does_not_end_over_a_criterion_not_reached_yet() -> None:
     """@scenario The decision prompt does not end the conversation over a criterion not reached yet"""
     unmet_rule = (
         "A criterion the agent has not met yet is not a reason to end the "
