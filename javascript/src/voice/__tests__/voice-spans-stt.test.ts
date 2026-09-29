@@ -6,7 +6,12 @@
  * per-turn STT: `runVoiceTurn` attaches the adapter's NATIVE transcript (not
  * STT), and the actual STT-provider run is a PER-RUN back-fill
  * (`backfillSegmentTranscripts`) in `execute()`'s `finally`, over the recording
- * segments, OUTSIDE any turn span. Per the #776 decision this emits
+ * segments, OUTSIDE any turn span. (As of #994, an untranscribed AGENT turn
+ * also gets a synchronous STT-fallback attempt inside `runVoiceTurn` itself,
+ * BEFORE recording — so it's typically no longer a back-fill target; only USER
+ * audio, which has no turn-time STT step, or an AGENT turn whose turn-time
+ * attempt itself failed, remains genuinely uncovered going into back-fill.)
+ * Per the #776 decision this emits
  * `voice.stt.transcribe` (scope=run) nested under a `voice.stt.backfill` batch
  * span (the batch parent groups the otherwise-orphaned per-run spans, carries
  * the run-correlation attrs, and encodes "per-run, not per-turn" in the shape).
@@ -119,10 +124,13 @@ describe("voice.stt.* back-fill spans (#776)", () => {
   });
 
   it("emits voice.stt.transcribe (scope=run) nested under voice.stt.backfill", async () => {
-    const stt = new FakeSTT({ text: "the agent said this" });
-    // Agent reply is AUDIO-ONLY (no transcript, no lastAgentTranscript) → its
-    // recording segment is a back-fill target; the text user makes no segment.
-    await buildExecution(stt, tone(0.2)).execute();
+    const stt = new FakeSTT({ text: "the user said this" });
+    // #994: the agent reply carries its OWN transcript, so its turn-time STT
+    // fallback short-circuits and never calls the provider — the agent
+    // segment is NOT a back-fill target. The user chunk is transcript-LESS
+    // (no turn-time STT step exists for user audio), so it remains the one
+    // genuine back-fill target.
+    await buildExecution(stt, tone(0.2, "already have it"), tone(0.12)).execute();
     const spans = byName(exporter.getFinishedSpans());
 
     expect(spans["voice.stt.backfill"]).toBeDefined();
@@ -130,10 +138,10 @@ describe("voice.stt.* back-fill spans (#776)", () => {
 
     const t = spans["voice.stt.transcribe"];
     expect(t.attributes["voice.stt.scope"]).toBe("run");
-    expect(t.attributes["voice.stt.speaker"]).toBe("agent");
+    expect(t.attributes["voice.stt.speaker"]).toBe("user");
     expect(t.attributes["voice.stt.audio_bytes"]).toBeGreaterThan(0);
     expect(t.attributes["voice.stt.transcript_chars"]).toBe(
-      "the agent said this".length,
+      "the user said this".length,
     );
     expect(t.attributes["langwatch.span.type"]).toBe("span");
     // The per-run position: nested under the batch span, NOT under a turn span.
@@ -152,7 +160,20 @@ describe("voice.stt.* back-fill spans (#776)", () => {
   });
 
   it("labels each segment's speaker and scales segment_count (user + agent targets)", async () => {
-    const stt = new FakeSTT({ text: "text" });
+    // #994: the agent's turn-time STT fallback would normally cover its
+    // untranscribed audio before recording, removing it as a back-fill
+    // target. This stub fails exactly once — the agent's turn-time attempt —
+    // then succeeds for every later call (both back-fill attempts), leaving
+    // the agent segment genuinely untranscribed going into back-fill, same as
+    // the user segment (which has no turn-time STT step at all).
+    let calls = 0;
+    const stt: STTProvider = {
+      async transcribe(_audio: AudioChunk): Promise<string> {
+        calls++;
+        if (calls === 1) throw new Error("turn-time STT unavailable");
+        return "text";
+      },
+    };
     // Transcript-LESS user chunk → BOTH the user and the agent segment are
     // targets → two children with distinct speakers under one batch span.
     await buildExecution(stt, tone(0.2), tone(0.12)).execute();
@@ -170,7 +191,7 @@ describe("voice.stt.* back-fill spans (#776)", () => {
     for (const t of transcribes) {
       expect(t.parentSpanContext?.spanId).toBe(backfill.spanContext().spanId);
     }
-    expect(stt.calls).toBe(2);
+    expect(calls).toBe(3);
   });
 
   it("marks voice.stt.transcribe ERROR on provider failure but the run still completes, without leaking the raw provider message", async () => {
