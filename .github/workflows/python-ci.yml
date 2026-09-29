@@ -84,6 +84,8 @@ jobs:
           filters: |
             relevant:
               - 'python/**'
+              - 'Makefile'
+              - 'scripts/test-voice-pipecat-lifecycle.sh'
               - '.github/workflows/python-ci.yml'
             examples:
               - 'python/examples/**'
@@ -135,6 +137,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
         working-directory: python
+
+      - name: Test voice Pipecat lifecycle
+        run: make test-voice-pipecat-lifecycle
 
       - name: Verify capability matrix is in sync with AdapterCapabilities
         run: |
