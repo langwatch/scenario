@@ -1,10 +1,10 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { AgentInput, AgentRole } from "../../../domain";
+import { InvokeLLMParams, InvokeLLMResult } from "../../types";
+import { DEFAULT_TOKEN_THRESHOLD } from "../estimate-tokens";
 import { judgeAgent, JudgeAgentConfig } from "../judge-agent";
 import { JudgeSpanCollector } from "../judge-span-collector";
-import { AgentInput, AgentRole } from "../../../domain";
-import { DEFAULT_TOKEN_THRESHOLD } from "../estimate-tokens";
-import { InvokeLLMParams, InvokeLLMResult } from "../../types";
 import { createSpan } from "./helpers/create-span";
 
 function createSmallTrace(): ReadableSpan[] {

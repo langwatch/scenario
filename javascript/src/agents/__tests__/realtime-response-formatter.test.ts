@@ -22,8 +22,8 @@
 
 import { describe, it, expect } from "vitest";
 
-import { ResponseFormatter } from "../realtime/response-formatter";
 import type { AudioResponseEvent } from "../realtime/realtime-event-handler";
+import { ResponseFormatter } from "../realtime/response-formatter";
 
 /** Minimal base64 PCM16 stand-in (bytes are irrelevant to these assertions). */
 const AUDIO_B64 = Buffer.from("\x00\x00".repeat(8), "binary").toString("base64");

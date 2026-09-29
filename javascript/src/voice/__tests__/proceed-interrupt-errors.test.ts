@@ -14,7 +14,6 @@
 
 import { describe, it, expect } from "vitest";
 
-import { sleep } from "../utils";
 
 import {
   AgentRole,
@@ -24,12 +23,13 @@ import {
   UserSimulatorAgentAdapter,
 } from "../../domain";
 import { ScenarioExecution } from "../../execution/scenario-execution";
-import { InterruptionConfig } from "../interruption";
 import { VoiceAgentAdapter } from "../adapter";
+import { AgentSpeakingEvent } from "../adapter.runtime";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
-import { AgentSpeakingEvent } from "../adapter.runtime";
+import { InterruptionConfig } from "../interruption";
 import { createAudioMessage } from "../messages";
+import { sleep } from "../utils";
 
 // ---------------------------------------------------------------------------
 // Helpers

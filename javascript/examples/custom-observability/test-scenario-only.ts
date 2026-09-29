@@ -4,12 +4,6 @@
  * This simulates the production use case: a server process that imports scenario
  * and only wants scenario-scoped spans, not HTTP/middleware noise.
  */
-import { trace } from "@opentelemetry/api";
-import {
-  SimpleSpanProcessor,
-  InMemorySpanExporter,
-} from "@opentelemetry/sdk-trace-base";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import {
   run,
   AgentRole,
@@ -18,20 +12,15 @@ import {
   succeed,
   setupScenarioTracing,
   scenarioOnly,
+  type AgentInput,
 } from "@langwatch/scenario";
+import { trace } from "@opentelemetry/api";
+import {
+  SimpleSpanProcessor,
+  InMemorySpanExporter,
+} from "@opentelemetry/sdk-trace-base";
+import { getScopeName } from "./scope-name";
 
-/**
- * Returns the instrumentation scope name for a span, handling both
- * OTel SDK v1 (instrumentationLibrary) and v2 (instrumentationScope).
- */
-function getScopeName(span: ReadableSpan): string {
-  const s = span as any;
-  return (
-    s.instrumentationScope?.name ??
-    s.instrumentationLibrary?.name ??
-    "unknown"
-  );
-}
 
 // --- Step 1: Set up a custom InMemorySpanExporter to capture what gets collected ---
 const memoryExporter = new InMemorySpanExporter();
@@ -41,6 +30,8 @@ const collectorProcessor = new SimpleSpanProcessor(memoryExporter);
 setupScenarioTracing({
   instrumentations: [], // disable auto-instrumentation
   spanProcessors: [collectorProcessor],
+  // "disabled" is a documented runtime shortcut not reflected in SetupObservabilityOptions' type
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   langwatch: "disabled" as any, // don't send to LangWatch for this test
 });
 
@@ -61,7 +52,7 @@ const dummyUserAgent = {
 
 const echoAgent = {
   role: AgentRole.AGENT as const,
-  call: async (input: any) => {
+  call: async (input: AgentInput) => {
     const lastMessage = input.messages.at(-1);
     const content =
       typeof lastMessage?.content === "string"

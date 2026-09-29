@@ -19,18 +19,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.chdir(path.join(__dirname, "with-config-file"));
 console.log(`Working directory: ${process.cwd()}`);
 
+import {
+  run,
+  AgentRole,
+  user,
+  agent,
+  succeed,
+  type AgentInput,
+} from "@langwatch/scenario";
 import { trace } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
-import { run, AgentRole, user, agent, succeed } from "@langwatch/scenario";
+import { getScopeName } from "./scope-name";
 
-function getScopeName(span: ReadableSpan): string {
-  const s = span as any;
-  return (
-    s.instrumentationScope?.name ??
-    s.instrumentationLibrary?.name ??
-    "unknown"
-  );
-}
 
 // --- Step 1: Create agents (no LLM needed) ---
 const dummyUserAgent = {
@@ -40,7 +40,7 @@ const dummyUserAgent = {
 
 const echoAgent = {
   role: AgentRole.AGENT as const,
-  call: async (input: any) => {
+  call: async (input: AgentInput) => {
     const lastMessage = input.messages.at(-1);
     const content =
       typeof lastMessage?.content === "string"
