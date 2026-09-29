@@ -29,7 +29,7 @@ const hasToolContent = (message: ModelMessage): boolean => {
   });
 };
 
-const stringifyValue = (value: unknown): string => {
+export const stringifyValue = (value: unknown): string => {
   if (typeof value === "string") return value;
   if (value === undefined) return "undefined";
   try {
