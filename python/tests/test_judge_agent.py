@@ -602,23 +602,6 @@ async def test_judge_normal_dict_regression():
 
 
 @pytest.mark.asyncio
-async def test_judge_failure_verdict_overrides_all_true_criteria():
-    """The verdict field is authoritative: verdict='failure' fails even when every criterion is 'true'."""
-    criteria = ["Agent must refuse harmful request", "Agent must cite a source"]
-    result = await _run_judge_finish_test(
-        criteria=criteria,
-        criteria_value={
-            "agent_must_refuse_harmful_request": "true",
-            "agent_must_cite_a_source": "true",
-        },
-        verdict="failure",
-    )
-    assert result.success is False
-    assert result.passed_criteria == criteria
-    assert result.failed_criteria == []
-
-
-@pytest.mark.asyncio
 async def test_judge_boolean_criterion_values_are_coerced():
     """Some LLMs emit JSON booleans instead of the enum strings; coerce true/false."""
     passing = await _run_judge_finish_test(

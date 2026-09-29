@@ -124,6 +124,11 @@ function collapseDiscoveryHistory(
   return out;
 }
 
+import {
+  buildFinishTestTool,
+  parseCriterionVerdicts,
+  PER_CRITERION_RULES,
+} from "./criterion-verdicts";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { JudgeResult } from "./interfaces";
 import { judgeSpanCollector, JudgeSpanCollector } from "./judge-span-collector";
@@ -155,7 +160,6 @@ import {
   InvokeLLMParams,
   InvokeLLMResult,
 } from "../types";
-import { criteriaParamNames } from "../utils";
 
 
 /**
@@ -319,7 +323,7 @@ You are an LLM as a judge delivering the final verdict on a simulated conversati
 </role>
 
 <goal>
-Your goal is to deliver the final verdict of the scenario below with the finish_test tool, evaluating each criterion independently against the conversation and the collected evidence.
+Your goal is to deliver the final verdict of the scenario below with the finish_test tool, judging each criterion on its own against the conversation and the collected evidence.
 </goal>
 
 <scenario>
@@ -333,7 +337,7 @@ ${buildCriteriaList(criteria)}
 <rules>
 - Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
-- When the evidence for a criterion is not definitive, mark that criterion inconclusive rather than guessing; an inconclusive verdict is acceptable${remoteTraceRule}
+${PER_CRITERION_RULES.map((rule) => `- ${rule}`).join("\n")}${remoteTraceRule}
 </rules>
 `.trim();
 }
@@ -394,33 +398,6 @@ function buildWaitForTracesTool(): Tool {
     description:
       "The remote trace evidence is still incomplete and the missing spans are essential for the verdict. Wait one more period for them to arrive. Available once: after this wait the verdict must be delivered on the evidence at hand. Only call this when a criterion genuinely depends on the missing spans; otherwise deliver the verdict now.",
     inputSchema: z.object({}),
-  });
-}
-
-function buildFinishTestTool(criteria: string[]): Tool {
-  const criteriaNames = criteriaParamNames({ criteria });
-
-  return tool({
-    description: "Complete the test with a final verdict",
-    inputSchema: z.object({
-      criteria: z
-        .object(
-          Object.fromEntries(
-            criteriaNames.map((name, idx) => [
-              name,
-              z.enum(["true", "false", "inconclusive"]).describe(criteria[idx]),
-            ])
-          )
-        )
-        .strict()
-        .describe("Strict verdict for each criterion"),
-      reasoning: z
-        .string()
-        .describe("Explanation of what the final verdict should be"),
-      verdict: z
-        .enum(["success", "failure", "inconclusive"])
-        .describe("The final verdict of the test"),
-    }),
   });
 }
 
@@ -1291,53 +1268,32 @@ export class JudgeAgent extends JudgeAgentAdapter {
         case "finish_test": {
           args = toolCall.input as FinishTestArgs;
 
-          const verdict = args.verdict || "inconclusive";
+          const verdicts = parseCriterionVerdicts({
+            criteria,
+            criteriaArgs: args.criteria,
+          });
 
           // "Can't tell yet" is not a verdict (#886). When nothing forced the
-          // judge to finish — continue_test was freely available — an
-          // inconclusive finish_test used to end the run as FAILED, which in
-          // the UI reads as the user simulator going silent mid-conversation.
-          // Treat it as continue_test and let the conversation play out; a
-          // FORCED judgment (last turn, judge() checkpoint, discovery
-          // exhaustion) keeps its terminal behavior unchanged.
-          if (!verdictForced && verdict === "inconclusive") {
+          // judge to finish (continue_test was freely available), a verdict
+          // with an undecided criterion and no failed one continues the
+          // conversation. A FORCED judgment (last turn, judge() checkpoint,
+          // discovery exhaustion) keeps its terminal behavior.
+          if (!verdictForced && verdicts.verdict === "inconclusive") {
             this.logger.debug(
-              "finish_test returned an inconclusive verdict without a forced judgment - continuing the conversation"
+              "finish_test left a criterion inconclusive without a forced judgment - continuing the conversation"
             );
             return null;
           }
-          const reasoning = args.reasoning || "No reasoning provided";
-          const criteriaArgs = args.criteria || {};
-          // Read each criterion's answer by its own schema key. Zipping the
-          // answers onto the criteria by position shifted every later
-          // criterion onto its neighbour's answer as soon as the model
-          // omitted or reordered one key.
-          const paramNames = criteriaParamNames({ criteria });
-          const metCriteria: string[] = [];
-          const unmetCriteria: string[] = [];
-          const inconclusiveCriteria: string[] = [];
-          criteria.forEach((criterion, i) => {
-            const answer = criteriaArgs[paramNames[i]];
-            if (answer === "true") {
-              metCriteria.push(criterion);
-              return;
-            }
-            // An inconclusive criterion stays inside unmetCriteria: success
-            // is still "nothing unmet", and the reporters and the platform
-            // read that list. inconclusiveCriteria says which of them the
-            // judge could not decide rather than judged false.
-            unmetCriteria.push(criterion);
-            if (answer === "inconclusive") inconclusiveCriteria.push(criterion);
-          });
 
-          const result = {
-            success: verdict === "success",
-            reasoning,
-            metCriteria,
-            unmetCriteria,
-            ...(inconclusiveCriteria.length > 0
-              ? { inconclusiveCriteria }
+          const result: JudgeResult = {
+            success: verdicts.verdict === "success",
+            reasoning: args.reasoning || "No reasoning provided",
+            metCriteria: verdicts.metCriteria,
+            unmetCriteria: verdicts.unmetCriteria,
+            ...(verdicts.inconclusiveCriteria.length > 0
+              ? { inconclusiveCriteria: verdicts.inconclusiveCriteria }
               : {}),
+            criteria: verdicts.criteria,
           };
           this.logger.debug("finish_test result", result);
           return result;

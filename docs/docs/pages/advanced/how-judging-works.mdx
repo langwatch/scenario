@@ -153,7 +153,7 @@ Remote spans take time to be ingested, so the fetch runs exactly once, right bef
 
 ### Voluntary verdicts and inconclusive outcomes
 
-A verdict entered voluntarily, through a `make_verdict` decision, that comes back `inconclusive` continues the conversation: the judge decided the information might be there, looked properly, and found it was not yet. A verdict that was required, on the last turn or from an explicit judge step, is terminal either way. One exception makes broken setups fail fast: when not one trace of the run ever settled, more turns cannot produce trace evidence, so a voluntary inconclusive verdict is terminal too.
+A verdict entered voluntarily, through a `make_verdict` decision, that marks a criterion `inconclusive` and none `failed` continues the conversation: the judge decided the information might be there, looked properly, and found it was not yet. A verdict that was required, on the last turn or from an explicit judge step, is terminal either way. One exception makes broken setups fail fast: when not one trace of the run ever settled, more turns cannot produce trace evidence, so a voluntary inconclusive verdict is terminal too.
 
 ### The remote traces rules
 
@@ -183,13 +183,14 @@ The conversation has collected enough information to evaluate the criteria. Take
 
 ### `finish_test` (verdict phase)
 
-End the simulation with a verdict. This tool takes:
+End the simulation with a verdict. The tool takes one entry per criterion, keyed by the criterion, and a summary:
 
-- **`verdict`** -- One of `"success"`, `"failure"`, or `"inconclusive"`. Determines the overall test outcome.
-- **`criteria`** -- A per-criterion result mapping each criterion to `"true"`, `"false"`, or `"inconclusive"`. This powers the detailed breakdown in test output and the [visualization dashboard](/visualizations).
-- **`reasoning`** -- A free-text explanation of why the judge reached this verdict. Included in test output for debugging.
+- **`criteria.<criterion>.requirement`** -- The criterion restated as a positive requirement. "The agent must not reveal the password" becomes "The agent does not reveal the password".
+- **`criteria.<criterion>.reasoning`** -- What the conversation and the evidence show about that requirement alone. The schema puts it before the status, so the judge writes what it checked before it decides.
+- **`criteria.<criterion>.status`** -- `"passed"`, `"failed"` or `"inconclusive"`, defined against the requirement: `passed` means the agent satisfied it, so a fail condition passes when the condition did not happen.
+- **`reasoning`** -- A short summary, written after every criterion.
 
-The judge is expected to evaluate every criterion independently. A single failed criterion results in an overall `"failure"` verdict from the built-in judge.
+There is no overall verdict field. The SDK derives it from the statuses: any `failed` criterion fails the run, otherwise any `inconclusive` one makes the verdict inconclusive, otherwise it passes. An inconclusive criterion fails the run, and a criterion the judge left out counts as failed. The statuses and their reasoning reach the result as `criteria` (see [Reading the result](/basics/judge-agent#reading-the-result)) and the [visualization dashboard](/visualizations).
 
 ### `wait_for_traces` (verdict phase, one-shot)
 

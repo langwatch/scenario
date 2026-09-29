@@ -123,6 +123,18 @@ export type ScenarioEvaluationResult = z.infer<
 >;
 
 /**
+ * The judge's verdict on one criterion. `passed` means the agent satisfied
+ * the criterion read as a requirement; `inconclusive` means the test could
+ * not check it, and it still fails the run.
+ */
+export const criterionResultSchema = z.object({
+  criterion: z.string(),
+  requirement: z.string(),
+  status: z.enum(["passed", "failed", "inconclusive"]),
+  reasoning: z.string(),
+});
+
+/**
  * Scenario Results Schema
  * Defines the structure for scenario evaluation results including verdict and criteria analysis.
  * Matches the Python dataclass structure used in the evaluation system.
@@ -141,6 +153,11 @@ export const scenarioResultsSchema = z
      * Omitted, never empty, when the verdict left nothing inconclusive.
      */
     inconclusiveCriteria: z.array(z.string()).min(1).optional(),
+    /**
+     * One entry per judged criterion, in the order the scenario declared
+     * them. Omitted when no judge verdict produced the result.
+     */
+    criteria: z.array(criterionResultSchema).min(1).optional(),
     error: z.string().optional(),
     evaluations: z.array(scenarioEvaluationResultSchema).optional(),
   })

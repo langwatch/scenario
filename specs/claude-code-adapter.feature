@@ -116,6 +116,13 @@ Feature: Claude Code adapter environment, transcript and process lifecycle
     And the watchdog is not spawned again for a CLI that has no pid
 
   @unit
+  Scenario: The watchdog kills the CLI's process group under dash
+    Given a CLI process group and a harness process
+    And the watchdog runs under dash, the /bin/sh of Debian and Ubuntu
+    When the harness dies while the CLI is still running
+    Then every process in the CLI's group is gone within a few seconds
+
+  @unit
   Scenario: A watchdog that cannot start does not fail the turn
     Given the watchdog process reports a spawn error
     When a turn runs

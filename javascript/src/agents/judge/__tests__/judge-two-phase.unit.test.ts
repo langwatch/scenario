@@ -78,10 +78,20 @@ function finishResult(
   verdict: "success" | "failure" | "inconclusive",
   reasoning = "Verdict delivered."
 ): InvokeLLMResult {
+  const status = {
+    success: "passed",
+    failure: "failed",
+    inconclusive: "inconclusive",
+  }[verdict];
   return mockLLMResult("finish_test", {
-    criteria: { [CRITERION_KEY]: verdict === "success" ? "true" : "false" },
+    criteria: {
+      [CRITERION_KEY]: {
+        requirement: CRITERIA[0],
+        reasoning,
+        status,
+      },
+    },
     reasoning,
-    verdict,
   });
 }
 
@@ -121,13 +131,19 @@ function makeJudgeWith(criteria: string[]) {
     spanCollector: new JudgeSpanCollector(),
   });
   const calls: InvokeLLMParams[] = [];
-  const answerWith = (criteriaArgs: Record<string, string>) => {
+  const answerWith = (
+    statuses: Record<string, "passed" | "failed" | "inconclusive">
+  ) => {
     agent.invokeLLM = async (params) => {
       calls.push(params);
       return mockLLMResult("finish_test", {
-        criteria: criteriaArgs,
+        criteria: Object.fromEntries(
+          Object.entries(statuses).map(([key, status]) => [
+            key,
+            { requirement: key, reasoning: `Judged ${status}.`, status },
+          ])
+        ),
         reasoning: "Verdict delivered.",
-        verdict: "failure",
       });
     };
   };
@@ -534,9 +550,9 @@ describeFeature(
           // Answers are written in the reverse of the criteria order, so a
           // positional read hands each criterion the wrong answer.
           answerWith({
-            agent_closes_politely: "true",
-            agent_looks_up_the_order: "true",
-            agent_greets_the_user: "false",
+            agent_closes_politely: "passed",
+            agent_looks_up_the_order: "passed",
+            agent_greets_the_user: "failed",
           });
         });
 
@@ -564,8 +580,8 @@ describeFeature(
 
         Given("a judge with three criteria", () => {
           answerWith({
-            agent_greets_the_user: "true",
-            agent_closes_politely: "true",
+            agent_greets_the_user: "passed",
+            agent_closes_politely: "passed",
           });
         });
 
@@ -619,8 +635,8 @@ describeFeature(
 
         And("a verdict answering both keys judges them separately", async () => {
           answerWith({
-            [criteriaKeys[0]!]: "true",
-            [criteriaKeys[1]!]: "false",
+            [criteriaKeys[0]!]: "passed",
+            [criteriaKeys[1]!]: "failed",
           });
           result = await judge();
           expect(result!.metCriteria).toEqual([twinCriteria[0]]);
@@ -638,9 +654,9 @@ describeFeature(
 
         Given("a judge with three criteria", () => {
           answerWith({
-            agent_greets_the_user: "true",
+            agent_greets_the_user: "passed",
             agent_looks_up_the_order: "inconclusive",
-            agent_closes_politely: "false",
+            agent_closes_politely: "failed",
           });
         });
 
