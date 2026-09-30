@@ -119,6 +119,7 @@ constraint-dependencies = [
     "anyio>=4.14.2",  # security: anyio advisories (#745, #746)
     "httpx2>=2.12.0",  # security: httpx2 advisories (#708-#710)
     "httpcore2>=2.10.0",  # security: httpcore2 advisory (#707)
+    "pyjwt>=2.14.0",  # security: PyJWT advisories covering <=2.13.0
 ]
 
 
