@@ -143,7 +143,7 @@ async def _cartesia_tts(text: str, voice: str) -> bytes:
         ) from exc
     client = AsyncCartesia()
     return await client.tts.bytes(
-        model_id="sonic-english",
+        model_id="sonic-3.6",
         transcript=text,
         voice_id=voice,
         output_format={
