@@ -32,7 +32,7 @@ export interface STTProvider {
 
 /**
  * A factory that builds a provider for a given litellm-style model spec
- * (e.g. `"openai/gpt-4o-transcribe"`, `"elevenlabs/scribe_v1"`). The
+ * (e.g. `"openai/gpt-4o-transcribe"`, `"elevenlabs/scribe_v2"`). The
  * `provider` segment selects the factory; the remainder is the model id.
  */
 export type SttProviderFactory = (model: string) => STTProvider;
