@@ -402,7 +402,7 @@ describeFeature(
             // concrete modelId so a wrong-model regression fails — call-count
             // alone would pass with the wrong scribe model.
             expect(fakeClient.speechToText.convert).toHaveBeenCalledWith(
-              expect.objectContaining({ modelId: "scribe_v1" }),
+              expect.objectContaining({ modelId: "scribe_v2" }),
             );
           },
         );
