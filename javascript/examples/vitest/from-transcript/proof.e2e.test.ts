@@ -163,9 +163,15 @@ describe.skipIf(!process.env.SC779_LIVE)("#779 — Scenario from a real Claude C
       const naiveHitCap =
         (threw != null && /max|turn|budget/i.test(threw)) ||
         (naive != null && naive.success !== true && /(maximum|reached).{0,14}turn/i.test(naive.reasoning ?? ""));
-      // …while the side-door seed of the SAME history under the SAME budget reaches a real verdict.
       expect(naiveHitCap).toBe(true);
+      // When it didn't throw, assert the exact structured max-turn result (scenario-execution.ts reachedMaxTurns()).
+      if (naive != null) {
+        expect(naive.success).toBe(false);
+        expect(naive.reasoning ?? "").toBe(`Reached maximum turns (${MAXTURNS}) without conclusion`);
+      }
+      // …while the side-door seed of the SAME history under the SAME budget reaches a real verdict.
       expect(sideDoor.reasoning ?? "").not.toMatch(/maximum turns/i);
+      expect(sideDoor.metCriteria.length + sideDoor.unmetCriteria.length).toBeGreaterThan(0);
     },
     180_000
   );
