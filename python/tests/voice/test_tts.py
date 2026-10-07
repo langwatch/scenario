@@ -10,12 +10,15 @@ Verifies:
     - Voice strings without a '/' raise ValueError.
 """
 
+import asyncio
 import hashlib
 
 import pytest
+from pydantic import ValidationError
 
 from scenario.voice import AudioChunk, register_tts_provider, synthesize
 from scenario.voice import tts as tts_module
+from scenario.voice.config import TtsConfig
 
 
 class _FakeProvider:
@@ -84,6 +87,44 @@ async def test_cache_keys_on_text_and_voice_not_just_one():
     await synthesize("world", "fake/alice")  # different text → different call
     # 3 distinct (text, voice) pairs → 3 distinct synthesize calls.
     assert len(fake.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_openai_tts_credentials_partition_the_cache(monkeypatch) -> None:
+    """Per-run credentials reach their client and cannot share cached audio."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    keys: list[str | None] = []
+
+    class _Response:
+        async def aread(self) -> bytes:
+            return b"\x00\x00"
+
+    class _Client:
+        def __init__(self, api_key: str | None = None) -> None:
+            keys.append(api_key)
+            self.audio = type(
+                "Audio",
+                (),
+                {"speech": type("Speech", (), {"create": self._create})()},
+            )()
+
+        async def _create(self, **kwargs) -> _Response:
+            return _Response()
+
+    monkeypatch.setattr("openai.AsyncOpenAI", _Client)
+
+    await asyncio.gather(
+        synthesize("hello", "openai/nova", api_key="left-key"),
+        synthesize("hello", "openai/nova", api_key="right-key"),
+    )
+
+    assert set(keys) == {"left-key", "right-key"}
+
+
+def test_tts_config_rejects_an_unsupported_output_format() -> None:
+    """The PCM-only router must not accept a format it cannot produce."""
+    with pytest.raises(ValidationError):
+        TtsConfig(voice="openai/nova", format="wav")
 
 
 def test_text_is_hashed_before_joblib_sees_it():
