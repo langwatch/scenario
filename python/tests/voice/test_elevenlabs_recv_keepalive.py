@@ -648,7 +648,9 @@ async def test_ceiling_end_logs_the_frame_types_that_held_the_wait(monkeypatch, 
 async def test_tail_probe_resolves_with_more_agent_audio():
     """More agent audio inside the tail probe is the turn continuing: the probe
     returns it rather than ending the turn."""
-    script = [(0.0, _audio_frame()), (TAIL_TIMEOUT / 2, _audio_frame())]
+    # 0.25s of slack between the next chunk and the probe's deadline, so a
+    # loaded host stalling the loop cannot end the probe first.
+    script = [(0.0, _audio_frame()), (0.05, _audio_frame())]
     adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
     mock_ws = _make_timed_ws(script, then=QUIET_AGENT_FRAMES[0])
 
@@ -656,7 +658,7 @@ async def test_tail_probe_resolves_with_more_agent_audio():
         await adapter.connect()
         try:
             assert (await adapter.recv_audio(timeout=1.0)).data
-            more = await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+            more = await adapter.recv_audio(timeout=0.3)
         finally:
             await adapter.disconnect()
 
@@ -669,9 +671,10 @@ async def test_new_user_turn_lets_pings_rearm_the_wait_again():
     """After the user sends the next turn, the agent has not spoken yet, so a
     slow-but-pinging agent keeps the wait open again until it answers."""
     ping = QUIET_AGENT_FRAMES[0]
+    wait = 0.3  # 0.27s of slack over the ping gap, so a loop stall cannot end it
     script = (
         [(0.0, _audio_frame())]
-        + [(QUIET_FRAME_GAP, ping)] * 10  # 10 * 0.03s = 3 * TAIL_TIMEOUT of pings only
+        + [(QUIET_FRAME_GAP, ping)] * 20  # 20 * 0.03s = 2 * wait of pings only
         + [(QUIET_FRAME_GAP, _audio_frame())]
     )
     adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
@@ -682,7 +685,7 @@ async def test_new_user_turn_lets_pings_rearm_the_wait_again():
         try:
             assert (await adapter.recv_audio(timeout=1.0)).data
             await adapter.send_audio(AudioChunk(data=b"\x00" * 960))
-            answer = await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+            answer = await adapter.recv_audio(timeout=wait)
         finally:
             await adapter.disconnect()
 
