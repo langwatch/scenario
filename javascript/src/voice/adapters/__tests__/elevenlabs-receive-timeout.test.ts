@@ -16,10 +16,20 @@
  */
 import { Buffer } from "node:buffer";
 
+import { context, trace } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { BasicTracerProvider, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { describe, it, expect, vi } from "vitest";
 
+import { AudioChunk } from "../../audio-chunk";
 import { ElevenLabsAgentAdapter } from "../index";
 import { FakeWebSocket, makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
+
+// `context.with` must propagate into receiveAudio for `currentSpan()` to see the
+// receive span; without a context manager the active context is always root.
+const contextManager = new AsyncLocalStorageContextManager();
+contextManager.enable();
+context.setGlobalContextManager(contextManager);
 
 /** Python's `VoiceAgentAdapter.response_timeout`, which JS now matches. */
 const PYTHON_RESPONSE_TIMEOUT_S = 60;
@@ -197,6 +207,224 @@ describe("receiveAudio timeout budget and diagnosis", () => {
       expect(settled.error()?.message ?? "").toContain(
         `The absolute ceiling of ${KEEPALIVE_HARD_CEILING_S}s elapsed`,
       );
+    });
+  });
+});
+
+/** The agent speaks one chunk and the drain takes it, as the first receive of a turn does. */
+async function agentSpeaks(adapter: ElevenLabsAgentAdapter, socket: FakeWebSocket): Promise<void> {
+  const first = adapter.receiveAudio(adapter.responseTimeout);
+  emit(socket, { type: "audio", audio_event: { audio_base_64: PCM_B64, event_id: 1 } });
+  await vi.advanceTimersByTimeAsync(20);
+  await first;
+}
+
+/** Emit `event` every `everyMs` for `forMs`, advancing the clock between frames. */
+async function streamFor(
+  socket: FakeWebSocket,
+  event: Record<string, unknown>,
+  everyMs: number,
+  forMs: number,
+): Promise<void> {
+  for (let elapsed = 0; elapsed < forMs; elapsed += everyMs) {
+    emit(socket, event);
+    await vi.advanceTimersByTimeAsync(everyMs);
+  }
+}
+
+/** The agent starts the server tool `lookup_property`. */
+function emitToolRequest(socket: FakeWebSocket): void {
+  emit(socket, {
+    type: "agent_tool_request",
+    agent_tool_request: { tool_name: "lookup_property", tool_call_id: "t1" },
+  });
+}
+
+/** The `lookup_property` tool answers. */
+function emitToolResponse(socket: FakeWebSocket): void {
+  emit(socket, {
+    type: "agent_tool_response",
+    agent_tool_response: { tool_name: "lookup_property", tool_call_id: "t1", is_error: false },
+  });
+}
+
+/** Non-audio frames EL keeps sending while the agent is quiet after speaking. */
+const QUIET_AGENT_FRAMES: Array<[string, Record<string, unknown>]> = [
+  ["ping", { type: "ping", ping_event: { event_id: 7, ping_ms: 5 } }],
+  ["vad_score", { type: "vad_score", vad_score_event: { vad_score: 0.02 } }],
+  ["context_usage", { type: "context_usage", context_usage_event: { used: 120 } }],
+  [
+    "agent_chat_response_part",
+    { type: "agent_chat_response_part", text_response_part: { text: "", type: "stop" } },
+  ],
+];
+
+describe("tail probe after the agent has spoken", () => {
+  it.each(QUIET_AGENT_FRAMES)(
+    "ends on responseTailSilence while the agent keeps sending %s frames",
+    async (_name, frame) => {
+      await withFakeClock(async ({ adapter, socket }) => {
+        await agentSpeaks(adapter, socket);
+
+        const probe = adapter.receiveAudio(0.6);
+        const settled = track(probe);
+        // A frame every 200ms re-armed the 0.6s probe forever before the fix, so the
+        // turn only ended on the 45s ceiling. Audio silence now ends it.
+        await streamFor(socket, frame, 200, 1_000);
+
+        const message = settled.error()?.message ?? "";
+        expect(message, "tail probe still open 1s after the agent went quiet").toContain(
+          "The idle deadline of 0.6s elapsed",
+        );
+      });
+    },
+  );
+
+  it("keeps the probe open while more agent audio arrives", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+
+      const probe = adapter.receiveAudio(0.6);
+      emit(socket, { type: "audio", audio_event: { audio_base_64: PCM_B64, event_id: 1 } });
+      await vi.advanceTimersByTimeAsync(20);
+
+      const chunk = await probe;
+      expect(chunk.data.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("keeps the probe open while a server tool the agent started is still running", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+
+      const probe = adapter.receiveAudio(0.6);
+      const settled = track(probe);
+      emitToolRequest(socket);
+      // The tool takes 5s; only pings arrive meanwhile.
+      await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 200, 5_000);
+      expect(settled.error(), "turn cut while the agent's tool was running").toBeUndefined();
+    });
+  });
+
+  it("keeps the probe open through a silent tool, with no frames at all meanwhile", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+
+      const probe = adapter.receiveAudio(0.6);
+      const settled = track(probe);
+      emitToolRequest(socket);
+      // Nothing reaches the socket while the tool runs: no pings to re-arm a 0.6s wait.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(settled.error(), "silent tool cut by the tail probe").toBeUndefined();
+    });
+  });
+
+  it("waits for the spoken answer that comes later than responseTailSilence after the tool", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+
+      const probe = adapter.receiveAudio(0.6);
+      const settled = track(probe);
+      emitToolRequest(socket);
+      await vi.advanceTimersByTimeAsync(1_000);
+      emitToolResponse(socket);
+      // The agent generates its answer from the tool result for 900ms, pinging
+      // every 100ms. Tool completion is not speech completion.
+      await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 100, 900);
+      expect(settled.error(), "turn cut before the post-tool answer").toBeUndefined();
+
+      emit(socket, { type: "audio", audio_event: { audio_base_64: PCM_B64, event_id: 2 } });
+      await vi.advanceTimersByTimeAsync(20);
+      const chunk = await probe;
+      expect(chunk.data.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("returns to the tail probe once the post-tool answer has started", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+      emitToolRequest(socket);
+      emitToolResponse(socket);
+      const answer = adapter.receiveAudio(0.6);
+      emit(socket, { type: "audio", audio_event: { audio_base_64: PCM_B64, event_id: 2 } });
+      await vi.advanceTimersByTimeAsync(20);
+      await answer;
+
+      const probe = adapter.receiveAudio(0.6);
+      const settled = track(probe);
+      await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 200, 1_000);
+      expect(settled.error()?.message ?? "").toContain("The idle deadline of 0.6s elapsed");
+    });
+  });
+
+  it("bounds the post-tool wait when the agent never speaks again", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+
+      const probe = adapter.receiveAudio(0.6);
+      const settled = track(probe);
+      emitToolRequest(socket);
+      emitToolResponse(socket);
+      await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 500, KEEPALIVE_HARD_CEILING_S * 1000 + 1_000);
+      expect(settled.error()?.message ?? "").toContain(
+        `The absolute ceiling of ${KEEPALIVE_HARD_CEILING_S}s elapsed`,
+      );
+    });
+  });
+
+  it("names the frame types that kept a wait open when it ends on the ceiling", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await withFakeClock(async ({ adapter, socket }) => {
+        const recv = adapter.receiveAudio(0.6);
+        const settled = track(recv);
+        await streamFor(socket, QUIET_AGENT_FRAMES[1]![1], 500, 46_000);
+        expect(settled.error()?.message ?? "").toContain("absolute ceiling");
+
+        const call = warn.mock.calls.find(([msg]) => String(msg).includes("ended on the absolute ceiling"));
+        expect(call, "no ceiling warning logged").toBeDefined();
+        expect(call![1]).toMatchObject({
+          end: "ceiling",
+          afterAgentAudio: false,
+          framesByType: { vad_score: 90 },
+        });
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stamps the wait diagnosis on the receive span when it ends on a deadline", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+
+      const span = new BasicTracerProvider().getTracer("test").startSpan("voice.audio.receive");
+      const probe = context.with(trace.setSpan(context.active(), span), () => adapter.receiveAudio(0.6));
+      const settled = track(probe);
+      await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 200, 1_000);
+      expect(settled.error()?.message ?? "").toContain("The idle deadline of 0.6s elapsed");
+
+      const attrs = (span as unknown as ReadableSpan).attributes;
+      expect(attrs["voice.elevenlabs.receive_wait_end"]).toBe("idle");
+      expect(attrs["voice.elevenlabs.receive_wait_ms"]).toBeGreaterThanOrEqual(600);
+      expect(attrs["voice.elevenlabs.receive_wait_late_ms"]).toBeGreaterThanOrEqual(0);
+      expect(JSON.parse(String(attrs["voice.elevenlabs.receive_wait_frames"]))).toMatchObject({
+        ping: expect.any(Number),
+      });
+    });
+  });
+
+  it("lets pings re-arm the wait again once the next user turn starts", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+      await adapter.sendAudio(new AudioChunk({ data: new Uint8Array(960) }));
+
+      // Before the agent answers the new turn, a slow-but-pinging agent must not be
+      // cut off: pings every 200ms keep a 0.6s wait open.
+      const recv = adapter.receiveAudio(0.6);
+      const settled = track(recv);
+      await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 200, 2_000);
+      expect(settled.error(), "pre-response wait cut despite pings").toBeUndefined();
     });
   });
 });
