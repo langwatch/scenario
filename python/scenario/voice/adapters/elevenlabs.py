@@ -378,9 +378,19 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         self.awaiting_user_turn: bool = False
         #: Server-side tools the agent started this turn and has not answered yet
         #: (``agent_tool_request`` minus ``agent_tool_response``). While one runs
-        #: the agent is mid-turn even if it already spoke, so every frame re-arms
-        #: the recv deadline again. Cleared with :attr:`awaiting_user_turn`.
+        #: the agent is mid-turn even if it already spoke; it keeps
+        #: :attr:`_agent_tool_turn_open` set past audio that arrives mid-tool.
+        #: Cleared with :attr:`awaiting_user_turn`.
         self._agent_tools_in_flight: int = 0
+        #: TRUE from the agent's first ``agent_tool_request`` of a turn until its
+        #: audio resumes after the last tool answered. Tool completion is not
+        #: speech: the agent still has to generate the spoken answer from the
+        #: result, which can take longer than ``response_tail_silence``. While
+        #: set, every frame re-arms the recv deadline and the idle budget is
+        #: ``response_timeout``, so a silent tool or a slow post-tool answer is
+        #: not cut off by the sub-second tail probe. Cleared with
+        #: :attr:`awaiting_user_turn`.
+        self._agent_tool_turn_open: bool = False
 
         # Transcript observability — updated on each transcript event.
         self.last_user_transcript: Optional[str] = None
@@ -631,6 +641,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # closing-silence state — the next user turn streams its silence again.
         self.awaiting_user_turn = False
         self._agent_tools_in_flight = 0
+        self._agent_tool_turn_open = False
 
     async def _pump_loop(self) -> None:
         """Tick every :data:`PUMP_INTERVAL_S` until cancelled."""
@@ -712,6 +723,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # A real user turn is starting → lift the post-response pause.
         self.awaiting_user_turn = False
         self._agent_tools_in_flight = 0
+        self._agent_tool_turn_open = False
         # Count the turn ONCE per non-empty call (not once per 20 ms frame) so
         # the counter still counts turns.
         self.audio_commit_count += 1
@@ -786,6 +798,10 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         ``adapters/elevenlabs.ts:513-514``).
         """
         self.awaiting_user_turn = True
+        # Audio after the last tool answered is the post-tool answer: back to
+        # the tail probe.
+        if self._agent_tools_in_flight == 0:
+            self._agent_tool_turn_open = False
 
     # ------------------------------------------------------------------ I/O
 
@@ -835,6 +851,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         if transcript or chunk.data:
             self.awaiting_user_turn = False
             self._agent_tools_in_flight = 0
+            self._agent_tool_turn_open = False
 
         if self._turn_commit_mode == "text" and transcript:
             # Text-only commit: no user_audio_chunk is sent, so EL's STT never
@@ -925,7 +942,12 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
 
         start = asyncio.get_running_loop().time()
-        deadline = start + timeout
+        # The idle budget the deadline was last armed with: ``timeout``, or
+        # ``response_timeout`` while an agent tool turn is open (see
+        # ``_agent_tool_turn_open``).
+        tool_turn_budget = max(timeout, self.response_timeout)
+        idle_budget = tool_turn_budget if self._agent_tool_turn_open else timeout
+        deadline = start + idle_budget
         # Absolute wall-clock ceiling that keepalive pings do NOT reset (#829 /
         # the deferred #493 backstop). EL ConvAI pings indefinitely on a turn it
         # will never answer with audio (e.g. after it ends or transfers its
@@ -954,7 +976,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             late_s = max(0.0, now - min(deadline, hard_deadline))
             details = {
                 "end": "ceiling" if is_ceiling else "idle",
-                "timeout_s": timeout,
+                "timeout_s": idle_budget,
                 "waited_s": round(now - start, 3),
                 "late_s": round(late_s, 3),
                 "after_agent_audio": self.awaiting_user_turn,
@@ -975,7 +997,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 )
             else:
                 logger.debug("ElevenLabsAgentAdapter: recv_audio ended on its idle deadline: %s", details)
-            return asyncio.TimeoutError(_idle_timeout_message(timeout))
+            return asyncio.TimeoutError(_idle_timeout_message(idle_budget))
 
         while True:
             now = asyncio.get_running_loop().time()
@@ -1010,22 +1032,27 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             etype = event.get("type", "") if isinstance(event, dict) else ""
 
             # Track running server-side tools before the re-arm decision, so a
-            # frame that arrives while one runs keeps the turn open.
+            # frame that arrives while one runs, or before the agent speaks its
+            # post-tool answer, keeps the turn open.
             if etype == "agent_tool_request":
                 self._agent_tools_in_flight += 1
+                self._agent_tool_turn_open = True
             elif etype == "agent_tool_response":
                 self._agent_tools_in_flight = max(0, self._agent_tools_in_flight - 1)
 
             # A received message (ping included) proves the socket is alive, so
             # re-arm the idle deadline, even for a non-JSON/malformed frame. Once
-            # the agent has spoken this turn and no tool is running, only turn
+            # the agent has spoken this turn and no tool turn is open, only turn
             # activity re-arms it (AGENT_TURN_ACTIVITY_TYPES), so the tail probe
-            # measures audio silence rather than socket silence.
+            # measures audio silence rather than socket silence. While a tool
+            # turn is open every frame re-arms it, on the response budget.
             key = etype or "unknown"
             frames_by_type[key] = frames_by_type.get(key, 0) + 1
-            agent_quiet_candidate = self.awaiting_user_turn and self._agent_tools_in_flight == 0
+            tool_turn = self._agent_tool_turn_open
+            agent_quiet_candidate = self.awaiting_user_turn and not tool_turn
             if not agent_quiet_candidate or etype in AGENT_TURN_ACTIVITY_TYPES:
-                deadline = asyncio.get_running_loop().time() + timeout
+                idle_budget = tool_turn_budget if tool_turn else timeout
+                deadline = asyncio.get_running_loop().time() + idle_budget
 
             if not isinstance(event, dict):
                 logger.debug("ElevenLabsAgentAdapter: non-JSON message, skipping")

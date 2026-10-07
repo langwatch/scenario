@@ -114,13 +114,42 @@ Feature: receiveAudio response-timeout budget and timeout diagnosis
     Then the probe resolves with that audio
 
   @unit
-  Scenario: A server tool the agent started keeps the turn open until it answers
+  Scenario: A server tool the agent started keeps the turn open while it runs
     Given a connected adapter whose agent has spoken one audio chunk this turn
     When the drain probes with the 0.6s tail-silence timeout
     And an agent_tool_request arrives and only pings follow for 5 seconds
     Then the probe is still open
-    When the matching agent_tool_response arrives and only pings follow
+
+  @unit
+  Scenario: A silent tool keeps the turn open without pings
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And an agent_tool_request arrives and nothing else arrives for 5 seconds
+    Then the probe is still open
+
+  @unit
+  Scenario: The turn waits for the spoken answer after the tool answers
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And an agent_tool_request and its agent_tool_response arrive
+    And only pings arrive every 100ms for 900ms
+    And then the agent's answer audio arrives
+    Then the probe resolves with that audio
+
+  @unit
+  Scenario: The tail probe returns once the post-tool answer has started
+    Given a connected adapter whose agent spoke, ran a tool, and spoke its answer
+    When the drain probes with the 0.6s tail-silence timeout
+    And only pings keep arriving every 200ms
     Then the probe rejects on its 0.6s idle deadline
+
+  @unit
+  Scenario: The post-tool wait is bounded when the agent never speaks again
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And an agent_tool_request and its agent_tool_response arrive
+    And only pings keep arriving, with no further audio
+    Then the probe rejects on the 45 second absolute ceiling
 
   @unit
   Scenario: A new user turn restores ping liveness for the wait before the answer

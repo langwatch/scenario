@@ -491,11 +491,22 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   /**
    * Server-side tool calls the agent started this turn and has not yet answered
    * (`agent_tool_request` minus `agent_tool_response`). While one is running the
-   * agent is mid-turn even if it already spoke ("let me check that…"), so every
-   * inbound frame re-arms the receive deadlines again, as before it spoke. Cleared
-   * with {@link awaitingUserTurn}.
+   * agent is mid-turn even if it already spoke ("let me check that…"); it keeps
+   * {@link agentToolTurnOpen} set past audio that arrives mid-tool. Cleared with
+   * {@link awaitingUserTurn}.
    */
   private agentToolsInFlight = 0;
+
+  /**
+   * TRUE from the agent's first `agent_tool_request` of a turn until its audio
+   * resumes after the last tool answered. Tool completion is not speech: the
+   * agent still has to generate the spoken answer from the result, which can take
+   * longer than `responseTailSilence`. While set, every inbound frame re-arms the
+   * receive deadline and the idle budget is `responseTimeout`, so a silent tool or
+   * a slow post-tool answer is not cut off by the sub-second tail probe. Cleared
+   * with {@link awaitingUserTurn}.
+   */
+  private agentToolTurnOpen = false;
 
   lastUserTranscript: string | null = null;
   lastAgentTranscript: string | null = null;
@@ -715,6 +726,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // user turn ({@link enqueueSpeech} clears the flag). Idempotent — the FIRST
     // agent frame of the response is the real transition; later frames re-assert it.
     this.awaitingUserTurn = true;
+    // Audio after the last tool answered is the post-tool answer: back to the tail probe.
+    if (this.agentToolsInFlight === 0) this.agentToolTurnOpen = false;
     // #734 — stamp the last agent-audio arrival so callbackAgentResponse can log
     // transcript-lag-vs-audio-drain. Every frame re-stamps; the field therefore
     // holds the LAST audio frame of the turn, the tightest baseline for the lag.
@@ -833,6 +846,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // state — the next user turn streams its closing silence as normal.
     this.awaitingUserTurn = false;
     this.agentToolsInFlight = 0;
+    this.agentToolTurnOpen = false;
   }
 
   /**
@@ -937,6 +951,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // silence streams again once this speech drains (see pumpTick).
     this.awaitingUserTurn = false;
     this.agentToolsInFlight = 0;
+    this.agentToolTurnOpen = false;
     // #734 — a new user turn opens a new agent turn; clear the last-audio stamp so
     // callbackAgentResponse measures transcript lag against THIS turn's audio only.
     // Without this, a turn whose transcript arrives with no fresh audio frame would
@@ -1003,6 +1018,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // arrived, yet the deadline fired late) a stalled event loop in the host.
       const startedAtMs = Date.now();
       let idleArmedAtMs = startedAtMs;
+      // The idle budget the deadline was last armed with: `timeout`, or
+      // `responseTimeout` while an agent tool turn is open (see agentToolTurnOpen).
+      const toolTurnBudgetS = Math.max(timeout, this.responseTimeout);
+      let idleBudgetS = this.agentToolTurnOpen ? toolTurnBudgetS : timeout;
       const framesByType: Record<string, number> = {};
       // Captured now: the deadline callbacks run outside this call's span context.
       const span = currentSpan();
@@ -1010,7 +1029,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       const reportWait = (end: "idle" | "ceiling") => {
         const nowMs = Date.now();
         const waitedMs = nowMs - startedAtMs;
-        const dueMs = end === "idle" ? idleArmedAtMs + timeout * 1000 : startedAtMs + ceilingS * 1000;
+        const dueMs = end === "idle" ? idleArmedAtMs + idleBudgetS * 1000 : startedAtMs + ceilingS * 1000;
         const lateMs = Math.max(0, nowMs - dueMs);
         const details = {
           end,
@@ -1050,7 +1069,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       const onIdleTimeout = () => {
         cleanup();
         reportWait("idle");
-        reject(new Error(idleTimeoutMessage(timeout)));
+        reject(new Error(idleTimeoutMessage(idleBudgetS)));
       };
 
       const onCeilingTimeout = () => {
@@ -1067,17 +1086,20 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // that keeps pinging while processing does not trip the timer. Matches the
       // Python recv_audio sliding-idle-deadline. Once the agent has spoken this
       // turn, only turn activity re-arms it (AGENT_TURN_ACTIVITY_TYPES), so the
-      // tail probe measures audio silence rather than socket silence. The hard
-      // ceiling is deliberately NOT reset here.
+      // tail probe measures audio silence rather than socket silence. While an
+      // agent tool turn is open every frame re-arms it, on the response budget. The
+      // hard ceiling is deliberately NOT reset here.
       const resetTimer = (etype: string) => {
         sawInboundFrame = true;
         const key = etype || "unknown";
         framesByType[key] = (framesByType[key] ?? 0) + 1;
-        const agentQuietCandidate = this.awaitingUserTurn && this.agentToolsInFlight === 0;
+        const toolTurn = this.agentToolTurnOpen;
+        const agentQuietCandidate = this.awaitingUserTurn && !toolTurn;
         if (agentQuietCandidate && !AGENT_TURN_ACTIVITY_TYPES.has(etype)) return;
+        idleBudgetS = toolTurn ? toolTurnBudgetS : timeout;
         idleArmedAtMs = Date.now();
         clearTimeout(timer);
-        timer = setTimeout(onIdleTimeout, timeout * 1000);
+        timer = setTimeout(onIdleTimeout, idleBudgetS * 1000);
       };
 
       const waiter = (chunk: AudioChunk) => {
@@ -1085,7 +1107,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         resolve(chunk);
       };
 
-      timer = setTimeout(onIdleTimeout, timeout * 1000);
+      timer = setTimeout(onIdleTimeout, idleBudgetS * 1000);
       hardTimer = setTimeout(onCeilingTimeout, ceilingS * 1000);
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
@@ -1145,8 +1167,12 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     const etype = (event.type as string | undefined) ?? "";
 
     // Track running server-side tools before the reset, so a frame that arrives
-    // while one runs keeps the turn open.
-    if (etype === "agent_tool_request") this.agentToolsInFlight += 1;
+    // while one runs, or before the agent speaks its post-tool answer, keeps the
+    // turn open.
+    if (etype === "agent_tool_request") {
+      this.agentToolsInFlight += 1;
+      this.agentToolTurnOpen = true;
+    }
     if (etype === "agent_tool_response") {
       this.agentToolsInFlight = Math.max(0, this.agentToolsInFlight - 1);
     }
