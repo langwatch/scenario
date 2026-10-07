@@ -16,11 +16,20 @@
  */
 import { Buffer } from "node:buffer";
 
+import { context, trace } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { BasicTracerProvider, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { describe, it, expect, vi } from "vitest";
 
 import { AudioChunk } from "../../audio-chunk";
 import { ElevenLabsAgentAdapter } from "../index";
 import { FakeWebSocket, makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
+
+// `context.with` must propagate into receiveAudio for `currentSpan()` to see the
+// receive span; without a context manager the active context is always root.
+const contextManager = new AsyncLocalStorageContextManager();
+contextManager.enable();
+context.setGlobalContextManager(contextManager);
 
 /** Python's `VoiceAgentAdapter.response_timeout`, which JS now matches. */
 const PYTHON_RESPONSE_TIMEOUT_S = 60;
@@ -383,6 +392,26 @@ describe("tail probe after the agent has spoken", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("stamps the wait diagnosis on the receive span when it ends on a deadline", async () => {
+    await withFakeClock(async ({ adapter, socket }) => {
+      await agentSpeaks(adapter, socket);
+
+      const span = new BasicTracerProvider().getTracer("test").startSpan("voice.audio.receive");
+      const probe = context.with(trace.setSpan(context.active(), span), () => adapter.receiveAudio(0.6));
+      const settled = track(probe);
+      await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 200, 1_000);
+      expect(settled.error()?.message ?? "").toContain("The idle deadline of 0.6s elapsed");
+
+      const attrs = (span as unknown as ReadableSpan).attributes;
+      expect(attrs["voice.elevenlabs.receive_wait_end"]).toBe("idle");
+      expect(attrs["voice.elevenlabs.receive_wait_ms"]).toBeGreaterThanOrEqual(600);
+      expect(attrs["voice.elevenlabs.receive_wait_late_ms"]).toBeGreaterThanOrEqual(0);
+      expect(JSON.parse(String(attrs["voice.elevenlabs.receive_wait_frames"]))).toMatchObject({
+        ping: expect.any(Number),
+      });
+    });
   });
 
   it("lets pings re-arm the wait again once the next user turn starts", async () => {

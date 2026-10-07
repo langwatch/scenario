@@ -941,6 +941,9 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
 
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
         start = asyncio.get_running_loop().time()
         # The idle budget the deadline was last armed with: ``timeout``, or
         # ``response_timeout`` while an agent tool turn is open (see
@@ -982,6 +985,17 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 "after_agent_audio": self.awaiting_user_turn,
                 "frames_by_type": frames_by_type,
             }
+            # Same attrs as the JS adapter, onto the active ``voice.audio.receive``
+            # span, so the trace shows why the wait ended without the debug log.
+            set_span_attributes(
+                _otel_trace.get_current_span(),
+                {
+                    "voice.elevenlabs.receive_wait_end": details["end"],
+                    "voice.elevenlabs.receive_wait_ms": round((now - start) * 1000),
+                    "voice.elevenlabs.receive_wait_late_ms": round(late_s * 1000),
+                    "voice.elevenlabs.receive_wait_frames": json.dumps(frames_by_type),
+                },
+            )
             if is_ceiling:
                 logger.warning(
                     "ElevenLabsAgentAdapter: recv_audio ended on the absolute "
