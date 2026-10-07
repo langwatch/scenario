@@ -89,6 +89,14 @@ Feature: receiveAudio response-timeout budget and timeout diagnosis
 
   # ============================================================
   # Group: The turn ends when the agent's audio stops
+  #
+  # The tool scenarios assume the agent sends agent_tool_request and
+  # agent_tool_response, which ElevenLabs does only when both are enabled in
+  # the agent's client events. Without them a tool is invisible: a tool longer
+  # than the tail ends the turn, like any other gap in the agent's audio.
+  #
+  # JS tests use the numbers below. Python tests run the same steps with the
+  # timings scaled down (a 0.1s tail, frames every 30ms, a patched ceiling).
   # ============================================================
 
   @unit
@@ -161,7 +169,7 @@ Feature: receiveAudio response-timeout budget and timeout diagnosis
   @unit
   Scenario: A receive that ends on a deadline reports what it saw
     Given any receiveAudio that ends on its idle deadline or its ceiling
-    Then the receive span carries the end kind, the wait, how late the deadline
-      fired, and the count of each inbound EL message type
+    Then the active receive span carries the end kind, the wait, how late the
+      deadline fired, and the count of each inbound EL message type, in both SDKs
     And a ceiling end, or a deadline that fired more than a second late, is
       logged as a warning
