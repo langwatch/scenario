@@ -78,14 +78,31 @@ CONVAI_URL_TEMPLATE = "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={
 SILENCE_TAIL_BYTES = 16000
 
 #: Absolute wall-clock ceiling (seconds) for a single :meth:`recv_audio` call
-#: that keepalive pings do NOT reset. The idle deadline is re-armed on every
-#: inbound frame, pings included (#649), so a slow-but-pinging server is not
+#: that keepalive pings do NOT reset. Until the agent speaks, the idle deadline
+#: is re-armed on every inbound frame, pings included (#649), so a slow-but-pinging server is not
 #: aborted mid-think — but EL ConvAI pings *indefinitely* on a turn it will
 #: never answer with audio (e.g. after it ends/transfers its turn), which would
 #: otherwise wedge the whole multi-turn run (issue #829; the absolute backstop
 #: explicitly deferred in #493). 45s is generous enough for a genuinely slow
 #: agent to respond, but finite so a non-responding turn times out cleanly.
 KEEPALIVE_HARD_CEILING_S: Final[float] = 45.0
+
+#: Inbound EL message types that still mean "the agent's turn is in progress"
+#: once the agent has started speaking: more audio, or the agent working a tool
+#: between two spoken parts of the same turn. Before the agent's first audio of a
+#: turn EVERY frame re-arms the idle deadline (a slow-but-pinging agent is not
+#: cut off mid-think); after it, only these do. Pings, ``vad_score``,
+#: ``context_usage``, text parts and debug events are liveness or bookkeeping,
+#: not speech; letting them re-arm the sub-second tail probe meant an agent with
+#: a steady stream of them never looked quiet, and every turn ended on the 45s
+#: ceiling instead of ``response_tail_silence``. Mirrors the TS
+#: ``AGENT_TURN_ACTIVITY_TYPES``.
+AGENT_TURN_ACTIVITY_TYPES: Final[frozenset[str]] = frozenset(
+    {"audio", "agent_tool_request", "agent_tool_response", "mcp_tool_call"}
+)
+
+#: A recv whose deadline fired this much past its due time ran on a stalled loop.
+LATE_TIMER_WARN_S: Final[float] = 1.0
 
 #: Deep link to the section that expands on both recv_audio timeouts.
 RECEIVE_TIMEOUT_DOCS_URL: Final[str] = (
@@ -359,6 +376,11 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         #: SET when agent audio begins (pauses the idle mic so EL's idle prompt
         #: never trips); CLEARED when a new user turn is enqueued.
         self.awaiting_user_turn: bool = False
+        #: Server-side tools the agent started this turn and has not answered yet
+        #: (``agent_tool_request`` minus ``agent_tool_response``). While one runs
+        #: the agent is mid-turn even if it already spoke, so every frame re-arms
+        #: the recv deadline again. Cleared with :attr:`awaiting_user_turn`.
+        self._agent_tools_in_flight: int = 0
 
         # Transcript observability — updated on each transcript event.
         self.last_user_transcript: Optional[str] = None
@@ -608,6 +630,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # Reset the post-response pause so a reconnect starts in the
         # closing-silence state — the next user turn streams its silence again.
         self.awaiting_user_turn = False
+        self._agent_tools_in_flight = 0
 
     async def _pump_loop(self) -> None:
         """Tick every :data:`PUMP_INTERVAL_S` until cancelled."""
@@ -688,6 +711,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             return
         # A real user turn is starting → lift the post-response pause.
         self.awaiting_user_turn = False
+        self._agent_tools_in_flight = 0
         # Count the turn ONCE per non-empty call (not once per 20 ms frame) so
         # the counter still counts turns.
         self.audio_commit_count += 1
@@ -810,6 +834,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # ``adapters/elevenlabs.ts:710``). Empty chunks carry no turn.
         if transcript or chunk.data:
             self.awaiting_user_turn = False
+            self._agent_tools_in_flight = 0
 
         if self._turn_commit_mode == "text" and transcript:
             # Text-only commit: no user_audio_chunk is sent, so EL's STT never
@@ -862,11 +887,14 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         Receive the next audio chunk from ElevenLabs.
 
         ``timeout`` bounds **inter-message silence** — the maximum gap between
-        any two received frames — NOT the total duration of the call. Every
-        received frame (**keep-alive pings included**) resets the idle
-        deadline, so this returns when an ``audio`` event arrives and raises
-        :class:`asyncio.TimeoutError` only after ``timeout`` seconds elapse
-        with **no message of any kind**. Pings are replied to inline;
+        any two received frames — NOT the total duration of the call. Until
+        the agent has spoken this turn, every received frame (**keep-alive
+        pings included**) resets the idle deadline, so this returns when an
+        ``audio`` event arrives and raises :class:`asyncio.TimeoutError` only
+        after ``timeout`` seconds elapse with **no message of any kind**. Once
+        the agent has spoken (and no server tool it started is still running),
+        only :data:`AGENT_TURN_ACTIVITY_TYPES` reset it, so the drain's tail
+        probe ends on audio silence. Pings are replied to inline;
         transcript events update instance attributes for observability; most
         other event types are swallowed without error.
 
@@ -911,13 +939,42 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # case: idle 60s, ceiling max(60, 45) = 60s. Nothing received means the
         # socket was silent throughout, so the idle diagnosis is the true one.
         saw_inbound_frame = False
+        # Wait diagnosis: which EL message types reached this recv. Logged when
+        # it ends on a deadline, so a slow turn names its cause: a frame type
+        # re-arming the wait, or (nothing arrived, yet the deadline fired late) a
+        # stalled event loop in the host.
+        frames_by_type: dict[str, int] = {}
 
         def timeout_error() -> asyncio.TimeoutError:
             """The rejection for whichever bound expired. A socket that went
             completely quiet and one that pings steadily without ever speaking
             are different problems, so they get different messages."""
-            if saw_inbound_frame and hard_deadline <= deadline:
+            is_ceiling = saw_inbound_frame and hard_deadline <= deadline
+            now = asyncio.get_running_loop().time()
+            late_s = max(0.0, now - min(deadline, hard_deadline))
+            details = {
+                "end": "ceiling" if is_ceiling else "idle",
+                "timeout_s": timeout,
+                "waited_s": round(now - start, 3),
+                "late_s": round(late_s, 3),
+                "after_agent_audio": self.awaiting_user_turn,
+                "frames_by_type": frames_by_type,
+            }
+            if is_ceiling:
+                logger.warning(
+                    "ElevenLabsAgentAdapter: recv_audio ended on the absolute "
+                    "ceiling; frames_by_type shows what kept the wait open: %s",
+                    details,
+                )
                 return asyncio.TimeoutError(_ceiling_timeout_message(timeout, ceiling))
+            if late_s > LATE_TIMER_WARN_S:
+                logger.warning(
+                    "ElevenLabsAgentAdapter: recv_audio deadline fired late; the "
+                    "host event loop was stalled: %s",
+                    details,
+                )
+            else:
+                logger.debug("ElevenLabsAgentAdapter: recv_audio ended on its idle deadline: %s", details)
             return asyncio.TimeoutError(_idle_timeout_message(timeout))
 
         while True:
@@ -945,18 +1002,35 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                     "ending turn with empty chunk"
                 )
                 return AudioChunk(data=b"")
-            # A received message (ping included) proves the socket is alive, so
-            # re-arm the idle deadline. Placed BEFORE json.loads so ANY frame —
-            # even a non-JSON/malformed one — counts as a liveness signal.
             saw_inbound_frame = True
-            deadline = asyncio.get_running_loop().time() + timeout
             try:
                 event = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())
             except Exception:
+                event = None
+            etype = event.get("type", "") if isinstance(event, dict) else ""
+
+            # Track running server-side tools before the re-arm decision, so a
+            # frame that arrives while one runs keeps the turn open.
+            if etype == "agent_tool_request":
+                self._agent_tools_in_flight += 1
+            elif etype == "agent_tool_response":
+                self._agent_tools_in_flight = max(0, self._agent_tools_in_flight - 1)
+
+            # A received message (ping included) proves the socket is alive, so
+            # re-arm the idle deadline, even for a non-JSON/malformed frame. Once
+            # the agent has spoken this turn and no tool is running, only turn
+            # activity re-arms it (AGENT_TURN_ACTIVITY_TYPES), so the tail probe
+            # measures audio silence rather than socket silence.
+            key = etype or "unknown"
+            frames_by_type[key] = frames_by_type.get(key, 0) + 1
+            agent_quiet_candidate = self.awaiting_user_turn and self._agent_tools_in_flight == 0
+            if not agent_quiet_candidate or etype in AGENT_TURN_ACTIVITY_TYPES:
+                deadline = asyncio.get_running_loop().time() + timeout
+
+            if not isinstance(event, dict):
                 logger.debug("ElevenLabsAgentAdapter: non-JSON message, skipping")
                 continue
 
-            etype = event.get("type", "")
             logger.debug("ElevenLabsAgentAdapter: recv event %s", etype)
 
             if etype == "audio":
