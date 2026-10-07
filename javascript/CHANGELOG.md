@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.7.0](https://github.com/langwatch/scenario/compare/javascript/v1.6.0...javascript/v1.7.0) (2026-10-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **domain:** UserSimulatorAgentWithVoice is no longer exported from @langwatch/scenario. Use VoiceUserSimulator, which has the identical shape.
+
+### Features
+
+* **judge:** per-criterion verdicts, fail-condition polarity and provider compatibility ([#1006](https://github.com/langwatch/scenario/issues/1006)) ([0698d00](https://github.com/langwatch/scenario/commit/0698d00d0fee261b3fa05e1131044be686f484dc))
+* **voice/twilio:** a-leg external-number dialing for TwilioAgentAdapter ([#982](https://github.com/langwatch/scenario/issues/982)) ([29dea33](https://github.com/langwatch/scenario/commit/29dea3374ef4abffbd25233a3bfff4184fd6852d))
+
+
+### Bug Fixes
+
+* **execution:** clear the sampled barge-in delay on every skip path ([#578](https://github.com/langwatch/scenario/issues/578)) ([#964](https://github.com/langwatch/scenario/issues/964)) ([3076e37](https://github.com/langwatch/scenario/commit/3076e37e92752c3d2de3e8fda54bb8fcabd54f3d))
+* **judge, tracing, user-simulator:** criteria key mapping, trace quiet period, empty-answer retry ([#1001](https://github.com/langwatch/scenario/issues/1001)) ([55de202](https://github.com/langwatch/scenario/commit/55de2020c6e3de07cc4508f0b10b78ddb73d3491))
+* **voice:** end a Twilio call cleanly on agent hangup, and keep the call in one trace ([#989](https://github.com/langwatch/scenario/issues/989)) ([b604977](https://github.com/langwatch/scenario/commit/b6049773618b3554f89de88b59d6644da10f5970))
+* **voice:** end the ElevenLabs agent turn when its audio stops ([#1013](https://github.com/langwatch/scenario/issues/1013)) ([e6335ed](https://github.com/langwatch/scenario/commit/e6335edd3a9d6b1f298b1561033fd59a9f33a069))
+
+
+### Miscellaneous
+
+* **release:** ship the javascript voice work as 1.7.0 ([#988](https://github.com/langwatch/scenario/issues/988)) ([805630c](https://github.com/langwatch/scenario/commit/805630cb56541bcdf8fdb4983a7565b95be5e8cd))
+
+
+### Code Refactoring
+
+* **domain:** drop the agent-shapes re-export shim ([#579](https://github.com/langwatch/scenario/issues/579)) ([#950](https://github.com/langwatch/scenario/issues/950)) ([edf7000](https://github.com/langwatch/scenario/commit/edf70006909f7028a75f42b9d0b999f6c9eb46a0))
+
 ## [1.6.0](https://github.com/langwatch/scenario/compare/javascript/v1.5.0...javascript/v1.6.0) (2026-09-06)
 
 
