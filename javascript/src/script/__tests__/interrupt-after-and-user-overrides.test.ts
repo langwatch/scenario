@@ -10,9 +10,9 @@
 
 import { describe, it, expect } from "vitest";
 
-import { interrupt } from "../voice-steps";
-import { user } from "../index";
 import type { ScenarioExecutionLike } from "../../domain";
+import { user } from "../index";
+import { interrupt } from "../voice-steps";
 
 interface TraceEntry {
   kind: string;

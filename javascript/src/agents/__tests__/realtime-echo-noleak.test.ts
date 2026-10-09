@@ -31,12 +31,12 @@
 import type { ModelMessage } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
-import { userSimulatorAgent } from "../user-simulator-agent";
-import type { InvokeLLMParams, InvokeLLMResult } from "../types";
-import { ResponseFormatter } from "../realtime/response-formatter";
-import type { AudioResponseEvent } from "../realtime/realtime-event-handler";
 import { AgentRole } from "../../domain";
 import type { AgentInput } from "../../domain";
+import type { AudioResponseEvent } from "../realtime/realtime-event-handler";
+import { ResponseFormatter } from "../realtime/response-formatter";
+import type { InvokeLLMParams, InvokeLLMResult } from "../types";
+import { userSimulatorAgent } from "../user-simulator-agent";
 
 vi.mock("../../config", () => ({
   getProjectConfig: vi.fn().mockResolvedValue({

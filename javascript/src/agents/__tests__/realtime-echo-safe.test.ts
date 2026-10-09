@@ -47,13 +47,13 @@
 import type { ModelMessage } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
-import { userSimulatorAgent } from "../user-simulator-agent";
-import { messageRoleReversal } from "../utils";
-import type { InvokeLLMParams, InvokeLLMResult } from "../types";
-import { ResponseFormatter } from "../realtime/response-formatter";
-import type { AudioResponseEvent } from "../realtime/realtime-event-handler";
 import { AgentRole } from "../../domain";
 import type { AgentInput } from "../../domain";
+import type { AudioResponseEvent } from "../realtime/realtime-event-handler";
+import { ResponseFormatter } from "../realtime/response-formatter";
+import type { InvokeLLMParams, InvokeLLMResult } from "../types";
+import { userSimulatorAgent } from "../user-simulator-agent";
+import { messageRoleReversal } from "../utils";
 
 // Mock getProjectConfig so no real model config / filesystem is needed and the
 // stubbed invokeLLM is never bypassed (mirrors judge-agent.test.ts).
@@ -198,15 +198,10 @@ describe("realtime echo-safety (AC-JS1')", () => {
     expect(exchange.some((m) => m.role === "user")).toBe(true);
 
     // Diagnostics (visible on failure).
-    // eslint-disable-next-line no-console
     console.log(`[POST-FIX] Q=${JSON.stringify(QUESTION)}`);
-    // eslint-disable-next-line no-console
     console.log(`[POST-FIX] U=${JSON.stringify(postFixAnswer)}`);
-    // eslint-disable-next-line no-console
     console.log(`[POST-FIX] Jaccard=${jPostFix.toFixed(3)}`);
-    // eslint-disable-next-line no-console
     console.log(`[NAIVE]    U=${JSON.stringify(naiveAnswer)}`);
-    // eslint-disable-next-line no-console
     console.log(`[NAIVE]    Jaccard=${jNaive.toFixed(3)}`);
 
     // Naive control: the echo metric IS red-capable at the JS layer.

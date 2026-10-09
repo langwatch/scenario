@@ -7,7 +7,7 @@
   "types": "index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint agents/ index.ts",
+    "lint": "eslint . --ignore-pattern 'realtime-client/**'",
     "format": "pnpm lint --fix"
   },
   "dependencies": {

@@ -30,8 +30,8 @@ import { describe, expect, it } from "vitest";
 
 import { AgentRole, type AgentInput } from "../../../domain/agents";
 import { AudioChunk } from "../../audio-chunk";
-import { createAudioMessage, extractAudio } from "../../messages";
 import { OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter } from "../../index";
+import { createAudioMessage, extractAudio } from "../../messages";
 import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
 
 let observed: Array<{ type: string; data: Record<string, unknown> }> = [];

@@ -26,8 +26,8 @@
 import { describe, it, expect } from "vitest";
 
 import type { AgentInput } from "../../../domain/agents";
-import { PendingTransportError } from "../pending-transport-error";
 import { ElevenLabsAgentAdapter } from "../index";
+import { PendingTransportError } from "../pending-transport-error";
 import { FakeWebSocket, makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
 
 /** Feed one inbound EL ConvAI frame to the SDK over the fake socket. */
