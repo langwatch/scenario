@@ -27,11 +27,7 @@ dependencies = [
     "termcolor>=2.4.0",
     "pydantic>=2.7.0",
     "joblib>=1.4.2",
-    # Pin <2 — wrapt 2.x is RC-only as of 2026-05 and its type stubs
-    # break pyright on `@scenario.cache()`-decorated example agents
-    # (decorated callables surface as accepting 0 positional args).
-    # Revert when wrapt 2.x stabilises and the stubs are correct.
-    "wrapt>=1.17.2,<2",
+    "wrapt>=1.17.2,<3",
     "pytest-asyncio>=0.26.0",
     "rich>=13.3.3,<16.0.0",
     "pksuid>=1.1.2",
@@ -111,10 +107,20 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 
 [tool.uv]
 constraint-dependencies = [
-    "urllib3>=2.7.0",
+    "urllib3>=2.8.0",  # security: urllib3 advisories covering <2.8.0
     "python-liquid>=2.2.1",
     "filelock>=3.20.3",
-    "virtualenv>=20.36.1",
+    "virtualenv>=21.7.12",  # security: virtualenv advisories covering <21.7.12
+    "pillow>=12.3.0",  # security: pillow advisories (#485, #503-#514)
+    "gitpython>=3.1.62",  # security: GitPython advisories (#536-#539, #554-#557, #563, #622-#627, and later ones fixed in 3.1.60 and 3.1.62)
+    "pyasn1>=0.6.4",  # security: pyasn1 advisories (#534, #535)
+    "aiohttp>=3.14.3",  # security: aiohttp advisories (#594-#596)
+    "cryptography>=50.0.0",  # security: cryptography advisory (#597)
+    "anyio>=4.14.2",  # security: anyio advisories (#745, #746)
+    "httpx2>=2.12.0",  # security: httpx2 advisories (#708-#710)
+    "httpcore2>=2.10.0",  # security: httpcore2 advisory (#707)
+    "pyjwt>=2.15.0",  # security: PyJWT advisories covering <=2.14.0
+    "litellm>=1.88.6",  # security: litellm advisory covering <1.88.6
 ]
 
 
