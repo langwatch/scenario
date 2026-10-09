@@ -35,19 +35,26 @@ export interface TestingAgentConfig extends Partial<ModelConfig> {
 }
 
 /**
+ * One criterion's answer in the judge's finish_test call.
+ */
+export interface FinishTestCriterionArgs {
+  /** The criterion restated as a positive requirement. */
+  requirement: string;
+  /** What the judge checked, written before the status. */
+  reasoning: string;
+  status: "passed" | "failed" | "inconclusive";
+}
+
+/**
  * The arguments for finishing a test, used by the judge agent's tool.
  */
 export interface FinishTestArgs {
   /**
-   * A record of the criteria and their results.
+   * One answer per criterion, keyed by the criterion's schema key.
    */
-  criteria: Record<string, "true" | "false" | "inconclusive">;
+  criteria: Record<string, FinishTestCriterionArgs>;
   /**
-   * The reasoning behind the verdict.
+   * A short summary of the verdict, written after every criterion.
    */
   reasoning: string;
-  /**
-   * The final verdict of the test.
-   */
-  verdict: "success" | "failure" | "inconclusive";
 }

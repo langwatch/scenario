@@ -8,7 +8,8 @@ Feature: receiveAudio response-timeout budget and timeout diagnosis
 
   Background:
     Given receiveAudio bounds one turn with an IDLE deadline of responseTimeout,
-      re-armed by every inbound frame including keepalive pings
+      re-armed by every inbound frame including keepalive pings until the agent
+      has spoken this turn, and after that only by agent audio or tool activity
     And an ABSOLUTE ceiling of max(responseTimeout, KEEPALIVE_HARD_CEILING_S)
       that no inbound frame re-arms
     And the ElevenLabsAgentAdapter is constructed with a webSocketFactory that
@@ -85,3 +86,90 @@ Feature: receiveAudio response-timeout budget and timeout diagnosis
       timeout the drain uses
     When ping frames keep arriving and no audio ever does
     Then the rejection reports an absolute ceiling of 45s, not 0.6s
+
+  # ============================================================
+  # Group: The turn ends when the agent's audio stops
+  #
+  # The tool scenarios assume the agent sends agent_tool_request and
+  # agent_tool_response, which ElevenLabs does only when both are enabled in
+  # the agent's client events. Without them a tool is invisible: a tool longer
+  # than the tail ends the turn, like any other gap in the agent's audio.
+  #
+  # JS tests use the numbers below. Python tests run the same steps with the
+  # timings scaled down (a 0.1s tail, frames every 30ms, a patched ceiling).
+  # ============================================================
+
+  @unit
+  Scenario Outline: Non-audio frames after the agent spoke do not hold the turn open
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And <frame> frames keep arriving every 200ms with no further audio
+    Then the probe rejects on its 0.6s idle deadline within one second
+    And the turn does not wait for the 45 second ceiling
+
+    Examples:
+      | frame                    |
+      | ping                     |
+      | vad_score                |
+      | context_usage            |
+      | agent_chat_response_part |
+
+  @unit
+  Scenario: More agent audio keeps the turn open
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And another agent audio chunk arrives
+    Then the probe resolves with that audio
+
+  @unit
+  Scenario: A server tool the agent started keeps the turn open while it runs
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And an agent_tool_request arrives and only pings follow for 5 seconds
+    Then the probe is still open
+
+  @unit
+  Scenario: A silent tool keeps the turn open without pings
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And an agent_tool_request arrives and nothing else arrives for 5 seconds
+    Then the probe is still open
+
+  @unit
+  Scenario: The turn waits for the spoken answer after the tool answers
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And an agent_tool_request and its agent_tool_response arrive
+    And only pings arrive every 100ms for 900ms
+    And then the agent's answer audio arrives
+    Then the probe resolves with that audio
+
+  @unit
+  Scenario: The tail probe returns once the post-tool answer has started
+    Given a connected adapter whose agent spoke, ran a tool, and spoke its answer
+    When the drain probes with the 0.6s tail-silence timeout
+    And only pings keep arriving every 200ms
+    Then the probe rejects on its 0.6s idle deadline
+
+  @unit
+  Scenario: The post-tool wait is bounded when the agent never speaks again
+    Given a connected adapter whose agent has spoken one audio chunk this turn
+    When the drain probes with the 0.6s tail-silence timeout
+    And an agent_tool_request and its agent_tool_response arrive
+    And only pings keep arriving, with no further audio
+    Then the probe rejects on the 45 second absolute ceiling
+
+  @unit
+  Scenario: A new user turn restores ping liveness for the wait before the answer
+    Given a connected adapter whose agent has spoken one audio chunk
+    When the user sends the next turn's audio
+    And a 0.6s receive is open while only pings arrive every 200ms for 2 seconds
+    Then the receive is still open
+
+  @unit
+  Scenario: A receive that ends on a deadline reports what it saw
+    Given any receiveAudio that ends on its idle deadline or its ceiling
+    Then the active receive span carries the end kind, the wait, how late the
+      deadline fired, and the count of each inbound EL message type, in both SDKs
+    And a ceiling end, or a deadline that fired more than a second late, is
+      logged as a warning

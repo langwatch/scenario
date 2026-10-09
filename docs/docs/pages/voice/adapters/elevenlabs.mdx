@@ -141,6 +141,20 @@ adapter = scenario.ElevenLabsAgentAdapter(agent_id=..., api_key=...)
 adapter.response_tail_silence = 1.2
 ```
 
+### Agents that call tools
+
+Once the agent has spoken, only its audio keeps the turn open. Pings and other
+non-audio messages do not. When the agent calls a tool mid-turn ("let me check
+that…"), the adapter learns of it from the `agent_tool_request` and
+`agent_tool_response` events. It then keeps the turn open until the agent speaks
+its answer, up to the 45s ceiling.
+
+ElevenLabs sends those two events only when they are enabled in the agent's
+**Client events** settings. If they are off, a tool that takes longer than
+`response_tail_silence` ends the turn early, and the answer comes in as the next
+turn's opening audio. Enable both events, or raise `response_tail_silence` above
+your slowest tool.
+
 ## Agent-initiated hangup
 
 Hosted agents commonly end a call themselves by invoking the `end_call` system

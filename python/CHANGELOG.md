@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.6.0](https://github.com/langwatch/scenario/compare/python/v1.5.0...python/v1.6.0) (2026-10-07)
+
+
+### Features
+
+* **judge:** per-criterion verdicts, fail-condition polarity and provider compatibility ([#1006](https://github.com/langwatch/scenario/issues/1006)) ([0698d00](https://github.com/langwatch/scenario/commit/0698d00d0fee261b3fa05e1131044be686f484dc))
+* **voice/twilio:** a-leg external-number dialing for TwilioAgentAdapter ([#982](https://github.com/langwatch/scenario/issues/982)) ([29dea33](https://github.com/langwatch/scenario/commit/29dea3374ef4abffbd25233a3bfff4184fd6852d))
+
+
+### Bug Fixes
+
+* **voice:** end the ElevenLabs agent turn when its audio stops ([#1013](https://github.com/langwatch/scenario/issues/1013)) ([e6335ed](https://github.com/langwatch/scenario/commit/e6335edd3a9d6b1f298b1561033fd59a9f33a069))
+
 ## [1.5.0](https://github.com/langwatch/scenario/compare/python/v1.4.0...python/v1.5.0) (2026-09-06)
 
 

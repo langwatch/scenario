@@ -23,7 +23,13 @@ from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
+from ._utils.provider_compat import ProviderCompat
 from ._judge import JudgeUtils, judge_span_digest_formatter
+from ._judge.criterion_verdicts import (
+    PER_CRITERION_RULES,
+    build_finish_test_tool,
+    parse_criterion_verdicts,
+)
 from ._judge.estimate_tokens import estimate_tokens, DEFAULT_TOKEN_THRESHOLD
 from ._judge.trace_tools import expand_trace, grep_trace
 from ._judge.transcript_tools import (
@@ -44,39 +50,6 @@ from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
 logger = logging.getLogger("scenario")
-
-
-# `/v1/chat/completions` refuses function tools on some reasoning models unless
-# reasoning is explicitly switched off:
-#
-#   Function tools with reasoning_effort are not supported for <model> in
-#   /v1/chat/completions. To use function tools, use /v1/responses or set
-#   reasoning_effort to 'none'.
-#
-# The judge forces a finish_test / continue_test tool call on every graded run,
-# so on such a model no run could reach a verdict (langwatch/scenario#864, and
-# the same signature on the LangWatch platform judge, langwatch/langwatch#6369).
-#
-# Reasoning is disabled by RETRY, never preemptively: whether a model accepts
-# reasoning off is not knowable up front (Gemini 2.5 Pro rejects it with
-# "Budget 0 is invalid. This model only works in thinking mode."), so the call
-# goes out untouched and is re-sent with reasoning off only when the provider's
-# rejection asks for exactly that. Models that work today are never sent
-# anything new.
-_REASONING_OFF = "none"
-
-
-def _rejection_asks_for_reasoning_off(error: Exception) -> bool:
-    """
-    Whether a provider rejection is the "set reasoning_effort to 'none' to use
-    function tools" class, as opposed to any other bad request.
-
-    Keyed on the remediation directive, not just the field name: an error such
-    as "reasoning_effort 'none' is invalid for this model" mentions both tokens
-    but is not asking us to turn reasoning off, and retrying it with reasoning
-    off would replace the provider's real error.
-    """
-    return "set reasoning_effort to 'none'" in str(error)
 
 
 _DISCOVERY_TOOL_NAMES = frozenset(
@@ -337,20 +310,6 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
     return out
 
 
-def _criteria_keys(criteria: Sequence[str]) -> List[str]:
-    """Sanitized schema property names for each criterion.
-
-    Must stay the single source of truth for these keys: the finish_test
-    tool schema declares them as required properties, and _parse_response
-    maps the LLM's verdicts back to criteria BY these keys. If the two ever
-    computed them differently, every verdict would silently fail to map.
-    """
-    return [
-        re.sub(r"[^a-zA-Z0-9]", "_", c.replace(" ", "_").replace("'", "").lower())[:70]
-        for c in criteria
-    ]
-
-
 class JudgeAgent(AgentAdapter):
     """
     Agent that evaluates conversations against success criteria.
@@ -434,6 +393,7 @@ class JudgeAgent(AgentAdapter):
     _remote_trace_fetcher: RemoteTraceFetcher
     _token_threshold: int
     _max_discovery_steps: int
+    _provider_compat: ProviderCompat
 
     def __init__(
         self,
@@ -530,6 +490,7 @@ class JudgeAgent(AgentAdapter):
         self._remote_trace_fetcher = remote_trace_fetcher or default_remote_trace_fetcher
         self._token_threshold = token_threshold
         self._max_discovery_steps = max_discovery_steps
+        self._provider_compat = ProviderCompat()
         # Voice-aware judge behaviour (§4.3). None = auto-detect based on
         # conversation content and judge model capabilities.
         self.include_audio = include_audio
@@ -935,7 +896,7 @@ Your goal is to decide if the conversation has collected enough information to e
             tools = self._build_transcript_discovery_tools() + tools
 
         if not is_large_trace:
-            response = self._completion_with_reasoning_off_retry(
+            response = self._completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -949,7 +910,7 @@ Your goal is to decide if the conversation has collected enough information to e
             return _DecisionOutcome(decision=self._parse_decision(response))
 
         for _ in range(self._max_discovery_steps):
-            response = self._completion_with_reasoning_off_retry(
+            response = self._completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -1157,6 +1118,7 @@ Your goal is to decide if the conversation has collected enough information to e
         remote_traces_rule = (
             f"\n- {REMOTE_TRACES_JUDGE_RULE}" if fetch_remote_traces else ""
         )
+        per_criterion_rules = "\n".join(f"- {rule}" for rule in PER_CRITERION_RULES)
 
         system_content = self.system_prompt or f"""
 <role>
@@ -1164,7 +1126,7 @@ You are an LLM as a judge delivering the final verdict on a simulated conversati
 </role>
 
 <goal>
-Your goal is to deliver the final verdict of the scenario below with the finish_test tool, evaluating each criterion independently against the conversation and the collected evidence.
+Your goal is to deliver the final verdict of the scenario below with the finish_test tool, judging each criterion on its own against the conversation and the collected evidence.
 </goal>
 
 <scenario>
@@ -1178,7 +1140,7 @@ Your goal is to deliver the final verdict of the scenario below with the finish_
 <rules>
 - Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
-- When the evidence for a criterion is not definitive, mark that criterion inconclusive rather than guessing; an inconclusive verdict is acceptable{remote_traces_rule}
+{per_criterion_rules}{remote_traces_rule}
 </rules>
 """
         if self.system_prompt and fetch_remote_traces:
@@ -1198,7 +1160,7 @@ System:
 
 <finish_test>
 This is the last message, conversation has reached the maximum number of turns, give your final verdict,
-if you don't have enough information to make a verdict, say inconclusive with max turns reached.
+mark a criterion inconclusive when the conversation ended before the evidence for it was available.
 </finish_test>
 """,
                 }
@@ -1216,47 +1178,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 }
             )
 
-        criteria_names = _criteria_keys(effective_criteria)
-        tools: List[dict] = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "finish_test",
-                    "description": "Complete the test with a final verdict",
-                    "strict": True,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "criteria": {
-                                "type": "object",
-                                "properties": {
-                                    criteria_names[idx]: {
-                                        "type": "string",
-                                        "enum": ["true", "false", "inconclusive"],
-                                        "description": criterion,
-                                    }
-                                    for idx, criterion in enumerate(effective_criteria)
-                                },
-                                "required": criteria_names,
-                                "additionalProperties": False,
-                                "description": "Strict verdict for each criterion",
-                            },
-                            "reasoning": {
-                                "type": "string",
-                                "description": "Explanation of what the final verdict should be",
-                            },
-                            "verdict": {
-                                "type": "string",
-                                "enum": ["success", "failure", "inconclusive"],
-                                "description": "The final verdict of the test",
-                            },
-                        },
-                        "required": ["criteria", "reasoning", "verdict"],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-        ]
+        tools: List[dict] = [build_finish_test_tool(effective_criteria)]
 
         exhausted_entry = bool(discovery_recap)
         if not exhausted_entry:
@@ -1318,7 +1240,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 )
             return cast(AgentReturnTypes, outcome)
 
-        response = self._completion_with_reasoning_off_retry(
+        response = self._completion(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
@@ -1425,29 +1347,10 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             extension = timeout
         return enabled, float(timeout), float(extension)
 
-    def _completion_with_reasoning_off_retry(self, **kwargs: Any) -> ModelResponse:
-        """
-        ``litellm.completion``, retried once with reasoning declared off when —
-        and only when — the provider rejected a tool-carrying call for exactly
-        that reason. A caller that already asked for a specific effort keeps it
-        and gets the endpoint's own error, rather than having its intent
-        silently rewritten.
-        """
-        try:
-            return cast(ModelResponse, litellm.completion(**kwargs))
-        except Exception as error:
-            if not kwargs.get("tools") or "reasoning_effort" in kwargs:
-                raise
-            if not _rejection_asks_for_reasoning_off(error):
-                raise
-            logger.debug(
-                "provider rejected function tools without reasoning off for %s; retrying",
-                kwargs.get("model"),
-            )
-            return cast(
-                ModelResponse,
-                litellm.completion(**kwargs, reasoning_effort=_REASONING_OFF),
-            )
+    def _completion(self, **kwargs: Any) -> ModelResponse:
+        """``litellm.completion``, re-sent without a parameter the provider
+        refused (see ``scenario._utils.provider_compat``)."""
+        return self._provider_compat.completion(**kwargs)
 
     def _build_trace_digest(self, spans: Sequence[Any]) -> tuple[str, bool]:
         """
@@ -1640,7 +1543,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             is_last_step = step == self._max_discovery_steps - 1
             step_tool_choice = tool_choice if is_last_step else "required"
 
-            response = self._completion_with_reasoning_off_retry(
+            response = self._completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -1767,7 +1670,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             if t.get("function", {}).get("name") == "finish_test"
         ]
 
-        forced_response = self._completion_with_reasoning_off_retry(
+        forced_response = self._completion(
             model=self.model,
             messages=rewritten_messages,
             temperature=self.temperature,
@@ -1879,42 +1782,22 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     f"Failed to parse tool call arguments from judge agent: {tool_call.function.arguments}"
                 )
 
-            verdict = args.get("verdict", "inconclusive")
-            reasoning = args.get("reasoning", "No reasoning provided")
-
-            # "Can't tell yet" is not a verdict (#886). When nothing forced the
-            # judge to finish — continue_test was freely available — an
-            # inconclusive finish_test used to end the run as a failure, which
-            # on a platform surface reads as the simulated user going silent
-            # mid-conversation. Treat it as continue_test and let the
-            # conversation play out; a FORCED judgment (last turn, an explicit
-            # judgment_request, discovery exhaustion) keeps its terminal
-            # behavior unchanged.
-            if not verdict_forced and verdict == "inconclusive":
-                logger.debug(
-                    "finish_test returned an inconclusive verdict without a "
-                    "forced judgment - continuing the conversation"
-                )
-                return []
-
-            criteria_verdicts = args.get("criteria", {})
+            reasoning = args.get("reasoning") or "No reasoning provided"
+            criteria_answers = args.get("criteria", {})
 
             # LLMs sometimes serialise the criteria object as a JSON *string*
             # instead of an inline dict, especially with complex dynamic
             # schemas (issue #161). Re-parse one level if that happens.
-            if isinstance(criteria_verdicts, str):
+            if isinstance(criteria_answers, str):
                 try:
-                    criteria_verdicts = json.loads(criteria_verdicts)
+                    criteria_answers = json.loads(criteria_answers)
                 except (json.JSONDecodeError, ValueError):
-                    criteria_verdicts = None  # unparseable — handled below
+                    criteria_answers = None  # unparseable, handled below
 
-            # If the criteria payload is not a usable object, we cannot trust
-            # any per-criterion verdict. Do NOT fall back to {}: an empty dict
-            # makes failed_criteria empty and lets a "success" verdict slip
-            # through having evaluated ZERO criteria, masking the real problem
-            # (issue #161 follow-up). Surface it as an explicit, fail-closed
-            # result instead of swallowing it.
-            if not isinstance(criteria_verdicts, dict):
+            # If the criteria payload is not a usable object, no per-criterion
+            # verdict can be trusted. Surface it as an explicit, fail-closed
+            # result instead of a verdict over zero criteria (issue #161).
+            if not isinstance(criteria_answers, dict):
                 raw = args.get("criteria")
                 logger.warning(
                     "JudgeAgent could not resolve criteria verdicts to an "
@@ -1929,45 +1812,35 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                         "JudgeAgent could not parse the per-criterion verdicts "
                         "returned by the LLM, so the judgment could not be "
                         f"verified (raw criteria value was of type "
-                        f"{type(raw).__name__}). Original verdict was "
-                        f"{verdict!r}. Treating the judgment as failed."
+                        f"{type(raw).__name__}). Treating the judgment as failed."
                     ),
                     passed_criteria=[],
                     failed_criteria=list(effective_criteria),
                 )
 
-            # Map each verdict back to its criterion BY the schema key we
-            # generated for it. Positional .values() mapping silently
-            # mislabels partial / reordered payloads and IndexErrors on extra
-            # keys; key-based lookup is robust. A criterion passes ONLY on an
-            # explicit "true"; anything else (false, inconclusive, missing, or
-            # a nested/unexpected value) is a failure, so an unevaluated
-            # criterion can never slip through as success.
-            # Map each verdict to its criterion by the schema key we generated
-            # for it (single source of truth: _criteria_keys). Positional
-            # .values() mapping silently mislabels partial / reordered / nested
-            # payloads and IndexErrors on extra keys; key lookup is robust.
-            # A criterion passes ONLY on an explicit "true"; anything else
-            # (false, inconclusive, missing, or a nested/unexpected value) is a
-            # failure, so an unevaluated criterion can never slip through as
-            # success. JSON booleans are coerced — some LLMs emit `true`/`false`
-            # instead of the enum strings.
-            criteria_keys = _criteria_keys(effective_criteria)
-            passed_criteria: List[str] = []
-            failed_criteria: List[str] = []
-            for criterion, key in zip(effective_criteria, criteria_keys):
-                raw_verdict = criteria_verdicts.get(key)
-                if isinstance(raw_verdict, bool):
-                    raw_verdict = "true" if raw_verdict else "false"
-                bucket = passed_criteria if raw_verdict == "true" else failed_criteria
-                bucket.append(criterion)
+            verdicts = parse_criterion_verdicts(effective_criteria, criteria_answers)
+
+            # "Can't tell yet" is not a verdict (#886). When nothing forced the
+            # judge to finish (continue_test was freely available), a verdict
+            # with an undecided criterion and no failed one continues the
+            # conversation. A FORCED judgment (last turn, an explicit
+            # judgment_request, discovery exhaustion) keeps its terminal
+            # behavior.
+            if not verdict_forced and verdicts.verdict == "inconclusive":
+                logger.debug(
+                    "finish_test left a criterion inconclusive without a "
+                    "forced judgment - continuing the conversation"
+                )
+                return []
 
             return ScenarioResult(
-                success=verdict == "success" and len(failed_criteria) == 0,
+                success=verdicts.verdict == "success",
                 messages=cast(Any, input_messages),
                 reasoning=reasoning,
-                passed_criteria=passed_criteria,
-                failed_criteria=failed_criteria,
+                passed_criteria=verdicts.passed_criteria,
+                failed_criteria=verdicts.failed_criteria,
+                inconclusive_criteria=verdicts.inconclusive_criteria,
+                criteria=verdicts.criteria,
             )
 
         if tool_call.function.name in _DISCOVERY_TOOL_NAMES:

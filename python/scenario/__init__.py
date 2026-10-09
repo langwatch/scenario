@@ -102,7 +102,14 @@ from .config import logging as _logging_config  # noqa: F401
 from . import _tracing  # noqa: F401
 
 # First import non-dependent modules
-from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes, JudgmentRequest
+from .types import (
+    ScenarioResult,
+    AgentInput,
+    AgentRole,
+    AgentReturnTypes,
+    CriterionResult,
+    JudgmentRequest,
+)
 from .config import ScenarioConfig
 
 # Tracing public API
@@ -279,6 +286,7 @@ __all__ = [
     "realtime_langwatch_session",
     # Types
     "ScenarioResult",
+    "CriterionResult",
     "AgentInput",
     "AgentRole",
     "ScenarioConfig",

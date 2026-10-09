@@ -19,6 +19,31 @@ import type { ScenarioConfig } from "../scenarios";
 import type { EvaluationResult, ScenarioFieldValue } from "./evaluations";
 
 /**
+ * How the judge settled one criterion.
+ *
+ * - `passed`: the agent satisfied what the criterion asks for. For a
+ *   criterion phrased as a fail condition ("the agent must not X"), it means
+ *   X did not happen.
+ * - `failed`: the agent did not satisfy it.
+ * - `inconclusive`: the evidence to decide was not available, so the test
+ *   could not check it. It still fails the run.
+ */
+export type CriterionStatus = "passed" | "failed" | "inconclusive";
+
+/**
+ * The judge's verdict on one criterion, with its own reasoning.
+ */
+export interface CriterionResult {
+  /** The criterion as the scenario declared it. */
+  criterion: string;
+  /** The criterion restated by the judge as a positive requirement. */
+  requirement: string;
+  status: CriterionStatus;
+  /** What the judge checked, written before it chose the status. */
+  reasoning: string;
+}
+
+/**
  * Represents the result of a scenario execution.
  *
  */
@@ -60,6 +85,12 @@ export interface ScenarioResult {
    * verdict left nothing inconclusive.
    */
   inconclusiveCriteria?: string[];
+
+  /**
+   * One entry per judged criterion, in the order the scenario declared
+   * them. Absent when no judge verdict produced the result.
+   */
+  criteria?: CriterionResult[];
 
   /**
    * The total time taken for the scenario execution in seconds.
