@@ -95,6 +95,7 @@ export class ConnectedAgentAdapter implements AgentAdapter {
       session: this.sessions.get(input.threadId) ?? null,
       params: { ...this.parameters },
       traceId: traceIdFromHeaders(input.propagationHeaders),
+      ...(input.stream ? { stream: input.stream } : {}),
     };
     const invoke = this.agent as unknown as (call: ConnectedAgentCall) => unknown;
     const { output, session } = readReply(await invoke(call));

@@ -1,6 +1,24 @@
 import { z } from "zod/v4";
 import { LogLevel } from "./log-levels";
 
+const TRUE_FLAG_VALUES = new Set(["1", "true", "yes", "on"]);
+const FALSE_FLAG_VALUES = new Set(["", "0", "false", "no", "off"]);
+
+/** SCENARIO_SEND_GRANULAR_EVENTS read strictly; never `Boolean("false")`. */
+const sendGranularEventsFlag = z
+  .string()
+  .optional()
+  .transform((val, ctx) => {
+    const normalised = (val ?? "").trim().toLowerCase();
+    if (TRUE_FLAG_VALUES.has(normalised)) return true;
+    if (FALSE_FLAG_VALUES.has(normalised)) return false;
+    ctx.addIssue({
+      code: "custom",
+      message: `SCENARIO_SEND_GRANULAR_EVENTS must be one of true/false, 1/0, yes/no, on/off; got "${val}"`,
+    });
+    return z.NEVER;
+  });
+
 /**
  * Schema for environment variables used by the scenario package.
  * Provides validation and type safety for environment configuration.
@@ -62,6 +80,16 @@ const envSchema = z.object({
    * If not provided, a random ID will be generated.
    */
   SCENARIO_BATCH_RUN_ID: z.string().optional(),
+
+  /**
+   * Reports each message as TEXT_MESSAGE_START/END (plus live deltas from a
+   * streaming agent) instead of a full MESSAGE_SNAPSHOT after every message.
+   * `RunOptions.sendGranularEvents` wins when a run sets it. Read strictly:
+   * "1", "true", "yes", "on" turn it on; "0", "false", "no", "off" or empty
+   * leave it off; anything else is a configuration error, raised by
+   * {@link resolveSendGranularEvents} only when the run does not decide.
+   */
+  SCENARIO_SEND_GRANULAR_EVENTS: z.string().optional(),
 });
 
 /**
@@ -69,6 +97,16 @@ const envSchema = z.object({
  * Useful for type checking in other parts of the application.
  */
 export type Env = z.infer<typeof envSchema>;
+
+/**
+ * Whether a run reports granular message events: the run's own option when
+ * set, else SCENARIO_SEND_GRANULAR_EVENTS read strictly, else off. Throws
+ * for a value that is neither on nor off.
+ */
+export function resolveSendGranularEvents(option: boolean | undefined): boolean {
+  if (option !== undefined) return option;
+  return sendGranularEventsFlag.parse(process.env.SCENARIO_SEND_GRANULAR_EVENTS);
+}
 
 /**
  * Get the environment variables.

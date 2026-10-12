@@ -12,7 +12,11 @@ import {
 } from "rxjs";
 import { EventAlertMessageLogger } from "./event-alert-message-logger";
 import { EventReporter } from "./event-reporter";
-import { ScenarioEvent, ScenarioEventType } from "./schema";
+import {
+  isBroadcastOnlyEvent,
+  ScenarioEvent,
+  ScenarioEventType,
+} from "./schema";
 import { Logger } from "../utils/logger";
 
 /**
@@ -95,10 +99,13 @@ export class EventBus {
           // Retry and error handling are scoped per event: a failed event is
           // retried with backoff and, if it keeps failing, dropped — it never
           // terminates the stream and never takes the events behind it down.
+          // A broadcast-only event (a live delta) gets one attempt: the
+          // message's END replaces it, and retrying would hold up the
+          // stored events queued behind it.
           concatMap((event: ScenarioEvent) =>
             defer(() => this.processEvent(event)).pipe(
               retry({
-                count: EventBus.maxRetries - 1,
+                count: isBroadcastOnlyEvent(event) ? 0 : EventBus.maxRetries - 1,
                 delay: (error: unknown, retryCount: number) => {
                   const status = (error as { status?: number }).status;
                   if (isPermanentClientError(status)) {
@@ -114,6 +121,13 @@ export class EventBus {
                 },
               }),
               catchError((error: unknown) => {
+                if (isBroadcastOnlyEvent(event)) {
+                  this.logger.debug(
+                    `[${event.type}] Dropping live progress event after one failed attempt`,
+                    error
+                  );
+                  return of(void 0);
+                }
                 this.logger.error(
                   `[${event.type}] Dropping event after failed delivery`,
                   error

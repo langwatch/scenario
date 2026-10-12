@@ -2,11 +2,9 @@ import { context, type Span, SpanStatusCode } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
 import { attributes, getLangWatchTracer } from "langwatch/observability";
-import { filter, Observable, Subject } from "rxjs";
-import {
-  ScenarioExecutionState,
-  StateChangeEventType,
-} from "./scenario-execution-state";
+import { Observable, Subject } from "rxjs";
+import { MessageEventPublisher } from "./granular/message-event-publisher";
+import { ScenarioExecutionState } from "./scenario-execution-state";
 import { resolveAgents } from "../agents/connected-agent";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getGlobalSettings } from "../config/configure";
@@ -48,7 +46,6 @@ import {
 import {
   ScenarioEvent,
   ScenarioEventType,
-  ScenarioMessageSnapshotEvent,
   ScenarioRunFinishedEvent,
   ScenarioRunStartedEvent,
   ScenarioRunStatus,
@@ -65,7 +62,6 @@ import {
   SCENARIO_SDK_NAME,
   SCENARIO_SDK_VERSION,
 } from "../tracing/sdk-metadata";
-import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
   generateScenarioRunId,
@@ -390,7 +386,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    *
    * Events include:
    * - RUN_STARTED: When scenario execution begins
-   * - MESSAGE_SNAPSHOT: After each message is added to the conversation
+   * - MESSAGE_SNAPSHOT: After each message is added to the conversation, or
+   *   only to repair the stored list when the run sends granular events
+   * - TEXT_MESSAGE_START/END, TEXT_MESSAGE_CONTENT, TOOL_CALL_*: when the
+   *   run sends granular events (see `RunOptions.sendGranularEvents`)
    * - RUN_FINISHED: When scenario execution completes (success/failure/error)
    */
   public readonly events$: Observable<ScenarioEvent> =
@@ -405,6 +404,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   /** Pre-assigned run ID (provided externally, e.g. by the platform) */
   private preAssignedRunId?: string;
 
+  /** Whether messages are reported as granular events instead of snapshots. */
+  private readonly sendGranularEvents: boolean;
+
+  /** Reports this run's messages; set for the length of execute(). */
+  private messageEvents?: MessageEventPublisher;
+
   /**
    * Creates a new ScenarioExecution instance.
    *
@@ -414,12 +419,21 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * @param runId - Optional pre-assigned run ID. When provided, the execution uses this
    *   ID instead of generating a new one. This prevents duplicate entries when the
    *   platform pre-creates placeholder rows with a known ID.
+   * @param options.sendGranularEvents - Report each message as
+   *   TEXT_MESSAGE_START/END instead of a snapshot after every message.
    */
-  constructor(config: ScenarioConfig, script: ScriptStep[], batchRunId: string, runId?: string) {
+  constructor(
+    config: ScenarioConfig,
+    script: ScriptStep[],
+    batchRunId: string,
+    runId?: string,
+    options?: { sendGranularEvents?: boolean }
+  ) {
     if (!batchRunId) {
       throw new Error("batchRunId is required");
     }
     this.batchRunId = batchRunId;
+    this.sendGranularEvents = options?.sendGranularEvents ?? false;
     const maxTurns = config.maxTurns ?? DEFAULT_MAX_TURNS;
     if (
       config.minTurns != null &&
@@ -687,16 +701,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     this.newTurn();
     this.state.currentTurn = 0;
     this.logger.debug(`[${this.config.id}] ${this.preAssignedRunId ? "Using pre-assigned" : "Generated"} run ID: ${scenarioRunId}`);
+    const messageEvents = new MessageEventPublisher({
+      granular: this.sendGranularEvents,
+      base: {
+        batchRunId: this.batchRunId,
+        scenarioId: this.config.id,
+        scenarioRunId,
+        scenarioSetId: this.config.setId ?? "default",
+      },
+      emit: (event) => this.emitEvent(event),
+      messages: () => this.state.messages,
+    });
+    this.messageEvents = messageEvents;
     this.emitRunStarted({ scenarioRunId });
 
-    // Create subscription with captured runId (closure)
-    const subscription = this.state.events$
-      .pipe(
-        filter((event) => event.type === StateChangeEventType.MESSAGE_ADDED)
-      )
-      .subscribe(() => {
-        this.emitMessageSnapshot({ scenarioRunId });
-      });
+    // Reports every message the state adds or rolls back, for this run only.
+    const subscription = messageEvents.follow(this.state.events$);
 
     // Voice adapter lifecycle (issue #372 spec lines 138-145):
     // `connect()` is awaited exactly once before the first script step;
@@ -891,7 +911,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         this.endRunRootSpan(this.runRootSpan, runError);
         this.runRootSpan = undefined;
       }
-      // Clean up the subscription when execution is done
+      // Clean up the subscription when execution is done; an agent stream that
+      // outlived its call posts nothing from here on.
+      messageEvents.close();
       subscription.unsubscribe();
     }
   }
@@ -1218,122 +1240,144 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           // messages this call produces. HTTP adapters spread
           // propagationHeaders onto their outgoing requests so the remote
           // agent's spans join the turn's trace.
-          const agentInput: AgentInput = {
-            threadId: this.state.threadId,
-            messages: this.state.messages,
-            newMessages: this.pendingMessages.get(idx) ?? [],
-            requestedRole: role,
-            judgmentRequest: judgmentRequest,
-            propagationHeaders: buildPropagationHeaders(),
-            scenarioState: this.state,
-            scenarioConfig: this.config,
-          };
+          // Live progress for a user or agent turn when the run sends
+          // granular events; the judge never streams.
+          const stream =
+            role === AgentRole.JUDGE
+              ? undefined
+              : this.messageEvents?.openStream({
+                  role: role === AgentRole.USER ? "user" : "assistant",
+                });
+          try {
+            const agentInput: AgentInput = {
+              threadId: this.state.threadId,
+              messages: this.state.messages,
+              newMessages: this.pendingMessages.get(idx) ?? [],
+              requestedRole: role,
+              judgmentRequest: judgmentRequest,
+              propagationHeaders: buildPropagationHeaders(),
+              ...(stream ? { stream } : {}),
+              scenarioState: this.state,
+              scenarioConfig: this.config,
+            };
 
-          const agentResponse = await agent.call(agentInput);
-          const endTime = Date.now();
-          const duration = endTime - startTime;
+            const agentResponse = await agent.call(agentInput);
+            stream?.settle();
+            const endTime = Date.now();
+            const duration = endTime - startTime;
 
-          this.logger.debug(`[${this.config.id}] Agent responded`, {
-            agentIdx: idx,
-            duration,
-            responseType: typeof agentResponse,
-            isScenarioResult:
+            this.logger.debug(`[${this.config.id}] Agent responded`, {
+              agentIdx: idx,
+              duration,
+              responseType: typeof agentResponse,
+              isScenarioResult:
+                agentResponse &&
+                typeof agentResponse === "object" &&
+                "success" in agentResponse,
+            });
+
+            this.addAgentTime(idx, duration);
+            this.pendingMessages.delete(idx);
+
+            if (
               agentResponse &&
               typeof agentResponse === "object" &&
-              "success" in agentResponse,
-          });
+              "success" in agentResponse
+            ) {
+              this.logger.debug(
+                `[${this.config.id}] Agent returned ScenarioResult`,
+                {
+                  success: (agentResponse as { success: boolean }).success,
+                }
+              );
+              // JudgeResult is automatically augmented with messages by setResult
+              this.setResult(agentResponse);
+              return;
+            }
 
-          this.addAgentTime(idx, duration);
-          this.pendingMessages.delete(idx);
-
-          if (
-            agentResponse &&
-            typeof agentResponse === "object" &&
-            "success" in agentResponse
-          ) {
-            this.logger.debug(
-              `[${this.config.id}] Agent returned ScenarioResult`,
-              {
-                success: (agentResponse as { success: boolean }).success,
-              }
+            const messages = convertAgentReturnTypesToMessages(
+              agentResponse,
+              role === AgentRole.USER ? "user" : "assistant"
             );
-            // JudgeResult is automatically augmented with messages by setResult
-            this.setResult(agentResponse);
-            return;
-          }
 
-          const messages = convertAgentReturnTypesToMessages(
-            agentResponse,
-            role === AgentRole.USER ? "user" : "assistant"
-          );
+            // Set output for the span
+            if (messages.length > 0) {
+              agentSpan.setOutput("chat_messages", messages);
+            }
 
-          // Set output for the span
-          if (messages.length > 0) {
-            agentSpan.setOutput("chat_messages", messages);
-          }
+            // Set metrics if available (would need to be extracted from agent response)
+            const metrics: Record<string, number> = {
+              duration: endTime - startTime,
+            };
 
-          // Set metrics if available (would need to be extracted from agent response)
-          const metrics: Record<string, number> = {
-            duration: endTime - startTime,
-          };
-
-          // Add token usage if available from agent response
-          if (agentResponse && typeof agentResponse === "object") {
-            const usage = (
-              agentResponse as {
-                usage?: {
-                  prompt_tokens?: number;
-                  completion_tokens?: number;
-                  total_tokens?: number;
-                };
+            // Add token usage if available from agent response
+            if (agentResponse && typeof agentResponse === "object") {
+              const usage = (
+                agentResponse as {
+                  usage?: {
+                    prompt_tokens?: number;
+                    completion_tokens?: number;
+                    total_tokens?: number;
+                  };
+                }
+              ).usage;
+              if (usage) {
+                if (usage.prompt_tokens !== undefined)
+                  metrics.promptTokens = usage.prompt_tokens;
+                if (usage.completion_tokens !== undefined)
+                  metrics.completionTokens = usage.completion_tokens;
+                if (usage.total_tokens !== undefined)
+                  metrics.totalTokens = usage.total_tokens;
               }
-            ).usage;
-            if (usage) {
-              if (usage.prompt_tokens !== undefined)
-                metrics.promptTokens = usage.prompt_tokens;
-              if (usage.completion_tokens !== undefined)
-                metrics.completionTokens = usage.completion_tokens;
-              if (usage.total_tokens !== undefined)
-                metrics.totalTokens = usage.total_tokens;
             }
-          }
 
-          agentSpan.setMetrics(metrics);
+            agentSpan.setMetrics(metrics);
 
-          // Voice bridge (issue #705): a user-simulator turn generated inside
-          // the `proceed()` loop returns TEXT; a voice agent under test needs
-          // AUDIO or it never commits the turn (`receiveAudio` times out). TTS
-          // the generated text into audio here — parity with the scripted
-          // `user("text")` path's voiceify — so every `proceed()` user turn
-          // re-engages the agent. No-op for text-only runs and non-user turns.
-          const outgoing = await this.voiceifyGeneratedUserTurn(
-            messages,
-            idx,
-            role,
-          );
+            // Voice bridge (issue #705): a user-simulator turn generated inside
+            // the `proceed()` loop returns TEXT; a voice agent under test needs
+            // AUDIO or it never commits the turn (`receiveAudio` times out). TTS
+            // the generated text into audio here — parity with the scripted
+            // `user("text")` path's voiceify — so every `proceed()` user turn
+            // re-engages the agent. No-op for text-only runs and non-user turns.
+            const outgoing = await this.voiceifyGeneratedUserTurn(
+              messages,
+              idx,
+              role,
+            );
 
-          // Add traceId to each message for proper correlation
-          const traceId = agentSpan.spanContext().traceId.toString();
+            // Add traceId to each message for proper correlation
+            const traceId = agentSpan.spanContext().traceId.toString();
 
-          for (const message of outgoing) {
-            this.state.addMessage({
-              ...message,
-              traceId,
+            // A streamed message keeps the id its START was posted under; the
+            // ids are taken before any message is added, so each END is final.
+            const ids = stream?.assignIds(outgoing);
+            outgoing.forEach((message, i) => {
+              this.state.addMessage(
+                {
+                  ...message,
+                  traceId,
+                },
+                { id: ids?.[i] }
+              );
+              this.broadcastMessage(message, idx);
             });
-            this.broadcastMessage(message, idx);
-          }
 
-          // Voice path: if a non-blocking agent turn is in flight when the
-          // user-sim produces audio (e.g. via the script-level `agent({ wait:
-          // false }) + user()` barge-in pattern), fire the interrupt so the
-          // new audio lands mid-response. The proceed-loop path fires via
-          // maybeScheduleInterruptedAgentTurn (inline, before `_step`); this
-          // guard handles explicit `agent(wait:false)` script steps.
-          if (role === AgentRole.USER && outgoing.length > 0) {
-            const pendingTask = this.pendingAgentTask;
-            if (pendingTask && !pendingTask.done) {
-              await this.fireUserInterrupt(outgoing[outgoing.length - 1]);
+            // Voice path: if a non-blocking agent turn is in flight when the
+            // user-sim produces audio (e.g. via the script-level `agent({ wait:
+            // false }) + user()` barge-in pattern), fire the interrupt so the
+            // new audio lands mid-response. The proceed-loop path fires via
+            // maybeScheduleInterruptedAgentTurn (inline, before `_step`); this
+            // guard handles explicit `agent(wait:false)` script steps.
+            if (role === AgentRole.USER && outgoing.length > 0) {
+              const pendingTask = this.pendingAgentTask;
+              if (pendingTask && !pendingTask.done) {
+                await this.fireUserInterrupt(outgoing[outgoing.length - 1]);
+              }
             }
+          } finally {
+            // Every exit, a throw included: a streamed message the call did
+            // not return is repaired by a snapshot.
+            stream?.close();
           }
         }
         )
@@ -2789,7 +2833,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   private makeBaseEvent({ scenarioRunId }: { scenarioRunId: string }) {
     return {
       type: "placeholder", // This will be replaced by the specific event type
-      timestamp: Date.now(),
+      timestamp: this.messageEvents?.timestamp() ?? Date.now(),
       batchRunId: this.batchRunId,
       scenarioId: this.config.id,
       scenarioRunId,
@@ -2823,18 +2867,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           : {}),
       },
     } as ScenarioRunStartedEvent);
-  }
-
-  /**
-   * Emits a message snapshot event containing current conversation history.
-   */
-  private emitMessageSnapshot({ scenarioRunId }: { scenarioRunId: string }) {
-    this.emitEvent({
-      ...this.makeBaseEvent({ scenarioRunId }),
-      type: ScenarioEventType.MESSAGE_SNAPSHOT,
-      messages: convertModelMessagesToAguiMessages(this.state.messages),
-      // Add any other required fields from MessagesSnapshotEventSchema
-    } as ScenarioMessageSnapshotEvent);
   }
 
   /**
