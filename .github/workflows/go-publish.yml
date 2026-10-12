@@ -1,0 +1,142 @@
+# Publishes one Go module per release tag.
+#
+# A Go module is published by its tag alone: the tag has to be the module's
+# directory inside the repository plus the version, so release-please tags
+#   go/vX.Y.Z                      github.com/langwatch/scenario/go
+#   go/voice/vX.Y.Z                github.com/langwatch/scenario/go/voice
+#   go/voice/tunnel/ngrok/vX.Y.Z   github.com/langwatch/scenario/go/voice/tunnel/ngrok
+#   go/providers/openai/vX.Y.Z     github.com/langwatch/scenario/go/providers/openai
+# and so on, one GitHub release each. This workflow runs once per release: it
+# checks the tagged module builds, then asks proxy.golang.org for that version
+# so the first `go get` does not wait on the proxy fetching it, and finally
+# builds it as a consumer would, outside this repository, from the proxy.
+#
+# All Go modules release together at one version from one commit (see
+# RELEASE_PLEASE.md), so a submodule's tag may land a few seconds before the
+# tag of the root module it requires. The proxy and consumer steps retry for
+# that window instead of failing on it.
+
+name: go-publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to verify and fetch through the proxy, e.g. go/voice/v0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25"
+  GOTOOLCHAIN: local
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish ${{ github.event.release.tag_name || inputs.tag }}
+    if: |
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'go/')) ||
+      (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag, 'go/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Resolve module and version from the tag
+        id: module
+        run: |
+          set -euo pipefail
+          # go/providers/openai/v0.2.0 -> dir go/providers/openai, version v0.2.0
+          version="${TAG##*/}"
+          dir="${TAG%/*}"
+          if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' does not end in a semver version (vX.Y.Z)."
+            exit 1
+          fi
+          if [ ! -f "$dir/go.mod" ]; then
+            echo "::error::Tag '$TAG' names '$dir', which holds no go.mod. Go module tags must be the module directory plus the version."
+            exit 1
+          fi
+          if [ "$dir" = "go/examples" ]; then
+            echo "::error::go/examples is not published."
+            exit 1
+          fi
+          module=$(awk '/^module /{print $2; exit}' "$dir/go.mod")
+          if [ "$module" != "github.com/langwatch/scenario/$dir" ]; then
+            echo "::error::$dir/go.mod declares '$module', expected 'github.com/langwatch/scenario/$dir'."
+            exit 1
+          fi
+          {
+            echo "dir=$dir"
+            echo "module=$module"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publishing $module@$version from $dir"
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go/**/go.sum
+            go/go.work.sum
+
+      - name: Verify the tagged module builds, vets and passes its tests
+        env:
+          GO_MODULES: ${{ steps.module.outputs.dir }}
+        run: make go-vet go-test
+
+      - name: Fetch the version through proxy.golang.org
+        env:
+          MODULE: ${{ steps.module.outputs.module }}
+          VERSION: ${{ steps.module.outputs.version }}
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if GOWORK=off GOPROXY=https://proxy.golang.org GOFLAGS= \
+                go list -m -json "$MODULE@$VERSION"; then
+              exit 0
+            fi
+            echo "Attempt $attempt: proxy.golang.org does not serve $MODULE@$VERSION yet, retrying in 30s."
+            sleep 30
+          done
+          echo "::error::proxy.golang.org did not serve $MODULE@$VERSION after 10 attempts."
+          exit 1
+
+      - name: Build the released version as a consumer
+        env:
+          MODULE: ${{ steps.module.outputs.module }}
+          VERSION: ${{ steps.module.outputs.version }}
+        run: |
+          set -uo pipefail
+          consumer=$(mktemp -d)
+          cd "$consumer"
+          export GOWORK=off GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod
+          go mod init example.com/consumer
+          # Resolves the module and everything it requires, this repository's
+          # other modules included, through the proxy and the checksum database,
+          # exactly as `go get` does for a user. Retried because the tag of a
+          # module this one requires may still be on its way.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if go get "$MODULE@$VERSION" && go build "$MODULE/..."; then
+              echo "$MODULE@$VERSION builds as a dependency."
+              exit 0
+            fi
+            echo "Attempt $attempt failed, retrying in 30s."
+            sleep 30
+          done
+          echo "::error::$MODULE@$VERSION does not build as a dependency."
+          exit 1

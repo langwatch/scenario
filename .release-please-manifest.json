@@ -1,4 +1,11 @@
 {
   "javascript": "1.7.0",
-  "python": "1.6.0"
+  "python": "1.6.0",
+  "go": "0.1.0",
+  "go/voice": "0.1.0",
+  "go/voice/tunnel/ngrok": "0.1.0",
+  "go/providers/openai": "0.1.0",
+  "go/providers/anthropic": "0.1.0",
+  "go/providers/gemini": "0.1.0",
+  "go/providers/bedrock": "0.1.0"
 }

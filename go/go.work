@@ -1,0 +1,39 @@
+// Local development workspace for the Go SDK modules under go/.
+//
+// Every module in this list builds against the copy in this checkout, not the
+// version its go.mod requires. That is what lets the published go.mod files
+// require real versions (github.com/langwatch/scenario/go vX.Y.Z) and carry no
+// replace directives: cmd/go ignores replace directives in dependencies, so a
+// consumer of a submodule would otherwise resolve a version that does not exist.
+//
+// The replace block is pinned to the version the go.mod files require. cmd/go
+// still reads the go.mod of each required version while building the module
+// graph, even for a workspace module, so without it a version that is not
+// tagged yet (every release pull request, and the first release) cannot be
+// resolved. release-please bumps those lines together with the go.mod files
+// (x-release-please-version), so they always name the version being released.
+//
+// The go line must stay at or above the highest go line in the modules below
+// (voice/tunnel/ngrok needs 1.25.7). `make go-work-check` fails when a go.mod
+// under go/ is missing from the use list. Set GOWORK=off to build a module the
+// way a consumer does. See RELEASE_PLEASE.md.
+go 1.25.7
+
+use (
+	.
+	./examples
+	./live
+	./providers/anthropic
+	./providers/bedrock
+	./providers/gemini
+	./providers/openai
+	./voice
+	./voice/examples
+	./voice/tunnel/ngrok
+)
+
+replace (
+	github.com/langwatch/scenario/go v0.1.0 => ./ // x-release-please-version
+	github.com/langwatch/scenario/go/providers/openai v0.1.0 => ./providers/openai // x-release-please-version
+	github.com/langwatch/scenario/go/voice v0.1.0 => ./voice // x-release-please-version
+)
