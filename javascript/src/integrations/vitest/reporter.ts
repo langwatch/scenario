@@ -2,11 +2,11 @@ import fs from "fs";
 import path from "path";
 import chalk from "chalk";
 import type { TestCase, Reporter } from "vitest/node";
+import { rebuildChatLog } from "./rebuild-chat-log";
 import type {
   ScenarioEvent,
   ScenarioRunStartedEvent,
   ScenarioRunFinishedEvent,
-  ScenarioMessageSnapshotEvent,
 } from "../../events/schema";
 import { Logger } from "../../utils/logger";
 
@@ -126,9 +126,8 @@ class VitestReporter implements Reporter {
       const finished = runEvents.find(
         (e) => e.type === "SCENARIO_RUN_FINISHED"
       ) as ScenarioRunFinishedEvent | undefined;
-      const messages = runEvents.filter(
-        (e) => e.type === "SCENARIO_MESSAGE_SNAPSHOT"
-      ) as ScenarioMessageSnapshotEvent[];
+      // Snapshot and granular runs alike: the conversation as LangWatch has it.
+      const chatLog = rebuildChatLog(runEvents);
 
       // Collect summary info for the report
       this.results.push({
@@ -153,70 +152,66 @@ class VitestReporter implements Reporter {
         console.log(`Description: ${started.metadata?.description ?? ""}`);
       }
 
-      if (messages.length) {
+      if (chatLog.length) {
         console.log("Chat log:\n");
-        let lastMessageCount = 0;
-        for (const msg of messages) {
-          const allMessages =
-            (msg as { messages?: { role: string; content: string }[] })
-              .messages ?? [];
+        const allMessages = chatLog as unknown as {
+          role: string;
+          content: string;
+        }[];
 
-          // Only print new messages
-          for (const m of allMessages.slice(lastMessageCount)) {
-            const role = m.role;
+        for (const m of allMessages) {
+          const role = m.role;
 
-            if (
-              role.toLowerCase() === "assistant" &&
-              "toolCalls" in m &&
-              Array.isArray(m.toolCalls) &&
-              m.toolCalls.length > 0
-            ) {
-              for (const toolCall of m.toolCalls) {
-                const functionName = toolCall.function.name;
-                let parsedJson = "";
-                try {
-                  parsedJson = JSON.stringify(
-                    JSON.parse(toolCall.function.arguments),
-                    null,
-                    2
-                  );
-                } catch {
-                  parsedJson = toolCall.function.arguments;
-                }
-                const role = chalk.magenta(`ToolCall(${functionName}):`);
-                console.log(`${role}:\n\n${indent(parsedJson)}\n`);
-              }
-              continue;
-            }
-
-            let roleLabel = role;
-            if (role.toLowerCase() === "user") roleLabel = chalk.green("User");
-            else if (role.toLowerCase() === "agent")
-              roleLabel = chalk.cyan("Agent");
-            else if (role.toLowerCase() === "assistant")
-              if (
-                Array.isArray(m.content) &&
-                typeof m.content.at(0) === "object" &&
-                (m.content.at(0) as unknown as { type: string })?.type ===
-                  "tool-call"
-              )
-                roleLabel = chalk.cyan("ToolCall");
-              else roleLabel = chalk.cyan("Assistant");
-            else if (role.toLowerCase() === "tool") {
-              roleLabel = chalk.magenta("ToolResult");
+          if (
+            role.toLowerCase() === "assistant" &&
+            "toolCalls" in m &&
+            Array.isArray(m.toolCalls) &&
+            m.toolCalls.length > 0
+          ) {
+            for (const toolCall of m.toolCalls) {
+              const functionName = toolCall.function.name;
               let parsedJson = "";
               try {
-                parsedJson = JSON.stringify(JSON.parse(m.content), null, 2);
+                parsedJson = JSON.stringify(
+                  JSON.parse(toolCall.function.arguments),
+                  null,
+                  2
+                );
               } catch {
-                parsedJson = m.content;
+                parsedJson = toolCall.function.arguments;
               }
-              console.log(`${roleLabel}:\n\n${indent(parsedJson)}\n`);
-              continue;
-            } else roleLabel = chalk.yellow(role);
-
-            console.log(`${roleLabel}: ${formatContentForLogging(m.content)}`);
+              const role = chalk.magenta(`ToolCall(${functionName}):`);
+              console.log(`${role}:\n\n${indent(parsedJson)}\n`);
+            }
+            continue;
           }
-          lastMessageCount = allMessages.length;
+
+          let roleLabel = role;
+          if (role.toLowerCase() === "user") roleLabel = chalk.green("User");
+          else if (role.toLowerCase() === "agent")
+            roleLabel = chalk.cyan("Agent");
+          else if (role.toLowerCase() === "assistant")
+            if (
+              Array.isArray(m.content) &&
+              typeof m.content.at(0) === "object" &&
+              (m.content.at(0) as unknown as { type: string })?.type ===
+                "tool-call"
+            )
+              roleLabel = chalk.cyan("ToolCall");
+            else roleLabel = chalk.cyan("Assistant");
+          else if (role.toLowerCase() === "tool") {
+            roleLabel = chalk.magenta("ToolResult");
+            let parsedJson = "";
+            try {
+              parsedJson = JSON.stringify(JSON.parse(m.content), null, 2);
+            } catch {
+              parsedJson = m.content;
+            }
+            console.log(`${roleLabel}:\n\n${indent(parsedJson)}\n`);
+            continue;
+          } else roleLabel = chalk.yellow(role);
+
+          console.log(`${roleLabel}: ${formatContentForLogging(m.content)}`);
         }
       }
       if (finished) {

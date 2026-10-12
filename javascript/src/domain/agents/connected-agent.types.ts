@@ -6,6 +6,7 @@
  * @see specs/connected-agent-adapter.feature
  */
 import type { ModelMessage } from "ai";
+import type { AgentStreamWriter } from "./types/agent-stream.types";
 
 /** The value of one run parameter. */
 export type ConnectedAgentParameterValue = string | number | boolean;
@@ -24,6 +25,8 @@ export interface ConnectedAgentCall {
   params: Record<string, ConnectedAgentParameterValue>;
   /** The trace id of the current turn, empty when no span is active. */
   traceId: string;
+  /** Live progress for this turn; present only when the run sends granular events. */
+  stream?: AgentStreamWriter;
 }
 
 /** What the function may return: a string, one message, or a list of messages. */

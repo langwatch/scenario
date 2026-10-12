@@ -27,13 +27,29 @@ import { generateMessageId } from "../utils/ids";
 // Generic enum - ready for extension
 export enum StateChangeEventType {
   MESSAGE_ADDED = "MESSAGE_ADDED",
+  MESSAGES_ROLLED_BACK = "MESSAGES_ROLLED_BACK",
   // Future: TURN_CHANGED, THREAD_ID_CHANGED, etc.
 }
 
-// Generic discriminated union - extensible structure
-export type StateChangeEvent = {
-  type: StateChangeEventType.MESSAGE_ADDED;
+/** A message as the state stores it: with its id, turn and trace id. */
+export type StoredMessage = ModelMessage & {
+  id: string;
+  turn: number;
+  traceId?: string;
 };
+
+// Generic discriminated union - extensible structure
+export type StateChangeEvent =
+  | {
+      type: StateChangeEventType.MESSAGE_ADDED;
+      /** The message just added, last in the conversation. */
+      message: StoredMessage;
+    }
+  | {
+      type: StateChangeEventType.MESSAGES_ROLLED_BACK;
+      /** How many messages the rollback removed; never zero. */
+      removedCount: number;
+    };
 // Future event types go here
 
 /**
@@ -158,16 +174,24 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
    *
    * @param message - The message to add.
    * @param traceId - Optional trace ID to associate with the message.
+   * @param options.id - An id given out earlier, for a message the run
+   *   already reported as started; a fresh id otherwise.
    */
-  addMessage(message: ModelMessage & { traceId?: string }): void {
-    const messageWithId = {
+  addMessage(
+    message: ModelMessage & { traceId?: string },
+    options?: { id?: string }
+  ): void {
+    const messageWithId: StoredMessage = {
       ...message,
-      id: generateMessageId(),
+      id: options?.id ?? generateMessageId(),
       turn: this._currentTurn,
     };
     this._messages.push(messageWithId);
     // Emit event when message is added
-    this.eventSubject.next({ type: StateChangeEventType.MESSAGE_ADDED });
+    this.eventSubject.next({
+      type: StateChangeEventType.MESSAGE_ADDED,
+      message: messageWithId,
+    });
   }
 
   lastMessage() {
@@ -323,6 +347,12 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     const removed = this._messages.splice(clamped);
     if (this._onRollback && removed.length > 0) {
       this._onRollback(new Set<object>(removed));
+    }
+    if (removed.length > 0) {
+      this.eventSubject.next({
+        type: StateChangeEventType.MESSAGES_ROLLED_BACK,
+        removedCount: removed.length,
+      });
     }
     return removed;
   }
