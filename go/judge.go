@@ -260,7 +260,7 @@ type decisionOutcome struct {
 // remote traces and never produces a verdict.
 func (j *JudgeAgent) decide(ctx context.Context, c judgeCall) (decisionOutcome, error) {
 	spans := j.collector().SpansForThread(c.in.ThreadID)
-	digest, large := traceDigest(spans, j.cfg.TokenThreshold)
+	content, large := judgeContent(c.in.ScenarioState.spanDigests(), spans, j.cfg.TokenThreshold, c.transcript, c.extra)
 
 	system := buildDecisionSystemPrompt(c.criteria, c.in.ScenarioConfig.Description, c.traces.fetch)
 	if j.cfg.SystemPrompt != "" {
@@ -280,7 +280,7 @@ func (j *JudgeAgent) decide(ctx context.Context, c judgeCall) (decisionOutcome, 
 		MaxTokens:   c.model.MaxTokens,
 		Messages: []Message{
 			SystemMsg(system),
-			UserMsg(buildJudgeContent(c.transcript, digest, c.extra)),
+			UserMsg(content),
 		},
 		Tools: append(toolDefinitions(tools),
 			ToolDefinition{Name: "continue_test", Description: continueTestDescription, Parameters: emptyObjectSchema()},
@@ -353,11 +353,11 @@ func (j *JudgeAgent) verdict(ctx context.Context, c judgeCall, forced, exhausted
 		terminal := forced || evidenceExhausted
 
 		spans := collector.SpansForThread(c.in.ThreadID)
-		digest, large := traceDigest(spans, j.cfg.TokenThreshold)
 		extra := ""
 		if c.in.JudgmentRequest != nil {
 			extra = additionalContextSection(c.in.JudgmentRequest.AdditionalContext)
 		}
+		content, large := judgeContent(c.in.ScenarioState.spanDigests(), spans, j.cfg.TokenThreshold, c.transcript, extra+c.extra)
 		system := buildVerdictSystemPrompt(c.criteria, c.in.ScenarioConfig.Description, ts.fetch)
 		if j.cfg.SystemPrompt != "" {
 			system = j.cfg.SystemPrompt
@@ -365,7 +365,7 @@ func (j *JudgeAgent) verdict(ctx context.Context, c judgeCall, forced, exhausted
 				system += "\n\n" + remoteTraceJudgingRule
 			}
 		}
-		msgs := []Message{SystemMsg(system), UserMsg(buildJudgeContent(c.transcript, digest, extra+c.extra))}
+		msgs := []Message{SystemMsg(system), UserMsg(content)}
 		if exhausted {
 			msgs = append(msgs, recap...)
 			msgs = append(msgs, UserMsg(discoveryExhaustedPrompt))

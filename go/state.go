@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/langwatch/scenario/go/internal/spandigest"
 )
 
 // ExecutionState is the live state of a scenario run: the conversation, the
@@ -23,6 +26,8 @@ type ExecutionState struct {
 	spans       func() []sdktrace.ReadOnlySpan
 	reads       *StateReads
 	onRollback  func(removed map[string]bool)
+	// digests keeps the judge's rendering of the run's ended spans.
+	digests *spandigest.Cache
 }
 
 func newExecutionState(cfg ScenarioConfig) *ExecutionState {
@@ -32,7 +37,17 @@ func newExecutionState(cfg ScenarioConfig) *ExecutionState {
 		rows:     make([][]byte, 0, 2*cfg.MaxTurns+2),
 		model:    make([][]byte, 0, 2*cfg.MaxTurns+2),
 		spans:    func() []sdktrace.ReadOnlySpan { return nil },
+		digests:  spandigest.NewCache(),
 	}
+}
+
+// spanDigests returns the run's span digest cache; nil (no caching) for a
+// nil state.
+func (s *ExecutionState) spanDigests() *spandigest.Cache {
+	if s == nil {
+		return nil
+	}
+	return s.digests
 }
 
 // Config returns the scenario configuration.
@@ -341,15 +356,17 @@ func (s *ExecutionState) chatMessagesInput() string {
 		}
 		size += len(s.model[i]) + 1
 	}
-	b := make([]byte, 0, size)
-	b = append(b, `{"type":"chat_messages","value":[`...)
+	var b strings.Builder
+	b.Grow(size)
+	b.WriteString(`{"type":"chat_messages","value":[`)
 	for i, enc := range s.model {
 		if i > 0 {
-			b = append(b, ',')
+			b.WriteByte(',')
 		}
-		b = append(b, enc...)
+		b.Write(enc)
 	}
-	return string(append(b, "]}"...))
+	b.WriteString("]}")
+	return b.String()
 }
 
 // chatMessagesValue encodes messages as a chat_messages typed value.
