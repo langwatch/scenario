@@ -30,7 +30,7 @@ type Settings struct {
 	// RemoteTraceFetcher fetches remote traces for the judge when
 	// FetchRemoteTraces is on and the judge sets no fetcher of its own.
 	RemoteTraceFetcher RemoteTraceFetcher
-	// BatchRunOpener shows the live batch run, by default by opening the
+	// BatchRunOpener shows the live batch run; by default the batch is handed
 	// browser. A browser tab handoff package can replace it.
 	BatchRunOpener BatchRunOpener
 	// GranularEvents streams message lifecycle events instead of snapshots.
