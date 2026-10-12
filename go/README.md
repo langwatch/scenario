@@ -557,6 +557,18 @@ it differs, it does so on purpose:
   send the timeline.
 - **No bundled ffmpeg**: WAV is handled natively; other audio formats use
   `ffmpeg` from `PATH` or `SCENARIO_FFMPEG`.
+- **Barge-in audio is not sent twice**: after an interrupting line is
+  recorded it is removed from the agent's pending input, so the recovery turn
+  does not replay it (the JS comment intends this; the JS code re-sends it).
+- **Model-call spans**: the built-in judge, user simulator, red-team and
+  composable voice agents record their model calls as LLM spans in the
+  scenario tracer scope, so `ScenarioOnly()` keeps them; the judge leaves its
+  own calls out of its trace digest on every turn.
+- **Tunnels**: cloudflared and ngrok (`voice/tunnel/ngrok`, its own module);
+  there is no localtunnel provider.
+- **ElevenLabs** dials with the same client identifier as the JS SDK
+  (`source=js_sdk`, see `voice/adapters/elevenlabs/protocol.go`), so
+  ElevenLabs sees identical traffic from both.
 
 ## Development
 
