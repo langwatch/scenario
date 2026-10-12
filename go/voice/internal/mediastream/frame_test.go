@@ -60,6 +60,29 @@ func TestParseFieldOrderAndEscapes(t *testing.T) {
 	}
 }
 
+// Escaped event and streamSid values survive later escaped strings (keys,
+// the other value, a payload) in the same frame.
+func TestParseEscapedValuesDoNotOverwriteEachOther(t *testing.T) {
+	var p Parser
+	f, ok := p.Parse([]byte(`{"\u0065vent":"\u0073tart","\u0073treamSid":"MZ\u0031","start":{"callSid":"CA1"}}`))
+	if !ok || f.Event != EventStart || string(f.StreamSID) != "MZ1" || f.CallSID != "CA1" {
+		t.Fatalf("start: got %+v, %v", f, ok)
+	}
+	f, ok = p.Parse([]byte(`{"event":"m\u0065dia","streamSid":"MZ\/2","media":{"p\u0061yload":"\/w\u003d\u003d"}}`))
+	if !ok || f.Event != EventMedia || string(f.StreamSID) != "MZ/2" || !bytes.Equal(f.Payload, []byte{0xff}) {
+		t.Fatalf("media: got %+v, %v", f, ok)
+	}
+	f, ok = p.Parse([]byte(`{"streamSid":"MZ\"3","event":"st\u006fp","\u0078":"\u0079"}`))
+	if !ok || f.Event != EventStop || string(f.StreamSID) != `MZ"3` {
+		t.Fatalf("stop: got %+v, %v", f, ok)
+	}
+	// Once the buffers have grown, escaped media frames do not allocate.
+	frame := []byte(`{"event":"m\u0065dia","streamSid":"MZ\/2","media":{"payload":"\/w=="}}`)
+	if n := testing.AllocsPerRun(100, func() { p.Parse(frame) }); n != 0 {
+		t.Fatalf("escaped media frame allocates %v times", n)
+	}
+}
+
 func TestParseRejects(t *testing.T) {
 	var p Parser
 	for _, in := range []string{

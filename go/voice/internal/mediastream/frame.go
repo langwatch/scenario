@@ -83,7 +83,11 @@ type Frame struct {
 // safe for concurrent use.
 type Parser struct {
 	payload []byte
-	scratch []byte
+	// scratch holds an escaped key or media payload, both used before the
+	// next string is read; event and streamSID hold the escaped values Parse
+	// keeps until the end of the frame, each in its own buffer so a later
+	// escaped string cannot overwrite them.
+	scratch, event, streamSID []byte
 }
 
 // Parse parses one JSON text frame. It reports false for malformed JSON,
@@ -104,19 +108,19 @@ func (p *Parser) Parse(data []byte) (Frame, bool) {
 	}
 	if !s.consume('}') {
 		for {
-			key, ok := p.str(&s)
+			key, ok := p.str(&s, &p.scratch)
 			if !ok || !s.consume(':') {
 				return Frame{}, false
 			}
 			switch string(key) {
 			case "event":
-				v, isStr, ok := p.value(&s)
+				v, isStr, ok := p.value(&s, &p.event)
 				if !ok {
 					return Frame{}, false
 				}
 				eventName, haveEvent = v, isStr
 			case "streamSid":
-				v, isStr, ok := p.value(&s)
+				v, isStr, ok := p.value(&s, &p.streamSID)
 				if !ok {
 					return Frame{}, false
 				}
@@ -208,12 +212,12 @@ func (p *Parser) media(s *scanner) (ok, found bool) {
 		return true, false
 	}
 	for {
-		key, ok := p.str(s)
+		key, ok := p.str(s, &p.scratch)
 		if !ok || !s.consume(':') {
 			return false, false
 		}
 		if string(key) == "payload" {
-			v, isStr, ok := p.value(s)
+			v, isStr, ok := p.value(s, &p.scratch)
 			if !ok {
 				return false, false
 			}
@@ -243,23 +247,23 @@ func (p *Parser) decodePayload(b64 []byte) bool {
 }
 
 // str reads a string at the cursor, unescaped. It returns the raw bytes when
-// the string holds no escapes (the common case) and the parser's scratch
-// buffer otherwise.
-func (p *Parser) str(s *scanner) ([]byte, bool) {
+// the string holds no escapes (the common case) and *buf, one of the
+// parser's reused buffers, otherwise.
+func (p *Parser) str(s *scanner, buf *[]byte) ([]byte, bool) {
 	raw, esc, ok := s.str()
 	if !ok || !esc {
 		return raw, ok
 	}
-	p.scratch, ok = appendUnescaped(p.scratch[:0], raw)
-	return p.scratch, ok
+	*buf, ok = appendUnescaped((*buf)[:0], raw)
+	return *buf, ok
 }
 
-// value reads a value at the cursor: a string (unescaped, isStr true) or any
-// other value, skipped.
-func (p *Parser) value(s *scanner) (v []byte, isStr, ok bool) {
+// value reads a value at the cursor: a string (unescaped into *buf when it
+// holds escapes, isStr true) or any other value, skipped.
+func (p *Parser) value(s *scanner, buf *[]byte) (v []byte, isStr, ok bool) {
 	s.ws()
 	if s.i < len(s.b) && s.b[s.i] == '"' {
-		v, ok = p.str(s)
+		v, ok = p.str(s, buf)
 		return v, true, ok
 	}
 	return nil, false, s.skipValue()
