@@ -3,9 +3,6 @@ package scenario
 import (
 	"context"
 	"fmt"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // newTurn ends the current turn span, resets the role queue and starts the
@@ -20,15 +17,7 @@ func (ex *Executor) newTurn() {
 		ex.pendingAgents[i] = true
 	}
 	turn := ex.state.incrementTurn()
-	_, span := ex.tracer.Start(ex.runCtx, "Scenario Turn", trace.WithAttributes(
-		attribute.String("langwatch.origin", "simulation"),
-		sdkAttributes[0], sdkAttributes[1],
-		attribute.String("scenario.run_id", ex.runID),
-		attribute.String("scenario.name", ex.cfg.Name),
-		attribute.String("scenario.id", ex.cfg.ID),
-		attribute.String(threadIDKey, ex.cfg.ThreadID),
-		attribute.Int("scenario.turn", turn),
-	))
+	_, span := ex.spans.start(ex.runCtx, "Scenario Turn", runSpanAttributes(ex.runID, ex.cfg, turn))
 	ex.turnSpan = span
 	ex.mu.Unlock()
 }

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	langwatch "github.com/langwatch/langwatch/sdks/go"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -24,13 +23,18 @@ func messageRoleFor(role AgentRole) Role {
 func (ex *Executor) callAgent(ctx context.Context, idx int, role AgentRole, req *JudgmentRequest) error {
 	agent := ex.cfg.Agents[idx]
 	parent := ex.TurnContext(ctx)
-	spanCtx, span := ex.tracer.Start(parent, agentSpanName(agent), trace.WithAttributes(
-		attribute.String(threadIDKey, ex.cfg.ThreadID),
-		attribute.String("scenario.role", string(role)),
-	))
+	// The span starts with its whole attribute list. The input is encoded
+	// up front when the parent records (the span then records too under the
+	// default parent-based sampling), else only once the span turned out to
+	// record, appended last as before.
+	inputFirst := trace.SpanFromContext(parent).IsRecording()
+	var input string
+	if inputFirst {
+		input = ex.state.chatMessagesInput()
+	}
+	spanCtx, span := ex.spans.start(parent, ex.spanNames[idx], agentSpanAttributes(ex.cfg.ThreadID, role, input, inputFirst))
 	defer span.End()
-	span.SetType(langwatch.SpanTypeAgent)
-	if span.IsRecording() {
+	if !inputFirst && span.IsRecording() {
 		span.SetAttributes(langwatch.AttributeLangWatchInput.String(ex.state.chatMessagesInput()))
 	}
 
@@ -42,7 +46,7 @@ func (ex *Executor) callAgent(ctx context.Context, idx int, role AgentRole, req 
 	if role != AgentRoleJudge {
 		stream = ex.emitter.newStream(messageRoleFor(role))
 	}
-	input := AgentInput{
+	agentInput := AgentInput{
 		ThreadID:           ex.cfg.ThreadID,
 		Messages:           ex.state.Messages(),
 		NewMessages:        newMessages,
@@ -56,7 +60,7 @@ func (ex *Executor) callAgent(ctx context.Context, idx int, role AgentRole, req 
 	}
 
 	started := time.Now()
-	ret, err := agent.Call(spanCtx, input)
+	ret, err := agent.Call(spanCtx, agentInput)
 	elapsed := time.Since(started)
 
 	ex.mu.Lock()

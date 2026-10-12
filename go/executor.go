@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 
-	langwatch "github.com/langwatch/langwatch/sdks/go"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -26,10 +24,12 @@ type Executor struct {
 	state   *ExecutionState
 	hooks   hooks
 	emitter *eventEmitter
-	tracer  *langwatch.LangWatchTracer
-	runID   string
-	batchID string
-	start   time.Time
+	spans   spanStarter
+	// spanNames are the agent call span names, per agent index.
+	spanNames []string
+	runID     string
+	batchID   string
+	start     time.Time
 
 	values sync.Map
 
@@ -60,13 +60,17 @@ func newExecutor(cfg ScenarioConfig, runID, batchID string, publish func(Event),
 		cfg:             cfg,
 		state:           newExecutionState(cfg),
 		hooks:           collectHooks(cfg),
-		tracer:          langwatch.Tracer(TracerName, trace.WithInstrumentationVersion(Version)),
+		spans:           newSpanStarter(),
+		spanNames:       make([]string, n),
 		runID:           runID,
 		batchID:         batchID,
 		pendingAgents:   make([]bool, n),
 		pendingMessages: make([][]Message, n),
 		agentTimes:      make([]time.Duration, n),
 		pendingRoles:    make([]AgentRole, 0, len(turnRoleOrder)),
+	}
+	for i, a := range cfg.Agents {
+		ex.spanNames[i] = agentSpanName(a)
 	}
 	ex.emitter = &eventEmitter{
 		base: eventBase{
@@ -157,14 +161,7 @@ func Assert(cond bool, msg string) error {
 // is then the error result.
 func (ex *Executor) execute(ctx context.Context) (res *ScenarioResult, err error) {
 	ex.start = time.Now()
-	runCtx, runSpan := ex.tracer.Start(ctx, "Scenario Run", trace.WithAttributes(
-		attribute.String("langwatch.origin", "simulation"),
-		sdkAttributes[0], sdkAttributes[1],
-		attribute.String("scenario.run_id", ex.runID),
-		attribute.String("scenario.name", ex.cfg.Name),
-		attribute.String("scenario.id", ex.cfg.ID),
-		attribute.String(threadIDKey, ex.cfg.ThreadID),
-	))
+	runCtx, runSpan := ex.spans.start(ctx, "Scenario Run", runSpanAttributes(ex.runID, ex.cfg, -1))
 	ex.mu.Lock()
 	ex.runCtx = runCtx
 	ex.mu.Unlock()
