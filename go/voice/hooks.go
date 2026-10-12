@@ -149,6 +149,11 @@ func (s *Session) BeforeProceedStep(ctx context.Context, ex *scenario.Executor) 
 	if rng() >= cfg.Probability {
 		return nil
 	}
+	// Re-arm the speaking event before the turn starts, as the
+	// AgentNonBlocking step does: the previous turn left it set, and the
+	// barge-in below would otherwise fire before the agent speaks whenever
+	// it wins the race against the turn goroutine's own re-arm.
+	s.agentUnderTest().agent.speaking.Clear()
 	h, ok := ex.ScheduleAgentTurnNonBlocking(ctx)
 	if !ok {
 		return nil

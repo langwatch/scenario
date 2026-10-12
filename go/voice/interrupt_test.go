@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -279,5 +280,67 @@ func TestTextOnlyProceedInjectsInterruption(t *testing.T) {
 	runScenario(t, []scenario.AgentAdapter{agent, user, &voicetest.Judge{}}, []scenario.ScriptStep{scenario.Proceed(scenario.Turns(3)), scenario.Succeed()}, cfg)
 	if !strings.Contains(strings.Join(lines, "|"), voice.CannedPhrases[0]) {
 		t.Errorf("no interruption reached the agent: %v", lines)
+	}
+}
+
+// slowStarter is an agent that takes 300 ms to start speaking every turn and
+// counts user audio that reaches it while it has not started yet.
+type slowStarter struct {
+	*voicetest.Transport
+	mu       sync.Mutex
+	awaiting bool
+	early    int
+}
+
+func (s *slowStarter) SendAudio(ctx context.Context, c voice.AudioChunk) error {
+	s.mu.Lock()
+	if s.awaiting {
+		s.early++
+	}
+	s.mu.Unlock()
+	return s.Transport.SendAudio(ctx, c)
+}
+
+func newSlowStarter() *slowStarter {
+	s := &slowStarter{Transport: &voicetest.Transport{Caps: voice.Capabilities{NativeVAD: true, Interruption: true}}}
+	speaking := false
+	s.Receive = func(ctx context.Context, _ time.Duration) (voice.AudioChunk, error) {
+		if speaking {
+			speaking = false
+			return voice.AudioChunk{}, nil
+		}
+		s.mu.Lock()
+		s.awaiting = true
+		s.mu.Unlock()
+		select {
+		case <-time.After(300 * time.Millisecond):
+		case <-ctx.Done():
+			return voice.AudioChunk{}, ctx.Err()
+		}
+		s.mu.Lock()
+		s.awaiting = false
+		s.mu.Unlock()
+		speaking = true
+		return voicetest.Tone(0.5, "reply"), nil
+	}
+	return s
+}
+
+func TestScheduledBargeInWaitsForThisTurnsSpeech(t *testing.T) {
+	tr := newSlowStarter()
+	cfg := alwaysInterrupt([2]float64{0, 0})
+	cfg.WaitForSpeech = 5 * time.Second
+	agents := []scenario.AgentAdapter{fastAgent(tr), &voicetest.User{}, &voicetest.Judge{Verdict: voicetest.Pass()}}
+	res := runScenario(t, agents, []scenario.ScriptStep{
+		scenario.Agent(),
+		scenario.Proceed(scenario.Turns(2)),
+	}, cfg)
+	if len(interrupts(voice.ResultOf(res))) == 0 {
+		t.Fatal("no barge-in")
+	}
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.early != 0 {
+		t.Errorf("%d barge-ins fired before the agent spoke: the speaking event of the previous turn was not re-armed", tr.early)
 	}
 }
