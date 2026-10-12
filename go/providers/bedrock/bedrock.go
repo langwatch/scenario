@@ -56,7 +56,10 @@ func toRequest(params scenario.InferenceParams) (*bedrockruntime.ConverseStreamI
 	if len(system) > 0 {
 		req.System = system
 	}
-	if len(params.Tools) > 0 {
+	// Converse has no "none" tool choice: the tools are left out instead,
+	// unless the history holds tool blocks, which need a tool config.
+	none := params.ToolChoice != nil && params.ToolChoice.Type == scenario.ToolChoiceNone
+	if len(params.Tools) > 0 && (!none || hasToolBlocks(rest)) {
 		cfg, err := toToolConfig(params.Tools, params.ToolChoice)
 		if err != nil {
 			return nil, err

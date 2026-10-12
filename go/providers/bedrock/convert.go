@@ -2,7 +2,11 @@ package bedrock
 
 import (
 	"encoding/json"
+	"mime"
+	"net/http"
+	"path"
 	"strings"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
@@ -10,12 +14,16 @@ import (
 	scenario "github.com/langwatch/scenario/go"
 )
 
+// splitSystem moves system messages into system blocks; empty ones are
+// dropped, as Converse rejects blank text.
 func splitSystem(msgs []scenario.Message) ([]types.SystemContentBlock, []scenario.Message) {
 	var system []types.SystemContentBlock
 	rest := make([]scenario.Message, 0, len(msgs))
 	for _, m := range msgs {
 		if m.Role == scenario.RoleSystem {
-			system = append(system, &types.SystemContentBlockMemberText{Value: m.Text()})
+			if text := m.Text(); strings.TrimSpace(text) != "" {
+				system = append(system, &types.SystemContentBlockMemberText{Value: text})
+			}
 			continue
 		}
 		rest = append(rest, m)
@@ -45,9 +53,14 @@ func ToBedrockMessages(msgs []scenario.Message) []types.Message {
 		case scenario.RoleUser:
 			add(types.ConversationRoleUser, contentBlocks(m))
 		case scenario.RoleTool:
+			text := m.Text()
+			if strings.TrimSpace(text) == "" {
+				// Converse rejects blank text, and a result needs content.
+				text = emptyToolResult
+			}
 			result := types.ToolResultBlock{
 				ToolUseId: aws.String(m.ToolCallID),
-				Content:   []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{Value: m.Text()}},
+				Content:   []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{Value: text}},
 			}
 			if m.IsError {
 				result.Status = types.ToolResultStatusError
@@ -87,18 +100,15 @@ func contentBlocks(m scenario.Message) []types.ContentBlock {
 		case p.Type == scenario.PartImage && len(p.Data) > 0:
 			audioOnly = false
 			blocks = append(blocks, &types.ContentBlockMemberImage{Value: types.ImageBlock{
-				Format: types.ImageFormat(subtype(p.MediaType)),
+				Format: imageFormat(p),
 				Source: &types.ImageSourceMemberBytes{Value: p.Data},
 			}})
 		case p.Type == scenario.PartFile && !p.IsAudio() && len(p.Data) > 0:
 			audioOnly = false
-			name := p.Filename
-			if name == "" {
-				name = "document"
-			}
+			format := documentFormat(p)
 			blocks = append(blocks, &types.ContentBlockMemberDocument{Value: types.DocumentBlock{
-				Format: types.DocumentFormat(subtype(p.MediaType)),
-				Name:   aws.String(name),
+				Format: format,
+				Name:   aws.String(documentName(p.Filename, format)),
 				Source: &types.DocumentSourceMemberBytes{Value: p.Data},
 			}})
 		case !p.IsAudio():
@@ -111,10 +121,114 @@ func contentBlocks(m scenario.Message) []types.ContentBlock {
 	return blocks
 }
 
-// subtype returns the part after "/" of a media type ("image/png" → "png").
-func subtype(mediaType string) string {
-	_, sub, _ := strings.Cut(mediaType, "/")
-	return sub
+// emptyToolResult stands in for a tool result without output.
+const emptyToolResult = "[no output]"
+
+// imageFormats and documentFormats map media types to Converse formats.
+var (
+	imageFormats = map[string]types.ImageFormat{
+		"image/png":  types.ImageFormatPng,
+		"image/jpeg": types.ImageFormatJpeg,
+		"image/jpg":  types.ImageFormatJpeg,
+		"image/gif":  types.ImageFormatGif,
+		"image/webp": types.ImageFormatWebp,
+	}
+	documentFormats = map[string]types.DocumentFormat{
+		"application/pdf":    types.DocumentFormatPdf,
+		"text/csv":           types.DocumentFormatCsv,
+		"application/msword": types.DocumentFormatDoc,
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document": types.DocumentFormatDocx,
+		"application/vnd.ms-excel": types.DocumentFormatXls,
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": types.DocumentFormatXlsx,
+		"text/html":       types.DocumentFormatHtml,
+		"text/plain":      types.DocumentFormatTxt,
+		"text/markdown":   types.DocumentFormatMd,
+		"text/x-markdown": types.DocumentFormatMd,
+	}
+)
+
+// mediaType is the bare, lower-case media type ("Text/Plain; charset=utf-8"
+// → "text/plain").
+func mediaType(mt string) string {
+	mt, _, _ = strings.Cut(mt, ";")
+	return strings.ToLower(strings.TrimSpace(mt))
+}
+
+// imageFormat is the Converse format of an image, sniffed from its bytes
+// when the media type is missing; an unknown type passes through as its
+// subtype, for Converse to reject by name.
+func imageFormat(p scenario.Part) types.ImageFormat {
+	mt := mediaType(p.MediaType)
+	if mt == "" {
+		mt = mediaType(http.DetectContentType(p.Data))
+	}
+	if f, ok := imageFormats[mt]; ok {
+		return f
+	}
+	_, sub, _ := strings.Cut(mt, "/")
+	return types.ImageFormat(sub)
+}
+
+// documentFormat is the Converse format of a document: from its media type,
+// else from its file extension, else txt for any text; an unknown type
+// passes through as its subtype, for Converse to reject by name.
+func documentFormat(p scenario.Part) types.DocumentFormat {
+	mt := mediaType(p.MediaType)
+	if f, ok := documentFormats[mt]; ok {
+		return f
+	}
+	ext := strings.ToLower(strings.TrimPrefix(path.Ext(p.Filename), "."))
+	for _, f := range types.DocumentFormat("").Values() {
+		if ext != "" && string(f) == ext {
+			return f
+		}
+	}
+	if ext == "markdown" {
+		return types.DocumentFormatMd
+	}
+	if strings.HasPrefix(mt, "text/") {
+		return types.DocumentFormatTxt
+	}
+	_, sub, _ := strings.Cut(mt, "/")
+	return types.DocumentFormat(sub)
+}
+
+// documentName makes a file name fit Converse, which allows only letters,
+// digits, single spaces, hyphens, parentheses and square brackets: the
+// extension of the format goes, other characters become spaces
+// ("my_report.v2.pdf" → "my report v2").
+func documentName(filename string, format types.DocumentFormat) string {
+	if ext := path.Ext(filename); ext != "" && (strings.EqualFold(ext[1:], string(format)) || documentFormats[mediaType(mime.TypeByExtension(ext))] == format) {
+		filename = strings.TrimSuffix(filename, ext)
+	}
+	var b strings.Builder
+	space := false
+	for _, r := range filename {
+		ok := r < unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r)) || strings.ContainsRune("-()[]", r)
+		if !ok {
+			space = b.Len() > 0
+			continue
+		}
+		if space {
+			b.WriteByte(' ')
+			space = false
+		}
+		b.WriteRune(r)
+	}
+	if b.Len() == 0 {
+		return "document"
+	}
+	return b.String()
+}
+
+// hasToolBlocks reports whether a history holds tool calls or results.
+func hasToolBlocks(msgs []scenario.Message) bool {
+	for _, m := range msgs {
+		if m.Role == scenario.RoleTool || len(m.ToolCalls) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func argsMap(args string) map[string]any {

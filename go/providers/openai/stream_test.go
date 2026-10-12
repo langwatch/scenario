@@ -107,3 +107,44 @@ func TestStreamLegacyServersGetNoStreamOptions(t *testing.T) {
 		t.Fatalf("request %s", *body)
 	}
 }
+
+// Some OpenAI-compatible servers change the chunk id mid-stream; the
+// accumulator refuses such chunks, which must not truncate the answer.
+func TestStreamAccumulatesChunksWithChangingIDs(t *testing.T) {
+	srv, _ := sseServer(t,
+		chunk(`{"role":"assistant","content":"Hel"}`),
+		strings.Replace(chunk(`{"content":"lo"}`), `"id":"c"`, `"id":"other"`, 1),
+		`{"id":"","object":"chat.completion.chunk","created":1,"model":"m","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
+	)
+	client := openai.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("k"))
+	rec := &recorder{}
+	res, err := NewProvider(&client).stream(context.Background(), scenario.InferenceParams{Model: "m", Messages: []scenario.Message{scenario.UserMsg("hi")}}, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Message.Text() != "Hello" || res.Usage == nil || res.Usage.OutputTokens != 7 {
+		t.Fatalf("result %+v usage %+v", res.Message, res.Usage)
+	}
+}
+
+// Some servers send index -1 for a single tool call; the events and the
+// final message must name it alike.
+func TestStreamToolCallIndexMinusOne(t *testing.T) {
+	srv, _ := sseServer(t,
+		chunk(`{"tool_calls":[{"index":-1,"type":"function","function":{"name":"f","arguments":"{\"a\":"}}]}`),
+		chunk(`{"tool_calls":[{"index":-1,"function":{"arguments":"1}"}}]}`),
+	)
+	client := openai.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("k"))
+	rec := &recorder{}
+	res, err := NewProvider(&client).stream(context.Background(), scenario.InferenceParams{Model: "m", Messages: []scenario.Message{scenario.UserMsg("hi")}}, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"start:call_0:f", `args:call_0:{"a":`, "args:call_0:1}", "end:call_0"}
+	if strings.Join(rec.events, "|") != strings.Join(want, "|") {
+		t.Fatalf("events\n got %q\nwant %q", rec.events, want)
+	}
+	if tcs := res.Message.ToolCalls; len(tcs) != 1 || tcs[0].ID != "call_0" || tcs[0].Arguments != `{"a":1}` {
+		t.Fatalf("tool calls %+v", tcs)
+	}
+}

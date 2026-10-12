@@ -28,11 +28,12 @@ func (p *Provider) Stream(ctx context.Context, params scenario.InferenceParams, 
 }
 
 func (p *Provider) stream(ctx context.Context, params scenario.InferenceParams, stream progress) (*scenario.InferenceResult, error) {
-	contents, cfg := toRequest(params)
+	contents, cfg := toRequest(params, &p.signatures)
 	resp, err := streamGenerateContent(ctx, p.Client, params.Model, contents, cfg, stream)
 	if err != nil {
 		return nil, err
 	}
+	p.signatures.remember(resp.Candidates[0])
 	return &scenario.InferenceResult{Message: fromGeminiCandidate(resp.Candidates[0]), Usage: usageOf(resp.UsageMetadata)}, nil
 }
 
@@ -78,12 +79,17 @@ func streamGenerateContent(ctx context.Context, client *genai.Client, model stri
 			switch {
 			case part.Text != "" && !part.Thought:
 				if lastWasText {
-					parts[len(parts)-1].Text += part.Text
+					last := parts[len(parts)-1]
+					last.Text += part.Text
+					// Keep the thought signature of a joined text chunk.
+					if len(part.ThoughtSignature) > 0 {
+						last.ThoughtSignature = part.ThoughtSignature
+					}
 				} else {
 					if hadText {
 						stream.TextDelta("\n")
 					}
-					cand.Content.Parts = append(parts, &genai.Part{Text: part.Text})
+					cand.Content.Parts = append(parts, &genai.Part{Text: part.Text, ThoughtSignature: part.ThoughtSignature})
 				}
 				hadText, lastWasText = true, true
 				stream.TextDelta(part.Text)

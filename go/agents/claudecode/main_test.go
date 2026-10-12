@@ -55,6 +55,8 @@ type fakeSpec struct {
 	// CLI's stdout and keeps it open after the CLI exits.
 	Grandchild            bool `json:"grandchild,omitempty"`
 	GrandchildHoldsStdout bool `json:"grandchildHoldsStdout,omitempty"`
+	// GrandchildIgnoresTerm makes only the grandchild ignore SIGTERM.
+	GrandchildIgnoresTerm bool `json:"grandchildIgnoresTerm,omitempty"`
 }
 
 // fakeCall is how the fake CLI was invoked.
@@ -89,6 +91,10 @@ func runFakeCLI(dir string) int {
 	call := fakeCall{Args: os.Args[1:], Dir: cwd, Env: os.Environ(), PID: os.Getpid(), PGID: syscall.Getpgrp()}
 	if spec.Grandchild {
 		gc := exec.Command("sleep", "60")
+		if spec.GrandchildIgnoresTerm {
+			// An ignored signal stays ignored across exec.
+			gc = exec.Command("/bin/sh", "-c", `trap "" TERM; exec sleep 60`)
+		}
 		if spec.GrandchildHoldsStdout {
 			gc.Stdout = os.Stdout
 		}

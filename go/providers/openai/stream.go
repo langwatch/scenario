@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 
 	scenario "github.com/langwatch/scenario/go"
@@ -36,7 +37,15 @@ func streamChatCompletion(ctx context.Context, client *openai.Client, req openai
 	fw := chunkForwarder{stream: stream, ids: map[int64]string{}}
 	for s.Next() {
 		chunk := s.Current()
-		acc.AddChunk(chunk)
+		if !acc.AddChunk(chunk) {
+			// The accumulator refuses a chunk whose id differs from the
+			// first one; some OpenAI-compatible servers change it mid-stream
+			// (or send it empty), yet the chunks are one completion.
+			chunk.ID = acc.ID
+			if !acc.AddChunk(chunk) {
+				return nil, fmt.Errorf("openai: could not accumulate stream chunk %q", s.Current().ID)
+			}
+		}
 		fw.forward(chunk)
 	}
 	if err := s.Err(); err != nil {
@@ -98,13 +107,16 @@ func (f *chunkForwarder) forward(chunk openai.ChatCompletionChunk) {
 			f.stream.TextDelta(choice.Delta.Content)
 		}
 		for _, tc := range choice.Delta.ToolCalls {
-			id, seen := f.ids[tc.Index]
+			// Some servers send index -1 for a single call; the accumulator
+			// reads it as 0, and so does the forwarding.
+			index := max(tc.Index, 0)
+			id, seen := f.ids[index]
 			if !seen {
 				id = tc.ID
 				if id == "" {
-					id = fallbackToolCallID(tc.Index)
+					id = fallbackToolCallID(index)
 				}
-				f.ids[tc.Index] = id
+				f.ids[index] = id
 				f.endOpen()
 				f.stream.ToolCallStart(id, tc.Function.Name)
 				f.open = append(f.open, id)

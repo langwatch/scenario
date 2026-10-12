@@ -2,6 +2,10 @@ package gemini
 
 import (
 	"encoding/json"
+	"mime"
+	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 
@@ -28,8 +32,16 @@ func splitSystem(msgs []scenario.Message) (*genai.Content, []scenario.Message) {
 // ToGeminiContents converts scenario messages to Gemini contents. Text,
 // inline images, audio (raw PCM16 wrapped in WAV) and files become parts;
 // tool results answer the function by name, resolved from the call id
-// (tool results built with scenario.ToolMsg carry no name).
+// (tool results built with scenario.ToolMsg carry no name). Function calls
+// carry no thought signature here, so the first one of each model content
+// gets Google's documented dummy signature, which Gemini 3 requires.
 func ToGeminiContents(msgs []scenario.Message) []*genai.Content {
+	return toGeminiContents(msgs, nil)
+}
+
+// toGeminiContents is ToGeminiContents with the thought signatures a
+// Provider remembered put back on the function calls they came with.
+func toGeminiContents(msgs []scenario.Message, sigs *signatureCache) []*genai.Content {
 	names := toolNamesByCallID(msgs)
 	out := make([]*genai.Content, 0, len(msgs))
 	add := func(role genai.Role, parts []*genai.Part) {
@@ -51,6 +63,7 @@ func ToGeminiContents(msgs []scenario.Message) []*genai.Content {
 			for _, tc := range m.ToolCalls {
 				part := genai.NewPartFromFunctionCall(tc.Name, argsMap(tc.Arguments))
 				part.FunctionCall.ID = tc.ID
+				part.ThoughtSignature = sigs.get(tc)
 				parts = append(parts, part)
 			}
 			add(genai.RoleModel, parts)
@@ -60,6 +73,7 @@ func ToGeminiContents(msgs []scenario.Message) []*genai.Content {
 			add(genai.RoleUser, []*genai.Part{part})
 		}
 	}
+	signModelTurns(out)
 	return out
 }
 
@@ -76,14 +90,42 @@ func contentParts(m scenario.Message) []*genai.Part {
 		case p.Type == scenario.PartText:
 			parts = append(parts, genai.NewPartFromText(p.Text))
 		case p.URL != "":
-			parts = append(parts, genai.NewPartFromURI(p.URL, p.MediaType))
+			parts = append(parts, genai.NewPartFromURI(p.URL, uriMediaType(p)))
 		case p.MediaType == scenario.MediaTypePCM16:
 			parts = append(parts, genai.NewPartFromBytes(scenario.WAVFromPCM16(p.Data), "audio/wav"))
 		case len(p.Data) > 0:
-			parts = append(parts, genai.NewPartFromBytes(p.Data, p.MediaType))
+			mt := p.MediaType
+			if mt == "" {
+				mt = sniffMediaType(p.Data)
+			}
+			parts = append(parts, genai.NewPartFromBytes(p.Data, mt))
 		}
 	}
 	return parts
+}
+
+// uriMediaType is the media type of a file referenced by URI, which Gemini
+// requires: the part's own, else guessed from the extension of the URI path,
+// else by part type.
+func uriMediaType(p scenario.Part) string {
+	if p.MediaType != "" {
+		return p.MediaType
+	}
+	if u, err := url.Parse(p.URL); err == nil {
+		if mt, _, _ := strings.Cut(mime.TypeByExtension(path.Ext(u.Path)), ";"); mt != "" {
+			return strings.TrimSpace(mt)
+		}
+	}
+	if p.Type == scenario.PartImage {
+		return "image/jpeg"
+	}
+	return "application/octet-stream"
+}
+
+// sniffMediaType guesses the media type of inline data without one.
+func sniffMediaType(data []byte) string {
+	mt, _, _ := strings.Cut(http.DetectContentType(data), ";")
+	return mt
 }
 
 func argsMap(args string) map[string]any {
@@ -125,15 +167,19 @@ func fromGeminiCandidate(c *genai.Candidate) scenario.Message {
 			texts = append(texts, part.Text)
 		}
 		if fc := part.FunctionCall; fc != nil {
-			id := fc.ID
-			if id == "" {
-				id = fc.Name + "_" + strconv.Itoa(i)
-			}
-			out.ToolCalls = append(out.ToolCalls, scenario.ToolCall{ID: id, Name: fc.Name, Arguments: argsJSON(fc.Args)})
+			out.ToolCalls = append(out.ToolCalls, scenario.ToolCall{ID: callID(fc, i), Name: fc.Name, Arguments: argsJSON(fc.Args)})
 		}
 	}
 	out.Content = strings.Join(texts, "\n")
 	return out
+}
+
+// callID is the id of a function call: its own, else "<name>_<part index>".
+func callID(fc *genai.FunctionCall, index int) string {
+	if fc.ID != "" {
+		return fc.ID
+	}
+	return fc.Name + "_" + strconv.Itoa(index)
 }
 
 // toGeminiTools passes each tool's JSON Schema as is, so property order and

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/base64"
+	"net/http"
 	"strings"
 
 	scenario "github.com/langwatch/scenario/go"
@@ -50,6 +51,10 @@ func toOpenAIMessage(m scenario.Message) openai.ChatCompletionMessageParamUnion 
 			parts = append(parts, part)
 		}
 	}
+	if len(parts) == 0 {
+		// An empty content array is rejected; say what was left out instead.
+		return openai.UserMessage(droppedContent(m.Parts))
+	}
 	return openai.UserMessage(parts)
 }
 
@@ -60,11 +65,7 @@ func toOpenAIPart(p scenario.Part) (openai.ChatCompletionContentPartUnionParam, 
 	case p.Type == scenario.PartImage:
 		url := p.URL
 		if url == "" {
-			mt := p.MediaType
-			if mt == "" {
-				mt = "image/png"
-			}
-			url = "data:" + mt + ";base64," + base64.StdEncoding.EncodeToString(p.Data)
+			url = "data:" + dataMediaType(p) + ";base64," + base64.StdEncoding.EncodeToString(p.Data)
 		}
 		return openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{URL: url}), true
 	case p.IsAudio() && len(p.Data) > 0:
@@ -84,11 +85,32 @@ func toOpenAIPart(p scenario.Part) (openai.ChatCompletionContentPartUnionParam, 
 			name = "file"
 		}
 		return openai.FileContentPart(openai.ChatCompletionContentPartFileFileParam{
-			FileData: openai.String("data:" + p.MediaType + ";base64," + base64.StdEncoding.EncodeToString(p.Data)),
+			FileData: openai.String("data:" + dataMediaType(p) + ";base64," + base64.StdEncoding.EncodeToString(p.Data)),
 			Filename: openai.String(name),
 		}), true
 	}
 	return openai.ChatCompletionContentPartUnionParam{}, false
+}
+
+// dataMediaType is the media type of a data URL: the part's own, else
+// sniffed from its bytes.
+func dataMediaType(p scenario.Part) string {
+	if p.MediaType != "" {
+		return p.MediaType
+	}
+	mt, _, _ := strings.Cut(http.DetectContentType(p.Data), ";")
+	return mt
+}
+
+// droppedContent stands in for a user message none of whose parts could be
+// sent.
+func droppedContent(parts []scenario.Part) string {
+	for _, p := range parts {
+		if !p.IsAudio() {
+			return "[unsupported content]"
+		}
+	}
+	return "[audio message]"
 }
 
 func audioFormat(mediaType string) string {

@@ -118,6 +118,27 @@ func TestATimeoutKillsACLIThatIgnoresSIGTERM(t *testing.T) {
 	assertGroupGone(t, f.calls()[0])
 }
 
+// A CLI that exits on SIGTERM must not leave behind a child that ignores it.
+func TestATimeoutKillsAChildThatIgnoresSIGTERMAfterTheCLIExits(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, fakeSpec{Hang: true, Grandchild: true, GrandchildIgnoresTerm: true})
+	a := f.adapter(nil)
+	a.timeout = time.Second
+	a.killGrace = 300 * time.Millisecond
+	if _, err := call(t, a, simpleInput); !errors.Is(err, ErrTimeout) {
+		t.Fatalf("err = %v", err)
+	}
+	c := f.calls()[0]
+	if c.GrandchildPID == 0 {
+		t.Fatal("the fake recorded no grandchild")
+	}
+	// Without the group kill the grandchild sleeps on for a minute.
+	if !eventually(2*time.Second, func() bool { return !alive(c.GrandchildPID) }) {
+		_ = syscall.Kill(c.GrandchildPID, syscall.SIGKILL)
+		t.Fatalf("the CLI's grandchild %d survived the stop", c.GrandchildPID)
+	}
+}
+
 func TestCancellationTerminatesTheWholeGroup(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, fakeSpec{Hang: true, Grandchild: true})

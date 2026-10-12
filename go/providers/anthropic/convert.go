@@ -3,19 +3,23 @@ package anthropic
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	scenario "github.com/langwatch/scenario/go"
 )
 
-// splitSystem moves system messages into Anthropic system blocks.
+// splitSystem moves system messages into Anthropic system blocks; empty ones
+// are dropped, as the API rejects empty text blocks.
 func splitSystem(msgs []scenario.Message) ([]anthropic.TextBlockParam, []scenario.Message) {
 	var system []anthropic.TextBlockParam
 	rest := make([]scenario.Message, 0, len(msgs))
 	for _, m := range msgs {
 		if m.Role == scenario.RoleSystem {
-			system = append(system, anthropic.TextBlockParam{Text: m.Text()})
+			if text := m.Text(); text != "" {
+				system = append(system, anthropic.TextBlockParam{Text: text})
+			}
 			continue
 		}
 		rest = append(rest, m)
@@ -45,9 +49,7 @@ func ToAnthropicMessages(msgs []scenario.Message) []anthropic.MessageParam {
 		case scenario.RoleUser:
 			appendBlocks(anthropic.MessageParamRoleUser, contentBlocks(m))
 		case scenario.RoleTool:
-			appendBlocks(anthropic.MessageParamRoleUser, []anthropic.ContentBlockParamUnion{
-				anthropic.NewToolResultBlock(m.ToolCallID, m.Text(), m.IsError),
-			})
+			appendBlocks(anthropic.MessageParamRoleUser, []anthropic.ContentBlockParamUnion{toolResultBlock(m)})
 		case scenario.RoleAssistant:
 			blocks := contentBlocks(m)
 			for _, tc := range m.ToolCalls {
@@ -57,6 +59,19 @@ func ToAnthropicMessages(msgs []scenario.Message) []anthropic.MessageParam {
 		}
 	}
 	return out
+}
+
+// toolResultBlock answers a tool call. An empty result has no content at
+// all, since the API rejects an empty text block.
+func toolResultBlock(m scenario.Message) anthropic.ContentBlockParamUnion {
+	text := m.Text()
+	if text != "" {
+		return anthropic.NewToolResultBlock(m.ToolCallID, text, m.IsError)
+	}
+	return anthropic.ContentBlockParamUnion{OfToolResult: &anthropic.ToolResultBlockParam{
+		ToolUseID: m.ToolCallID,
+		IsError:   anthropic.Bool(m.IsError),
+	}}
 }
 
 func contentBlocks(m scenario.Message) []anthropic.ContentBlockParamUnion {
@@ -80,7 +95,7 @@ func contentBlocks(m scenario.Message) []anthropic.ContentBlockParamUnion {
 			blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: p.URL}))
 		case p.Type == scenario.PartImage:
 			audioOnly = false
-			blocks = append(blocks, anthropic.NewImageBlockBase64(p.MediaType, base64.StdEncoding.EncodeToString(p.Data)))
+			blocks = append(blocks, anthropic.NewImageBlockBase64(imageMediaType(p), base64.StdEncoding.EncodeToString(p.Data)))
 		case p.Type == scenario.PartFile && p.MediaType == "application/pdf" && len(p.Data) > 0:
 			audioOnly = false
 			blocks = append(blocks, anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: base64.StdEncoding.EncodeToString(p.Data)}))
@@ -92,6 +107,19 @@ func contentBlocks(m scenario.Message) []anthropic.ContentBlockParamUnion {
 		blocks = append(blocks, anthropic.NewTextBlock("[audio message]"))
 	}
 	return blocks
+}
+
+// imageMediaType is the media type of an inline image: its own ("image/jpg"
+// read as "image/jpeg"), else sniffed from the bytes, as the API requires one.
+func imageMediaType(p scenario.Part) string {
+	switch mt := strings.ToLower(strings.TrimSpace(p.MediaType)); mt {
+	case "":
+		return http.DetectContentType(p.Data)
+	case "image/jpg":
+		return "image/jpeg"
+	default:
+		return mt
+	}
 }
 
 func toolInput(args string) any {
