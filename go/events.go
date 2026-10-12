@@ -280,8 +280,10 @@ func (b eventBase) textMessageContentPayload(ts int64, id, delta string) []byte 
 }
 
 // textMessageEndPayload builds TEXT_MESSAGE_END. The full AG-UI row is the
-// authoritative "message"; "content" repeats only plain-string content, so
-// audio (base64) never lands in the display content.
+// authoritative "message"; "content" is the display text: the string
+// content, or the concatenated text parts of a multipart message (the
+// transcript of an audio turn), so base64 never lands in it. It is omitted
+// when the message has no text.
 func (b eventBase) textMessageEndPayload(ts int64, row aguiRow, index int) []byte {
 	dst := b.begin(make([]byte, 0, 256+2*len(row.json)), EventTextMessageEnd, ts)
 	dst = append(dst, `,"messageId":`...)

@@ -94,15 +94,22 @@ func toolArgumentsString(args string) string {
 }
 
 // appendNormalizedParts appends AG-UI content for a part list: a single text
-// part collapses to its string, otherwise the (audio-translated) array.
+// part collapses to its string, otherwise the (audio-translated) array. It
+// also returns the concatenated text parts and whether there were any.
 func appendNormalizedParts(b []byte, parts []Part) ([]byte, string, bool) {
 	if len(parts) == 1 && parts[0].Type == PartText {
 		return jsjson.AppendString(b, parts[0].Text), parts[0].Text, true
 	}
 	b = append(b, '[')
+	var text strings.Builder
+	hasText := false
 	for i, p := range parts {
 		if i > 0 {
 			b = append(b, ',')
+		}
+		if p.Type == PartText {
+			text.WriteString(p.Text)
+			hasText = true
 		}
 		if p.IsAudio() && p.URL == "" {
 			b = appendInputAudioPart(b, p)
@@ -110,7 +117,9 @@ func appendNormalizedParts(b []byte, parts []Part) ([]byte, string, bool) {
 		}
 		b = appendModelPart(b, p, false)
 	}
-	return append(b, ']'), "", false
+	// The display text of a multipart message is its text parts alone (the
+	// transcript of an audio turn), never media payloads.
+	return append(b, ']'), text.String(), hasText
 }
 
 // appendInputAudioPart writes an audio file part as an OpenAI input_audio

@@ -158,3 +158,41 @@ func TestStreamIsNilWhenGranularOff(t *testing.T) {
 		t.Fatal("stream must be nil in snapshot mode")
 	}
 }
+
+func TestAudioEndContentIsTheTranscript(t *testing.T) {
+	t.Parallel()
+	events := runEvents(t, true, audioAgent, User("say hi"), Agent(), Succeed())
+	for _, e := range events {
+		if e.Type != EventTextMessageEnd {
+			continue
+		}
+		p := decode(t, e.Payload)
+		msg := p["message"].(map[string]any)
+		if msg["role"] != "assistant" {
+			continue
+		}
+		if p["content"] != "hello there" {
+			t.Fatalf("END.content must be the text parts only, got %v", p["content"])
+		}
+		parts, ok := msg["content"].([]any)
+		if !ok || len(parts) != 2 || parts[1].(map[string]any)["type"] != "input_audio" {
+			t.Fatalf("END.message must keep the structured audio parts: %v", msg["content"])
+		}
+		return
+	}
+	t.Fatal("no assistant END")
+}
+
+func TestAudioOnlyEndOmitsContent(t *testing.T) {
+	t.Parallel()
+	audioOnly := AgentFunc(func(context.Context, AgentInput) (*AgentReturn, error) {
+		return MessageReturn(Message{Role: RoleAssistant, Parts: []Part{AudioPart("audio/wav", []byte("RIFF"))}}), nil
+	})
+	for _, e := range runEvents(t, true, audioOnly, User("x"), Agent(), Succeed()) {
+		if p := decode(t, e.Payload); e.Type == EventTextMessageEnd && p["role"] == "assistant" {
+			if _, has := p["content"]; has {
+				t.Fatalf("an audio-only END carries no content: %s", e.Payload)
+			}
+		}
+	}
+}
