@@ -103,8 +103,12 @@ var errNilInference = errors.New("the model returned neither a result nor an err
 // invoker calls an LLM and learns, per agent, which request features the
 // provider rejects: a forced tool choice or a temperature. On such an error
 // the call is retried once with the feature adapted, and later calls apply
-// the adaptation up front, like the JS SDK's createLLMInvoker.
+// the adaptation up front, like the JS SDK's createLLMInvoker. Every
+// attempt is recorded as an LLM span (see TraceInference).
 type invoker struct {
+	// role is the scenario role recorded on the model-call spans; the judge
+	// sets it so it can tell its own calls apart in the trace.
+	role            AgentRole
 	mu              sync.Mutex
 	relaxToolChoice bool
 	dropTemperature bool
@@ -126,7 +130,7 @@ func (iv *invoker) invoke(ctx context.Context, llm LLM, params InferenceParams) 
 	}
 	for {
 		adapted := iv.apply(params)
-		res, err := llm.Inference(ctx, adapted)
+		res, err := traceInference(ctx, llm, adapted, iv.role)
 		if err == nil {
 			if res == nil {
 				return nil, errNilInference

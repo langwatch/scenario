@@ -28,7 +28,7 @@ type UserSimulatorAgent struct {
 
 // NewUserSimulatorAgent returns a user simulator.
 func NewUserSimulatorAgent(cfg UserSimulatorAgentConfig) *UserSimulatorAgent {
-	return &UserSimulatorAgent{cfg: cfg}
+	return &UserSimulatorAgent{cfg: cfg, invoker: invoker{role: AgentRoleUser}}
 }
 
 // Role implements AgentAdapter.

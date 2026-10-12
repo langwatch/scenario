@@ -37,6 +37,8 @@ func toOpenAIMessage(m scenario.Message) openai.ChatCompletionMessageParamUnion 
 		}
 		return msg
 	case scenario.RoleTool:
+		// Chat completions has no error flag for a tool result; IsError is
+		// dropped and the text carries the failure.
 		return openai.ToolMessage(m.Text(), m.ToolCallID)
 	}
 	if len(m.Parts) == 0 {

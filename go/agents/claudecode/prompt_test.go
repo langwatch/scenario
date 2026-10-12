@@ -61,3 +61,16 @@ func TestHasRenderableContent(t *testing.T) {
 		}
 	}
 }
+
+func TestFailedToolResultsRenderAsErrorOutputs(t *testing.T) {
+	history := []scenario.Message{
+		{Role: scenario.RoleTool, ToolCallID: "a", ToolName: "Bash", Content: "exit 1", IsError: true},
+		{Role: scenario.RoleTool, ToolCallID: "b", ToolName: "Read", Content: `{"error":"missing"}`, IsError: true},
+	}
+	got := formatPrompt(history, toolNameResolver(history))
+	want := "tool: [tool-result: Bash -> {\"type\":\"error-text\",\"value\":\"exit 1\"}]\n\n" +
+		"tool: [tool-result: Read -> {\"type\":\"error-json\",\"value\":{\"error\":\"missing\"}}]"
+	if got != want {
+		t.Fatalf("prompt:\n%s\nwant:\n%s", got, want)
+	}
+}

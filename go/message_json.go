@@ -127,13 +127,28 @@ func appendToolResultPart(b []byte, m Message) []byte {
 	b = jsjson.AppendString(b, m.ToolName)
 	b = append(b, `,"output":`...)
 	if v, ok := toolOutputJSON(m.Text()); ok {
-		b = append(b, `{"type":"json","value":`...)
+		b = append(b, toolOutputType(m.IsError, "json")...)
 		b = jsjson.Append(b, v)
 	} else {
-		b = append(b, `{"type":"text","value":`...)
+		b = append(b, toolOutputType(m.IsError, "text")...)
 		b = jsjson.AppendString(b, m.Text())
 	}
 	return append(b, "}}"...)
+}
+
+// toolOutputType returns the opening of an AI SDK tool output of the kind
+// ("text" or "json"): {"type":"text","value": or, for a failed call,
+// {"type":"error-text","value":.
+func toolOutputType(isError bool, kind string) string {
+	switch {
+	case isError && kind == "json":
+		return `{"type":"error-json","value":`
+	case isError:
+		return `{"type":"error-text","value":`
+	case kind == "json":
+		return `{"type":"json","value":`
+	}
+	return `{"type":"text","value":`
 }
 
 // toolOutputJSON reports whether a tool result is a JSON object or array, the
