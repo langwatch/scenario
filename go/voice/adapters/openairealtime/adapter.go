@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coder/websocket"
 	scenario "github.com/langwatch/scenario/go"
 	"github.com/langwatch/scenario/go/voice"
 	"github.com/langwatch/scenario/go/voice/broker"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -115,7 +115,6 @@ func newTransport(o Options) *Transport {
 		instructions:        o.Instructions,
 		tools:               o.Tools,
 		httpClient:          o.HTTPClient,
-		dial:                o.Dial,
 		logger:              o.Logger,
 		UserTurnTailTimeout: o.UserTurnTailTimeout,
 	}
@@ -141,11 +140,12 @@ func newTransport(o Options) *Transport {
 	if !o.NoMint {
 		t.mint = broker.ResolveEndpoint(o.Mint)
 	}
-	if t.dial == nil {
+	if o.Dial != nil {
+		t.dial = coderDial(o.Dial)
+	} else {
 		client := t.httpClient
-		t.dial = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, error) {
-			c, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client, HTTPHeader: header})
-			return c, err
+		t.dial = func(ctx context.Context, url string, header http.Header) (wsconn.Conn, error) {
+			return wsconn.Dial(ctx, url, wsconn.DialOptions{HTTPClient: client, Header: header})
 		}
 	}
 	return t

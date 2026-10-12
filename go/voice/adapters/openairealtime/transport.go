@@ -1,7 +1,6 @@
 package openairealtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +14,7 @@ import (
 	"github.com/langwatch/scenario/go/voice"
 	"github.com/langwatch/scenario/go/voice/broker"
 	"github.com/langwatch/scenario/go/voice/internal/eventq"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -35,8 +35,23 @@ var (
 )
 
 // DialFunc opens the Realtime WebSocket. header carries the Authorization
-// bearer.
+// bearer. A custom DialFunc's coder/websocket connection is used as is; the
+// default dial uses the SDK's allocation-free WebSocket.
 type DialFunc func(ctx context.Context, url string, header http.Header) (*websocket.Conn, error)
+
+// dialFunc is the dial the transport runs, over either implementation.
+type dialFunc func(ctx context.Context, url string, header http.Header) (wsconn.Conn, error)
+
+// coderDial adapts a public DialFunc.
+func coderDial(d DialFunc) dialFunc {
+	return func(ctx context.Context, url string, header http.Header) (wsconn.Conn, error) {
+		c, err := d(ctx, url, header)
+		if err != nil {
+			return nil, err
+		}
+		return wsconn.FromCoder(c), nil
+	}
+}
 
 // Transport speaks the OpenAI Realtime wire protocol: it is the
 // voice.Transport behind an [Adapter]. Use it directly for adapter-level
@@ -52,7 +67,7 @@ type Transport struct {
 	url          string
 	mint         *broker.Endpoint
 	httpClient   *http.Client
-	dial         DialFunc
+	dial         dialFunc
 	logger       *slog.Logger
 
 	// UserTurnTailTimeout is the per-frame idle timeout ending a spoken user
@@ -60,7 +75,7 @@ type Transport struct {
 	UserTurnTailTimeout time.Duration
 
 	mu         sync.Mutex
-	conn       *websocket.Conn
+	conn       wsconn.Conn
 	events     *eventq.Queue[event]
 	closeErr   error
 	cancelRead context.CancelFunc
@@ -277,26 +292,23 @@ func (t *Transport) Disconnect(ctx context.Context) error {
 	t.mu.Unlock()
 	q.Clear()
 	q.Wake()
-	_ = conn.Close(websocket.StatusNormalClosure, "")
+	_ = conn.Close(wsconn.StatusNormalClosure, "")
 	cancel()
 	return nil
 }
 
 // readLoop decodes every inbound frame into the event queue until the
 // socket closes.
-func (t *Transport) readLoop(ctx context.Context, conn *websocket.Conn, q *eventq.Queue[event]) {
-	var buf bytes.Buffer
+func (t *Transport) readLoop(ctx context.Context, conn wsconn.Conn, q *eventq.Queue[event]) {
+	var buf []byte
 	for {
-		_, r, err := conn.Reader(ctx)
-		if err == nil {
-			buf.Reset()
-			_, err = buf.ReadFrom(r)
-		}
+		var err error
+		_, buf, err = conn.Read(ctx, buf[:0])
 		if err != nil {
 			t.socketClosed(conn, q, err)
 			return
 		}
-		ev, ok := decodeEvent(buf.Bytes())
+		ev, ok := decodeEvent(buf)
 		if !ok {
 			continue // a non-JSON frame is dropped
 		}
@@ -306,13 +318,13 @@ func (t *Transport) readLoop(ctx context.Context, conn *websocket.Conn, q *event
 }
 
 // socketClosed fails the receive loop of a socket that is still current.
-func (t *Transport) socketClosed(conn *websocket.Conn, q *eventq.Queue[event], err error) {
+func (t *Transport) socketClosed(conn wsconn.Conn, q *eventq.Queue[event], err error) {
 	t.mu.Lock()
 	if t.conn != conn {
 		t.mu.Unlock()
 		return
 	}
-	if websocket.CloseStatus(err) != -1 || errors.Is(err, context.Canceled) {
+	if wsconn.IsClosed(err) || errors.Is(err, context.Canceled) {
 		err = errSocketClosed
 	} else {
 		err = fmt.Errorf("%s: %w", className, err)
@@ -357,7 +369,7 @@ func (t *Transport) reportUsage(ctx context.Context) {
 
 // ---------------------------------------------------------------------- I/O
 
-func (t *Transport) current() (*websocket.Conn, *eventq.Queue[event], error) {
+func (t *Transport) current() (wsconn.Conn, *eventq.Queue[event], error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.conn == nil {
@@ -371,7 +383,7 @@ func (t *Transport) write(ctx context.Context, b []byte) error {
 	if err != nil {
 		return err
 	}
-	return conn.Write(ctx, websocket.MessageText, b)
+	return conn.Write(ctx, wsconn.MessageText, b)
 }
 
 func (t *Transport) writeJSON(ctx context.Context, v any) error {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/coder/websocket"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 )
 
 // A real inbound Twilio media frame: 20 ms of µ-law with Twilio's metadata.
@@ -75,6 +76,45 @@ func BenchmarkWebSocketRoundTrip(b *testing.B) {
 	server := <-got
 	defer server.CloseNow()
 	cw := NewWSConn(client)
+	var p Parser
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := cw.WriteText(ctx, twilioMediaFrame); err != nil {
+			b.Fatal(err)
+		}
+		data, _, err := server.ReadFrame(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, ok := p.Parse(data); !ok {
+			b.Fatal("parse")
+		}
+	}
+}
+
+// BenchmarkNativeRoundTrip is BenchmarkWebSocketRoundTrip over the SDK's
+// own WebSocket, which the adapters now use: it must report 0 allocs/op.
+func BenchmarkNativeRoundTrip(b *testing.B) {
+	got := make(chan *WSConn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := wsconn.Accept(w, r, wsconn.AcceptOptions{})
+		if err != nil {
+			return
+		}
+		got <- NewConn(c)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client, err := wsconn.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), wsconn.DialOptions{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer client.CloseNow()
+	server := <-got
+	defer server.CloseNow()
+	cw := NewConn(client)
 	var p Parser
 	b.ReportAllocs()
 	for b.Loop() {

@@ -333,3 +333,78 @@ func TestEmbeddedSocketIsClosedAfterAStopFrame(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestAcceptStreamOnARawConnection is TestAcceptConnOnARawConnection
+// through AcceptStream, which runs the stream on the SDK's own WebSocket.
+func TestAcceptStreamOnARawConnection(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan *Adapter, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		a, err := AcceptStream(conn, nil, nil, StreamOptions{})
+		if err != nil {
+			t.Errorf("AcceptStream: %v", err)
+			return
+		}
+		got <- a
+	}()
+	dialFakeTwilio(t, "ws://"+ln.Addr().String()+"/twilio/stream", start695("MZnat", "CAnat"))
+	a := <-got
+	if err := a.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Disconnect(context.Background())
+	if a.CallSID() != "CAnat" {
+		t.Fatalf("call %q", a.CallSID())
+	}
+}
+
+// TestAcceptStreamOnAHijackedConnection keeps the bytes the http.Server
+// buffered past the request.
+func TestAcceptStreamOnAHijackedConnection(t *testing.T) {
+	got := make(chan *Adapter, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, brw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		head, _ := brw.Reader.Peek(brw.Reader.Buffered())
+		a, err := AcceptStream(conn, r, head, StreamOptions{})
+		if err != nil {
+			t.Errorf("AcceptStream: %v", err)
+			return
+		}
+		got <- a
+	}))
+	defer srv.Close()
+	dialFakeTwilio(t, "ws"+strings.TrimPrefix(srv.URL, "http")+"/x", start695("MZnh", "CAnh"))
+	a := <-got
+	if err := a.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Disconnect(context.Background())
+	if a.CallSID() != "CAnh" {
+		t.Fatalf("call %q", a.CallSID())
+	}
+}
+
+func TestAcceptStreamRejectsANonUpgrade(t *testing.T) {
+	server, client := net.Pipe()
+	defer client.Close()
+	errc := make(chan error, 1)
+	go func() { _, err := AcceptStream(server, nil, nil, StreamOptions{}); errc <- err }()
+	go func() { _, _ = client.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n")) }()
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	resp, _ := io.ReadAll(client)
+	if !strings.HasPrefix(string(resp), "HTTP/1.1 426") || <-errc == nil {
+		t.Fatalf("response %q", resp)
+	}
+}

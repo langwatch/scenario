@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/coder/websocket"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 )
 
 // Per-frame paths: the 20 ms microphone frame out, agent audio and pings in.
@@ -22,7 +23,7 @@ func BenchmarkEncodeUserAudioChunk(b *testing.B) {
 
 func BenchmarkNextPumpFrame(b *testing.B) {
 	tr := must(New(Options{AgentID: "a", APIKey: "k"}))
-	tr.conn, tr.open = &websocket.Conn{}, true // never written: only the frame is built
+	tr.conn, tr.open = wsconn.FromCoder(&websocket.Conn{}), true // never written: only the frame is built
 	speech := make([]byte, 50*pumpFrameBytes)
 	dst := make([]byte, 0, userAudioChunkLen(pumpFrameBytes))
 	b.ReportAllocs()

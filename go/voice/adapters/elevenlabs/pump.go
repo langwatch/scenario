@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/langwatch/scenario/go/voice"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -26,7 +26,7 @@ type pumpStats struct {
 }
 
 // runPump feeds one frame per tick until ctx ends.
-func (t *Transport) runPump(ctx context.Context, conn *websocket.Conn, done chan struct{}) {
+func (t *Transport) runPump(ctx context.Context, conn wsconn.Conn, done chan struct{}) {
 	defer close(done)
 	tick := time.NewTicker(pumpInterval)
 	defer tick.Stop()
@@ -41,7 +41,7 @@ func (t *Transport) runPump(ctx context.Context, conn *websocket.Conn, done chan
 		if !ok {
 			continue
 		}
-		if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
+		if err := conn.Write(ctx, wsconn.MessageText, msg); err != nil {
 			t.pumpWriteFailed(ctx, err)
 		}
 	}

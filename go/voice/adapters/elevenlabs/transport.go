@@ -5,16 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/langwatch/scenario/go/voice"
 	"github.com/langwatch/scenario/go/voice/internal/apihttp"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -49,7 +48,7 @@ type Transport struct {
 	silenceMsg []byte
 
 	mu   sync.Mutex
-	conn *websocket.Conn
+	conn wsconn.Conn
 	// open is false once the socket closed or failed.
 	open, stopping         bool
 	cancelPump, cancelRead context.CancelFunc
@@ -158,12 +157,12 @@ func (t *Transport) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("%s: encoding the handshake: %w", AdapterName, err)
 	}
-	conn, err := t.o.Dialer(ctx, wsURL)
+	conn, err := t.dial(ctx, wsURL)
 	if err != nil {
 		return fmt.Errorf("%s: opening the session: %w", AdapterName, err)
 	}
 	conn.SetReadLimit(maxMessageBytes)
-	if err := conn.Write(ctx, websocket.MessageText, init); err != nil {
+	if err := conn.Write(ctx, wsconn.MessageText, init); err != nil {
 		conn.CloseNow()
 		return fmt.Errorf("%s: sending the handshake: %w", AdapterName, err)
 	}
@@ -183,6 +182,19 @@ func (t *Transport) Connect(ctx context.Context) error {
 	go t.readLoop(readCtx, conn, readDone)
 	go t.runPump(pumpCtx, conn, pumpDone)
 	return nil
+}
+
+// dial opens the session socket: through the caller's Dialer when one is
+// set, else on the SDK's own WebSocket over the HTTP client.
+func (t *Transport) dial(ctx context.Context, url string) (wsconn.Conn, error) {
+	if t.o.Dialer != nil {
+		c, err := t.o.Dialer(ctx, url)
+		if err != nil {
+			return nil, err
+		}
+		return wsconn.FromCoder(c), nil
+	}
+	return wsconn.Dial(ctx, url, wsconn.DialOptions{HTTPClient: t.o.HTTPClient})
 }
 
 // signedURL mints the session URL of the (private) agent and appends the
@@ -253,7 +265,7 @@ func (t *Transport) Disconnect(ctx context.Context) error {
 	if conn != nil {
 		<-pumpDone
 		// Best effort: a half-closed session may refuse the close handshake.
-		if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+		if err := conn.Close(wsconn.StatusNormalClosure, ""); err != nil {
 			conn.CloseNow()
 		}
 		cancelRead()
@@ -290,7 +302,7 @@ func (t *Transport) sendText(ctx context.Context, eventType, text string) error 
 	if !ok {
 		return ErrNotConnected
 	}
-	return conn.Write(ctx, websocket.MessageText, msg)
+	return conn.Write(ctx, wsconn.MessageText, msg)
 }
 
 // ------------------------------------------------------------ transcripts
@@ -353,12 +365,12 @@ func (t *Transport) stampConversationIDLocked(span trace.Span) {
 // ---------------------------------------------------------------- reading
 
 // readLoop routes every server message until the socket closes.
-func (t *Transport) readLoop(ctx context.Context, conn *websocket.Conn, done chan struct{}) {
+func (t *Transport) readLoop(ctx context.Context, conn wsconn.Conn, done chan struct{}) {
 	defer close(done)
 	var rs readState
 	for {
 		var err error
-		rs.buf, err = readMessage(ctx, conn, rs.buf[:0])
+		_, rs.buf, err = conn.Read(ctx, rs.buf[:0])
 		if err != nil {
 			t.sessionEnded(err)
 			return
@@ -379,34 +391,13 @@ type readState struct {
 	frame     inboundFrame
 }
 
-// readMessage reads one message into dst, reusing its capacity.
-func readMessage(ctx context.Context, conn *websocket.Conn, dst []byte) ([]byte, error) {
-	_, r, err := conn.Reader(ctx)
-	if err != nil {
-		return dst, err
-	}
-	for {
-		if len(dst) == cap(dst) {
-			dst = append(dst, 0)[:len(dst)]
-		}
-		n, err := r.Read(dst[len(dst):cap(dst)])
-		dst = dst[:len(dst)+n]
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return dst, nil
-			}
-			return dst, err
-		}
-	}
-}
-
 // sessionEnded handles the socket closing (or failing): the pump stops and
 // waiting receivers get an empty chunk so the drain exits instead of
 // hanging.
 func (t *Transport) sessionEnded(err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.stopping && websocket.CloseStatus(err) == -1 {
+	if !t.stopping && wsconn.CloseStatus(err) == -1 {
 		t.o.Logger.Warn(AdapterName + ": session error: " + err.Error())
 	}
 	t.open = false
@@ -416,7 +407,7 @@ func (t *Transport) sessionEnded(err error) {
 
 // handleMessage routes one server message the way the SDK's Conversation
 // does, then runs the adapter's own per-message hook.
-func (t *Transport) handleMessage(ctx context.Context, conn *websocket.Conn, rs *readState) {
+func (t *Transport) handleMessage(ctx context.Context, conn wsconn.Conn, rs *readState) {
 	data, f := rs.buf, &rs.frame
 	if !parseFrame(data, f) {
 		t.o.Logger.Error("Error parsing WebSocket message", "bytes", len(data))
@@ -429,7 +420,7 @@ func (t *Transport) handleMessage(ctx context.Context, conn *websocket.Conn, rs 
 		}
 	case evPing:
 		rs.pong = appendPong(rs.pong[:0], f.eventID)
-		_ = conn.Write(ctx, websocket.MessageText, rs.pong)
+		_ = conn.Write(ctx, wsconn.MessageText, rs.pong)
 	case evInterruption:
 		id, ok := parseEventID(f.eventID)
 		t.mu.Lock()
@@ -472,7 +463,7 @@ func (t *Transport) onAudio(f *inboundFrame) bool {
 
 // replyToClientTool answers a client tool call the way the SDK does when no
 // handler is registered for it.
-func (t *Transport) replyToClientTool(ctx context.Context, conn *websocket.Conn, data []byte) {
+func (t *Transport) replyToClientTool(ctx context.Context, conn wsconn.Conn, data []byte) {
 	var ev struct {
 		ClientToolCall struct {
 			ToolName   string          `json:"tool_name"`
@@ -484,7 +475,7 @@ func (t *Transport) replyToClientTool(ctx context.Context, conn *websocket.Conn,
 	}
 	msg, err := encodeUnregisteredToolResult(ev.ClientToolCall.ToolName, ev.ClientToolCall.ToolCallID)
 	if err == nil {
-		_ = conn.Write(ctx, websocket.MessageText, msg)
+		_ = conn.Write(ctx, wsconn.MessageText, msg)
 	}
 }
 
