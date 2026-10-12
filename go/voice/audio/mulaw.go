@@ -19,16 +19,27 @@ type mulawTables struct {
 	encode [1 << 16]uint8
 }
 
-var mulawLUT = sync.OnceValue(func() *mulawTables {
-	t := new(mulawTables)
-	for b := range 256 {
-		t.decode[b] = mulawDecodeSlow(uint8(b))
-	}
-	for v := range 1 << 16 {
-		t.encode[v] = mulawEncodeSlow(int16(uint16(v)))
-	}
-	return t
-})
+var (
+	mulawOnce sync.Once
+	mulawLUTs *mulawTables
+)
+
+// mulawLUT returns the tables, building them on first use. A plain
+// sync.Once (rather than sync.OnceValue) keeps package initialisation free
+// of allocations.
+func mulawLUT() *mulawTables {
+	mulawOnce.Do(func() {
+		t := new(mulawTables)
+		for b := range 256 {
+			t.decode[b] = mulawDecodeSlow(uint8(b))
+		}
+		for v := range 1 << 16 {
+			t.encode[v] = mulawEncodeSlow(int16(uint16(v)))
+		}
+		mulawLUTs = t
+	})
+	return mulawLUTs
+}
 
 // mulawEncodeSlow is the ITU-T G.711 reference encode formula, identical to
 // Python's audioop.lin2ulaw and the JavaScript SDK. Used to build the table.
