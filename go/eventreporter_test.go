@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -129,5 +130,36 @@ func TestEnvFlagParsing(t *testing.T) {
 		if envFlag("SCENARIO_TEST_FLAG") != want {
 			t.Errorf("%q", v)
 		}
+	}
+}
+
+// When the drain gives up on an unreachable or hanging endpoint, the
+// delivery goroutine stops promptly instead of retrying the queued events
+// for minutes after the run returned.
+func TestEventBusStopsDeliveringWhenTheDrainTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	hanging := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(func() { close(release); hanging.Close() })
+	refused := httptest.NewServer(http.NotFoundHandler())
+	refused.Close()
+	for name, endpoint := range map[string]string{"hanging": hanging.URL, "refused": refused.URL} {
+		t.Run(name, func(t *testing.T) {
+			r := newEventReporter(LangWatchConfig{Endpoint: endpoint, APIKey: "k"})
+			bus := newEventBus((&eventDelivery{reporter: r}).deliver)
+			for i := 1; i <= 20; i++ {
+				bus.publish(testEvent(i))
+			}
+			bus.drain(200 * time.Millisecond)
+			select {
+			case <-bus.done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("the delivery goroutine kept posting after the drain timed out")
+			}
+		})
 	}
 }
