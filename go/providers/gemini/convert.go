@@ -115,15 +115,11 @@ func fromGeminiCandidate(c *genai.Candidate) scenario.Message {
 			texts = append(texts, part.Text)
 		}
 		if fc := part.FunctionCall; fc != nil {
-			args, err := json.Marshal(fc.Args)
-			if err != nil || fc.Args == nil {
-				args = []byte("{}")
-			}
 			id := fc.ID
 			if id == "" {
 				id = fc.Name + "_" + strconv.Itoa(i)
 			}
-			out.ToolCalls = append(out.ToolCalls, scenario.ToolCall{ID: id, Name: fc.Name, Arguments: string(args)})
+			out.ToolCalls = append(out.ToolCalls, scenario.ToolCall{ID: id, Name: fc.Name, Arguments: argsJSON(fc.Args)})
 		}
 	}
 	out.Content = strings.Join(texts, "\n")
@@ -158,6 +154,15 @@ func toGeminiToolConfig(tc *scenario.ToolChoice) *genai.ToolConfig {
 		fc.AllowedFunctionNames = []string{tc.ToolName}
 	}
 	return &genai.ToolConfig{FunctionCallingConfig: fc}
+}
+
+// argsJSON encodes function call arguments, "{}" when there are none.
+func argsJSON(args map[string]any) string {
+	enc, err := json.Marshal(args)
+	if err != nil || args == nil {
+		return "{}"
+	}
+	return string(enc)
 }
 
 // unknownToolName names a tool result whose call is not in the history,

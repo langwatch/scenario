@@ -21,6 +21,20 @@ func NewProvider(client *genai.Client) *Provider {
 
 // Inference calls generateContent.
 func (p *Provider) Inference(ctx context.Context, params scenario.InferenceParams) (*scenario.InferenceResult, error) {
+	contents, cfg := toRequest(params)
+	resp, err := p.Client.Models.GenerateContent(ctx, params.Model, contents, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || len(resp.Candidates) == 0 {
+		return nil, errors.New("no response candidates from Gemini")
+	}
+	return &scenario.InferenceResult{Message: fromGeminiCandidate(resp.Candidates[0]), Usage: usageOf(resp.UsageMetadata)}, nil
+}
+
+// toRequest converts scenario inference params to generateContent contents
+// and config.
+func toRequest(params scenario.InferenceParams) ([]*genai.Content, *genai.GenerateContentConfig) {
 	system, rest := splitSystem(params.Messages)
 	cfg := &genai.GenerateContentConfig{SystemInstruction: system}
 	if params.Temperature != nil {
@@ -35,16 +49,12 @@ func (p *Provider) Inference(ctx context.Context, params scenario.InferenceParam
 	if params.ToolChoice != nil {
 		cfg.ToolConfig = toGeminiToolConfig(params.ToolChoice)
 	}
-	resp, err := p.Client.Models.GenerateContent(ctx, params.Model, ToGeminiContents(rest), cfg)
-	if err != nil {
-		return nil, err
+	return ToGeminiContents(rest), cfg
+}
+
+func usageOf(u *genai.GenerateContentResponseUsageMetadata) *scenario.Usage {
+	if u == nil {
+		return nil
 	}
-	if resp == nil || len(resp.Candidates) == 0 {
-		return nil, errors.New("no response candidates from Gemini")
-	}
-	res := &scenario.InferenceResult{Message: fromGeminiCandidate(resp.Candidates[0])}
-	if u := resp.UsageMetadata; u != nil {
-		res.Usage = &scenario.Usage{InputTokens: int64(u.PromptTokenCount), OutputTokens: int64(u.CandidatesTokenCount)}
-	}
-	return res, nil
+	return &scenario.Usage{InputTokens: int64(u.PromptTokenCount), OutputTokens: int64(u.CandidatesTokenCount)}
 }
