@@ -27,9 +27,10 @@ func splitSystem(msgs []scenario.Message) (*genai.Content, []scenario.Message) {
 
 // ToGeminiContents converts scenario messages to Gemini contents. Text,
 // inline images, audio (raw PCM16 wrapped in WAV) and files become parts;
-// tool results answer the function by name, resolved from the call id.
+// tool results answer the function by name, resolved from the call id
+// (tool results built with scenario.ToolMsg carry no name).
 func ToGeminiContents(msgs []scenario.Message) []*genai.Content {
-	names := map[string]string{}
+	names := toolNamesByCallID(msgs)
 	out := make([]*genai.Content, 0, len(msgs))
 	add := func(role genai.Role, parts []*genai.Part) {
 		if len(parts) == 0 {
@@ -48,18 +49,13 @@ func ToGeminiContents(msgs []scenario.Message) []*genai.Content {
 		case scenario.RoleAssistant:
 			parts := contentParts(m)
 			for _, tc := range m.ToolCalls {
-				names[tc.ID] = tc.Name
 				part := genai.NewPartFromFunctionCall(tc.Name, argsMap(tc.Arguments))
 				part.FunctionCall.ID = tc.ID
 				parts = append(parts, part)
 			}
 			add(genai.RoleModel, parts)
 		case scenario.RoleTool:
-			name := m.ToolName
-			if name == "" {
-				name = names[m.ToolCallID]
-			}
-			part := genai.NewPartFromFunctionResponse(name, responseMap(m.Text()))
+			part := genai.NewPartFromFunctionResponse(resultToolName(m, names), responseMap(m.Text()))
 			part.FunctionResponse.ID = m.ToolCallID
 			add(genai.RoleUser, []*genai.Part{part})
 		}
@@ -162,4 +158,33 @@ func toGeminiToolConfig(tc *scenario.ToolChoice) *genai.ToolConfig {
 		fc.AllowedFunctionNames = []string{tc.ToolName}
 	}
 	return &genai.ToolConfig{FunctionCallingConfig: fc}
+}
+
+// unknownToolName names a tool result whose call is not in the history,
+// since Gemini rejects a function response without a name.
+const unknownToolName = "unknown_tool"
+
+// toolNamesByCallID maps the id of every assistant tool call to its name.
+func toolNamesByCallID(msgs []scenario.Message) map[string]string {
+	names := map[string]string{}
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			if tc.ID != "" && tc.Name != "" {
+				names[tc.ID] = tc.Name
+			}
+		}
+	}
+	return names
+}
+
+// resultToolName is the function a tool result answers: its own ToolName,
+// else the name of the call with its ToolCallID.
+func resultToolName(m scenario.Message, names map[string]string) string {
+	if m.ToolName != "" {
+		return m.ToolName
+	}
+	if name := names[m.ToolCallID]; name != "" {
+		return name
+	}
+	return unknownToolName
 }
