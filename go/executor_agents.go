@@ -135,8 +135,7 @@ func (ex *Executor) transformUserTurn(ctx context.Context, producer AgentAdapter
 // addMessage stores m (with id when given), reports it to the emitter and
 // broadcasts it to every agent but the sender.
 func (ex *Executor) addMessage(m Message, id string, from int, stream *MessageStream) Message {
-	stored, index := ex.state.add(m, id)
-	ex.emitter.messageAdded(stored, index, stream)
+	stored := ex.emitter.messageAdded(func() (Message, int) { return ex.state.add(m, id) }, stream)
 	ex.mu.Lock()
 	for i := range ex.pendingMessages {
 		if i != from {
