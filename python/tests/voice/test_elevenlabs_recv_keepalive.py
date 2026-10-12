@@ -393,3 +393,333 @@ async def test_recv_audio_endless_pings_report_the_absolute_ceiling(monkeypatch)
     assert "kept sending frames, keepalive pings or transcripts, but never audio" in message
     assert "response_timeout" in message
     assert "The idle deadline" not in message
+
+
+# ---------------------------------------------------------------------------
+# Tail probe after the agent has spoken
+#
+# Binds the "The turn ends when the agent's audio stops" group of
+# ``specs/voice-receive-timeout-diagnosis.feature``, with scaled-down timings.
+#
+# Once the agent's audio for a turn has arrived, the drain probes with the short
+# ``response_tail_silence`` timeout to find where the turn ends. Pings,
+# ``vad_score``, ``context_usage`` and text parts are not speech; when they
+# re-armed that probe, an agent sending them steadily never looked quiet and
+# every turn ended on the 45s ceiling instead (a customer report: ~45s pause
+# after every agent turn, greeting included).
+# ---------------------------------------------------------------------------
+
+TAIL_TIMEOUT = 0.10      # stand-in for response_tail_silence
+QUIET_FRAME_GAP = 0.03   # < TAIL_TIMEOUT: these frames WOULD re-arm a liveness wait
+
+QUIET_AGENT_FRAMES = [
+    {"type": "ping", "ping_event": {"event_id": 7, "ping_ms": 5}},
+    {"type": "vad_score", "vad_score_event": {"vad_score": 0.02}},
+    {"type": "context_usage", "context_usage_event": {"used": 120}},
+    {"type": "agent_chat_response_part", "text_response_part": {"text": "", "type": "stop"}},
+]
+
+
+def _make_scripted_ws(script: list[dict], then: dict) -> AsyncMock:
+    """A mock WS that serves ``script`` frames in order, then ``then`` forever,
+    each preceded by a :data:`QUIET_FRAME_GAP` sleep."""
+    queue = list(script)
+
+    async def fake_recv():
+        await asyncio.sleep(QUIET_FRAME_GAP)
+        return json.dumps(queue.pop(0) if queue else then)
+
+    mock_ws = AsyncMock()
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+    return mock_ws
+
+
+def _audio_frame() -> dict:
+    return {"type": "audio", "audio_event": {"audio_base_64": base64.b64encode(b"\x12\x34" * 8).decode()}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("frame", QUIET_AGENT_FRAMES, ids=lambda f: f["type"])
+async def test_tail_probe_ends_on_audio_silence_despite_quiet_frames(monkeypatch, frame):
+    """After the agent spoke, a steady stream of non-audio frames must not hold
+    the tail probe open until the ceiling."""
+    monkeypatch.setattr(elevenlabs_module, "KEEPALIVE_HARD_CEILING_S", 2.0)
+
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_scripted_ws([_audio_frame()], then=frame)
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            first = await adapter.recv_audio(timeout=1.0)
+            assert first.data
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+            with pytest.raises(asyncio.TimeoutError) as excinfo:
+                await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+            waited = loop.time() - started
+        finally:
+            await adapter.disconnect()
+
+    assert f"The idle deadline of {TAIL_TIMEOUT:g}s elapsed" in str(excinfo.value)
+    assert waited < 1.0, f"tail probe held open {waited:.2f}s by {frame['type']} frames"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_tail_probe_stays_open_while_agent_tool_runs(monkeypatch):
+    """A server tool the agent started after speaking keeps the turn open until
+    its response; the agent's next audio then arrives in the same turn."""
+    monkeypatch.setattr(elevenlabs_module, "KEEPALIVE_HARD_CEILING_S", 2.0)
+    ping = QUIET_AGENT_FRAMES[0]
+    script = (
+        [_audio_frame(), {"type": "agent_tool_request", "agent_tool_request": {"tool_name": "lookup"}}]
+        + [ping] * 10  # 10 * 0.03s = 0.3s of tool time, > TAIL_TIMEOUT
+        + [{"type": "agent_tool_response", "agent_tool_response": {"tool_name": "lookup"}}, _audio_frame()]
+    )
+
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_scripted_ws(script, then=ping)
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            second = await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+        finally:
+            await adapter.disconnect()
+
+    assert second.data, "turn cut while the agent's tool was running"
+
+
+TOOL_REQUEST = {"type": "agent_tool_request", "agent_tool_request": {"tool_name": "lookup"}}
+TOOL_RESPONSE = {"type": "agent_tool_response", "agent_tool_response": {"tool_name": "lookup"}}
+
+
+def _make_timed_ws(script: list[tuple[float, dict]], then: dict) -> AsyncMock:
+    """A mock WS that serves each ``(gap_s, frame)`` after sleeping ``gap_s``,
+    then ``then`` forever every :data:`QUIET_FRAME_GAP`."""
+    queue = list(script)
+
+    async def fake_recv():
+        gap, frame = queue.pop(0) if queue else (QUIET_FRAME_GAP, then)
+        await asyncio.sleep(gap)
+        return json.dumps(frame)
+
+    mock_ws = AsyncMock()
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+    return mock_ws
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_tail_probe_stays_open_through_a_silent_tool():
+    """A tool that runs with no frames at all on the wire, longer than the tail
+    probe, does not end the turn: the tool request alone holds it open."""
+    script = [
+        (0.0, _audio_frame()),
+        (0.0, TOOL_REQUEST),
+        (TAIL_TIMEOUT * 5, TOOL_RESPONSE),  # nothing on the wire while it runs
+        (0.0, _audio_frame()),
+    ]
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_timed_ws(script, then=QUIET_AGENT_FRAMES[0])
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            second = await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+        finally:
+            await adapter.disconnect()
+
+    assert second.data, "silent tool cut by the tail probe"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_tail_probe_waits_for_the_post_tool_answer():
+    """The spoken answer arrives later than the tail probe after the tool
+    answered, with pings meanwhile. Tool completion is not speech completion,
+    so the turn stays open for it."""
+    ping = QUIET_AGENT_FRAMES[0]
+    gap = TAIL_TIMEOUT / 3
+    script = (
+        [(0.0, _audio_frame()), (0.0, TOOL_REQUEST), (gap, TOOL_RESPONSE)]
+        + [(gap, ping)] * 9  # 9 * gap = 3 * TAIL_TIMEOUT of answer generation
+        + [(gap, _audio_frame())]
+    )
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_timed_ws(script, then=ping)
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            answer = await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+        finally:
+            await adapter.disconnect()
+
+    assert answer.data, "turn cut before the post-tool answer"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_tail_probe_returns_once_the_post_tool_answer_started():
+    """Once the post-tool answer is audible, quiet frames stop holding the turn
+    open again: it ends on the tail probe."""
+    script = [(0.0, _audio_frame()), (0.0, TOOL_REQUEST), (0.0, TOOL_RESPONSE), (0.0, _audio_frame())]
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_timed_ws(script, then=QUIET_AGENT_FRAMES[0])
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            assert (await adapter.recv_audio(timeout=TAIL_TIMEOUT)).data
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+            with pytest.raises(asyncio.TimeoutError) as excinfo:
+                await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+            waited = loop.time() - started
+        finally:
+            await adapter.disconnect()
+
+    assert f"The idle deadline of {TAIL_TIMEOUT:g}s elapsed" in str(excinfo.value)
+    assert waited < 1.0, f"tail probe held open {waited:.2f}s after the post-tool answer"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_post_tool_wait_is_bounded_when_the_agent_never_speaks(monkeypatch):
+    """A tool answers and the agent never speaks again: the wait still ends, on
+    the absolute ceiling."""
+    monkeypatch.setattr(elevenlabs_module, "KEEPALIVE_HARD_CEILING_S", HARD_CEILING * 4)
+    script = [(0.0, _audio_frame()), (0.0, TOOL_REQUEST), (0.0, TOOL_RESPONSE)]
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_timed_ws(script, then=QUIET_AGENT_FRAMES[0])
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            with pytest.raises(asyncio.TimeoutError) as excinfo:
+                await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+        finally:
+            await adapter.disconnect()
+
+    assert f"The absolute ceiling of {HARD_CEILING * 4:g}s elapsed" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_ceiling_end_logs_the_frame_types_that_held_the_wait(monkeypatch, caplog):
+    """A recv that ends on the ceiling names what kept it open."""
+    # 0.27s of slack between pings (0.03s apart) and the 0.3s idle wait, so a
+    # loaded host stalling the loop does not end the wait as idle instead.
+    monkeypatch.setattr(elevenlabs_module, "KEEPALIVE_HARD_CEILING_S", 0.6)
+
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_endless_pinging_ws()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            with caplog.at_level("WARNING", logger="scenario.voice.elevenlabs"):
+                with pytest.raises(asyncio.TimeoutError):
+                    await adapter.recv_audio(timeout=0.3)
+        finally:
+            await adapter.disconnect()
+
+    warnings = [r.getMessage() for r in caplog.records if "absolute ceiling" in r.getMessage()]
+    assert warnings, "no ceiling warning logged"
+    warning = warnings[0]
+    assert "'end': 'ceiling'" in warning
+    assert "'frames_by_type': {'ping':" in warning
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_tail_probe_resolves_with_more_agent_audio():
+    """More agent audio inside the tail probe is the turn continuing: the probe
+    returns it rather than ending the turn."""
+    # 0.25s of slack between the next chunk and the probe's deadline, so a
+    # loaded host stalling the loop cannot end the probe first.
+    script = [(0.0, _audio_frame()), (0.05, _audio_frame())]
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_timed_ws(script, then=QUIET_AGENT_FRAMES[0])
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            more = await adapter.recv_audio(timeout=0.3)
+        finally:
+            await adapter.disconnect()
+
+    assert more.data, "tail probe dropped the agent's next audio chunk"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_new_user_turn_lets_pings_rearm_the_wait_again():
+    """After the user sends the next turn, the agent has not spoken yet, so a
+    slow-but-pinging agent keeps the wait open again until it answers."""
+    ping = QUIET_AGENT_FRAMES[0]
+    wait = 0.3  # 0.27s of slack over the ping gap, so a loop stall cannot end it
+    script = (
+        [(0.0, _audio_frame())]
+        + [(QUIET_FRAME_GAP, ping)] * 20  # 20 * 0.03s = 2 * wait of pings only
+        + [(QUIET_FRAME_GAP, _audio_frame())]
+    )
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_timed_ws(script, then=ping)
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            await adapter.send_audio(AudioChunk(data=b"\x00" * 960))
+            answer = await adapter.recv_audio(timeout=wait)
+        finally:
+            await adapter.disconnect()
+
+    assert answer.data, "pre-response wait cut despite pings"
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(5)
+async def test_deadline_end_stamps_the_wait_diagnosis_on_the_receive_span():
+    """A recv that ends on a deadline stamps how it ended, how long it waited,
+    how late the deadline fired and the frame counts onto the active span."""
+    from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+
+    tracer = TracerProvider().get_tracer("test")
+    script = [(0.0, _audio_frame())]
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    mock_ws = _make_timed_ws(script, then=QUIET_AGENT_FRAMES[0])
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        try:
+            assert (await adapter.recv_audio(timeout=1.0)).data
+            with tracer.start_as_current_span("voice.audio.receive") as span:
+                with pytest.raises(asyncio.TimeoutError):
+                    await adapter.recv_audio(timeout=TAIL_TIMEOUT)
+        finally:
+            await adapter.disconnect()
+
+    assert isinstance(span, ReadableSpan)
+    attrs = dict(span.attributes or {})
+    waited_ms = attrs["voice.elevenlabs.receive_wait_ms"]
+    late_ms = attrs["voice.elevenlabs.receive_wait_late_ms"]
+    frames = attrs["voice.elevenlabs.receive_wait_frames"]
+    assert attrs["voice.elevenlabs.receive_wait_end"] == "idle"
+    assert isinstance(waited_ms, int) and waited_ms >= TAIL_TIMEOUT * 1000
+    assert isinstance(late_ms, int) and late_ms >= 0
+    assert isinstance(frames, str) and json.loads(frames)["ping"] >= 1

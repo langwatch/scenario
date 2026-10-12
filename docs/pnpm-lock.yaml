@@ -19,6 +19,7 @@ overrides:
   '@hono/node-server@>=1.0.0 <1.19.15': '>=1.19.15 <2'
   glob@>=10.2.0 <10.5.0: 10.5.0
   dompurify@>=3.0.0 <3.4.16: '>=3.4.16 <4'
+  compression@<1.8.2: '>=1.8.2 <2'
   mermaid@>=11.0.0 <11.16.1: '>=11.16.1 <12'
   uuid@<11.1.1: '>=11.1.1 <12'
   brace-expansion@>=5.0.0 <5.0.12: '>=5.0.12 <6'
@@ -2396,8 +2397,8 @@ packages:
     resolution: {integrity: sha512-AF3r7P5dWxL8MxyITRMlORQNaOA2IkAFaTr4k7BUumjPtRpGDTZpl0Pb1XCO6JeDCBdp126Cgs9sMxqSjgYyRg==}
     engines: {node: '>= 0.6'}
 
-  compression@1.8.1:
-    resolution: {integrity: sha512-9mAqGPHLakhCLeNyxPkK4xVo746zQ/czLH1Ky+vkitMnWfWZps8r0qXuwhwizagCRttsL4lfG4pIOvaWLpAP0w==}
+  compression@1.8.2:
+    resolution: {integrity: sha512-o8vI5RE5A6EVVOd9o41jKp41aJom+QTEO/Bx8MYNjexMo/Bv2WOjUfZr+aL0WnYSgymUy6zeguqLTsIhV0gMvQ==}
     engines: {node: '>= 0.8.0'}
 
   concat-map@0.0.1:
@@ -7319,11 +7320,12 @@ snapshots:
     dependencies:
       mime-db: 1.54.0
 
-  compression@1.8.1:
+  compression@1.8.2:
     dependencies:
       bytes: 3.1.2
       compressible: 2.0.18
       debug: 2.6.9
+      destroy: 1.2.0
       negotiator: 0.6.4
       on-headers: 1.1.0
       safe-buffer: 5.2.1
@@ -10640,7 +10642,7 @@ snapshots:
       cac: 6.7.14
       chroma-js: 3.2.0
       clsx: 2.1.1
-      compression: 1.8.1
+      compression: 1.8.2
       create-vocs: 1.0.0
       cross-spawn: 7.0.6
       fs-extra: 11.3.6
