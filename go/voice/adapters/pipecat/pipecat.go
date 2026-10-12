@@ -27,6 +27,7 @@ import (
 	"github.com/langwatch/scenario/go/voice"
 	"github.com/langwatch/scenario/go/voice/audio"
 	"github.com/langwatch/scenario/go/voice/internal/mediastream"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -55,7 +56,9 @@ type Options struct {
 	// StreamSID and CallSID are the synthetic Twilio SIDs of the handshake;
 	// generated per connection when empty.
 	StreamSID, CallSID string
-	// DialOptions configure the WebSocket dial (HTTP client, headers).
+	// DialOptions configure the WebSocket dial (HTTP client, headers, host,
+	// subprotocols). Compression or ping/pong callbacks make the dial go
+	// through coder/websocket instead of the SDK's own WebSocket.
 	DialOptions *websocket.DialOptions
 	// DisablePacing sends outbound frames back to back instead of at real
 	// time (20 ms each). Tests only: an unpaced utterance trips the bot's VAD.
@@ -185,11 +188,11 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	if connected {
 		return nil
 	}
-	ws, _, err := websocket.Dial(ctx, a.opts.URL, a.opts.DialOptions)
+	ws, err := wsconn.DialCoderOptions(ctx, a.opts.URL, a.opts.DialOptions)
 	if err != nil {
 		return fmt.Errorf("PipecatAgentAdapter: connecting to %s: %w", a.opts.URL, err)
 	}
-	conn := mediastream.NewWSConn(ws)
+	conn := mediastream.NewConn(ws)
 	streamSID, callSID := a.opts.StreamSID, a.opts.CallSID
 	if streamSID == "" {
 		streamSID = "MZ" + randomHex()

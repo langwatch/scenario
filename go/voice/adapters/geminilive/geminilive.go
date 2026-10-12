@@ -11,7 +11,6 @@
 package geminilive
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,6 +25,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/langwatch/scenario/go/voice"
 	"github.com/langwatch/scenario/go/voice/internal/eventq"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -52,8 +52,13 @@ const (
 
 var errNotConnected = errors.New(className + ": not connected")
 
-// DialFunc opens the Live WebSocket. header carries the API key.
+// DialFunc opens the Live WebSocket. header carries the API key. A custom
+// DialFunc's coder/websocket connection is used as is; the default dial
+// uses the SDK's allocation-free WebSocket.
 type DialFunc func(ctx context.Context, url string, header http.Header) (*websocket.Conn, error)
+
+// dialFunc is the dial the transport runs, over either implementation.
+type dialFunc func(ctx context.Context, url string, header http.Header) (wsconn.Conn, error)
 
 // Options configure an Adapter. Zero fields take the defaults.
 type Options struct {
@@ -106,11 +111,11 @@ type Transport struct {
 	systemInstruction string
 	apiKey            string
 	url               string
-	dial              DialFunc
+	dial              dialFunc
 	logger            *slog.Logger
 
 	mu        sync.Mutex
-	conn      *websocket.Conn
+	conn      wsconn.Conn
 	events    *eventq.Queue[item]
 	cancel    context.CancelFunc
 	connected bool
@@ -138,17 +143,23 @@ func NewTransport(o Options) *Transport {
 		systemInstruction: o.SystemInstruction,
 		apiKey:            firstNonEmpty(o.APIKey, os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY")),
 		url:               firstNonEmpty(o.URL, DefaultURL),
-		dial:              o.Dial,
 		logger:            o.Logger,
 	}
 	if t.logger == nil {
 		t.logger = slog.Default()
 	}
-	if t.dial == nil {
+	if d := o.Dial; d != nil {
+		t.dial = func(ctx context.Context, url string, header http.Header) (wsconn.Conn, error) {
+			c, err := d(ctx, url, header)
+			if err != nil {
+				return nil, err
+			}
+			return wsconn.FromCoder(c), nil
+		}
+	} else {
 		client := o.HTTPClient
-		t.dial = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, error) {
-			c, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client, HTTPHeader: header})
-			return c, err
+		t.dial = func(ctx context.Context, url string, header http.Header) (wsconn.Conn, error) {
+			return wsconn.Dial(ctx, url, wsconn.DialOptions{HTTPClient: client, Header: header})
 		}
 	}
 	return t
@@ -235,7 +246,7 @@ func (t *Transport) Connect(ctx context.Context) error {
 	conn.SetReadLimit(maxFrameBytes)
 	setup, err := json.Marshal(map[string]any{"setup": t.setup()})
 	if err == nil {
-		err = conn.Write(ctx, websocket.MessageText, setup)
+		err = conn.Write(ctx, wsconn.MessageText, setup)
 	}
 	if err != nil {
 		_ = conn.CloseNow()
@@ -293,39 +304,36 @@ func (t *Transport) Disconnect(context.Context) error {
 	t.mu.Unlock()
 	q.Clear()
 	q.Push(item{closed: true})
-	_ = conn.Close(websocket.StatusNormalClosure, "")
+	_ = conn.Close(wsconn.StatusNormalClosure, "")
 	cancel()
 	return nil
 }
 
 // readLoop queues every server message until the socket closes.
-func (t *Transport) readLoop(ctx context.Context, conn *websocket.Conn, q *eventq.Queue[item]) {
-	var buf bytes.Buffer
+func (t *Transport) readLoop(ctx context.Context, conn wsconn.Conn, q *eventq.Queue[item]) {
+	var buf []byte
 	for {
-		_, r, err := conn.Reader(ctx)
-		if err == nil {
-			buf.Reset()
-			_, err = buf.ReadFrom(r)
-		}
+		var err error
+		_, buf, err = conn.Read(ctx, buf[:0])
 		if err != nil {
 			t.mu.Lock()
 			current := t.conn == conn
 			t.mu.Unlock()
 			if current {
-				if websocket.CloseStatus(err) == -1 && !errors.Is(err, context.Canceled) {
+				if !wsconn.IsClosed(err) && !errors.Is(err, context.Canceled) {
 					q.Push(item{err: fmt.Errorf("%s: %w", className, err)})
 				}
 				q.Push(item{closed: true})
 			}
 			return
 		}
-		if m, ok := decodeServerMessage(buf.Bytes()); ok {
+		if m, ok := decodeServerMessage(buf); ok {
 			q.Push(item{msg: m})
 		}
 	}
 }
 
-func (t *Transport) current() (*websocket.Conn, *eventq.Queue[item], error) {
+func (t *Transport) current() (wsconn.Conn, *eventq.Queue[item], error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.connected || t.conn == nil {
@@ -365,7 +373,7 @@ func (t *Transport) SendAudio(ctx context.Context, chunk voice.AudioChunk) error
 	}
 	t.sendBuf = appendAudioFrame(t.sendBuf[:0], t.pcm16k)
 	for _, frame := range [][]byte{frameActivityStart, t.sendBuf, frameActivityEnd} {
-		if err := conn.Write(ctx, websocket.MessageText, frame); err != nil {
+		if err := conn.Write(ctx, wsconn.MessageText, frame); err != nil {
 			return fmt.Errorf("%s: send: %w", className, err)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 )
 
 // Conn is a Media Streams connection: frames in, text frames out.
@@ -22,17 +23,22 @@ type Conn interface {
 	Close()
 }
 
-// WSConn adapts a *websocket.Conn to [Conn], reusing one read buffer.
+// WSConn adapts a WebSocket to [Conn], reusing one read buffer.
 type WSConn struct {
-	c         *websocket.Conn
+	c         wsconn.Conn
 	buf       []byte
 	closeOnce sync.Once
 }
 
-// NewWSConn wraps c. The WSConn owns c from here on.
-func NewWSConn(c *websocket.Conn) *WSConn {
-	// Twilio frames are small; the default limit (32 KiB) also bounds a
-	// hostile peer's frame size.
+// NewWSConn wraps a coder/websocket connection, as the public constructors
+// that take one hand it over. The WSConn owns c from here on.
+func NewWSConn(c *websocket.Conn) *WSConn { return NewConn(wsconn.FromCoder(c)) }
+
+// NewConn wraps c. The WSConn owns c from here on.
+func NewConn(c wsconn.Conn) *WSConn {
+	// Twilio frames are small; a 32 KiB limit (both implementations'
+	// default) also bounds a hostile peer's frame size.
+	c.SetReadLimit(32 << 10)
 	return &WSConn{c: c, buf: make([]byte, 0, 1024)}
 }
 
@@ -40,35 +46,23 @@ func NewWSConn(c *websocket.Conn) *WSConn {
 // TCP connection, a cancelled ctx) is reported as io.EOF: on a media stream
 // they all mean the call is gone.
 func (w *WSConn) ReadFrame(ctx context.Context) ([]byte, bool, error) {
-	typ, r, err := w.c.Reader(ctx)
+	typ, buf, err := w.c.Read(ctx, w.buf[:0])
+	w.buf = buf
 	if err != nil {
 		return nil, false, io.EOF
 	}
-	w.buf = w.buf[:0]
-	for {
-		if len(w.buf) == cap(w.buf) {
-			w.buf = append(w.buf, 0)[:len(w.buf)]
-		}
-		n, err := r.Read(w.buf[len(w.buf):cap(w.buf)])
-		w.buf = w.buf[:len(w.buf)+n]
-		if err == io.EOF {
-			return w.buf, typ == websocket.MessageBinary, nil
-		}
-		if err != nil {
-			return nil, false, io.EOF
-		}
-	}
+	return buf, typ == wsconn.MessageBinary, nil
 }
 
 // WriteText implements Conn.
 func (w *WSConn) WriteText(ctx context.Context, p []byte) error {
-	return w.c.Write(ctx, websocket.MessageText, p)
+	return w.c.Write(ctx, wsconn.MessageText, p)
 }
 
 // Close implements Conn: the close handshake runs in the background.
 func (w *WSConn) Close() {
 	w.closeOnce.Do(func() {
-		go func() { _ = w.c.Close(websocket.StatusNormalClosure, "") }()
+		go func() { _ = w.c.Close(wsconn.StatusNormalClosure, "") }()
 	})
 }
 

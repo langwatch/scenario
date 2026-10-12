@@ -56,7 +56,8 @@ type Options struct {
 	// HTTPClient makes the signed-URL request; defaults to
 	// http.DefaultClient. The default Dialer uses it too.
 	HTTPClient *http.Client
-	// Dialer opens the WebSocket; defaults to websocket.Dial with
+	// Dialer opens the WebSocket over coder/websocket. Unset, the session
+	// runs on the SDK's own allocation-free WebSocket, dialled with
 	// HTTPClient.
 	Dialer Dialer
 
@@ -117,13 +118,6 @@ func (o Options) resolved() (Options, error) {
 	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = http.DefaultClient
-	}
-	if o.Dialer == nil {
-		client := o.HTTPClient
-		o.Dialer = func(ctx context.Context, url string) (*websocket.Conn, error) {
-			conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client})
-			return conn, err
-		}
 	}
 	if o.Logger == nil {
 		o.Logger = slog.Default()

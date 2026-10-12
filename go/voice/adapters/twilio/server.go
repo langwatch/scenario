@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/langwatch/scenario/go/voice/internal/mediastream"
+	"github.com/langwatch/scenario/go/voice/internal/wsconn"
 )
 
 // maxWebhookBody bounds the voice webhook body. Twilio's are about 1 KB;
@@ -164,11 +165,11 @@ func (a *Adapter) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Twilio sends no Origin; the socket authenticates by nonce, not origin.
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	ws, err := wsconn.Accept(w, r, wsconn.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}
-	conn := mediastream.NewWSConn(ws)
+	conn := mediastream.NewConn(ws)
 	defer conn.Close()
 	if err := a.runStreamSession(conn); err != nil {
 		a.logger.Warn("twilio: media stream failed", "error", err)
@@ -233,6 +234,26 @@ func AcceptConn(conn net.Conn, req *http.Request, head []byte) (*websocket.Conn,
 		return nil, err
 	}
 	return ws, nil
+}
+
+// AcceptStream completes the server-side handshake on a raw connection,
+// as [AcceptConn] does, and returns the embedded adapter over it, as
+// [NewStream] does. The connection runs on the SDK's allocation-free
+// WebSocket rather than coder/websocket, so prefer it over AcceptConn
+// followed by NewStream when the caller does not need the
+// *websocket.Conn itself.
+func AcceptStream(conn net.Conn, req *http.Request, head []byte, opts StreamOptions) (*Adapter, error) {
+	w, r, err := newHijackWriter(conn, req, head)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	ws, err := wsconn.Accept(w, r, wsconn.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		w.finish()
+		return nil, err
+	}
+	return newStream(mediastream.NewConn(ws), opts), nil
 }
 
 // hijackWriter is the http.ResponseWriter + http.Hijacker over a raw
