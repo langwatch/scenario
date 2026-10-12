@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -98,5 +99,64 @@ func TestResultIncludesDrainedTurnMessages(t *testing.T) {
 	res, err := Run(context.Background(), cfg)
 	if err != nil || len(res.Messages) != 1 || res.Messages[0].Content != "late reply" {
 		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+// A rollback or ClearPendingMessages while a non-blocking turn runs,
+// followed by a broadcast, must not make the executor drop the broadcast
+// message the agent never saw from its queue.
+func TestQueueChangesDuringAgentCallKeepUndeliveredMessages(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		change func(ex *Executor, agent AgentAdapter)
+	}{
+		{"rollback", func(ex *Executor, _ AgentAdapter) {
+			if _, err := ex.state.RollbackMessagesTo(1); err != nil {
+				panic(err)
+			}
+		}},
+		{"clear", func(ex *Executor, agent AgentAdapter) { ex.ClearPendingMessages(agent) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			started := make(chan struct{})
+			release := make(chan struct{})
+			var calls atomic.Int32
+			var second []string
+			// A pointer, so ClearPendingMessages can compare it.
+			agent := &struct{ AgentFunc }{func(_ context.Context, in AgentInput) (*AgentReturn, error) {
+				if calls.Add(1) == 1 {
+					close(started)
+					<-release
+					return TextReturn("first"), nil
+				}
+				for _, m := range in.NewMessages {
+					second = append(second, m.Content)
+				}
+				return TextReturn("second"), nil
+			}}
+			cfg := baseConfig(agent)
+			cfg.Script = []ScriptStep{StepFunc(func(ctx context.Context, ex *Executor) error {
+				ex.AddMessage(Message{Role: RoleUser, Content: "x"})
+				ex.AddMessage(Message{Role: RoleUser, Content: "y"})
+				turn := ex.AgentNonBlocking(ctx)
+				<-started
+				tc.change(ex, agent)
+				ex.AddMessage(Message{Role: RoleUser, Content: "z"})
+				ex.AddMessage(Message{Role: RoleUser, Content: "w"})
+				close(release)
+				if err := turn.Wait(); err != nil {
+					return err
+				}
+				return ex.AgentNonBlocking(ctx).Wait()
+			}), Succeed()}
+			if _, err := Run(context.Background(), cfg); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(second, []string{"z", "w"}) {
+				t.Fatalf("second call got new messages %v, want [z w]", second)
+			}
+		})
 	}
 }
