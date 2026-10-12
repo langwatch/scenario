@@ -80,6 +80,45 @@ func TestLifecycleConnectErrorFailsTheRunAndStillDisconnects(t *testing.T) {
 	}
 }
 
+// ctxTransport records the state of the context Disconnect ran under.
+type ctxTransport struct {
+	*voicetest.Transport
+	mu            sync.Mutex
+	disconnectErr error
+	disconnected  bool
+}
+
+func (c *ctxTransport) Disconnect(ctx context.Context) error {
+	c.mu.Lock()
+	c.disconnectErr, c.disconnected = ctx.Err(), true
+	c.mu.Unlock()
+	return c.Transport.Disconnect(ctx)
+}
+
+func TestLifecycleDisconnectOutlivesACancelledRun(t *testing.T) {
+	tr := &ctxTransport{Transport: &voicetest.Transport{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelRun := scenario.StepFunc(func(context.Context, *scenario.Executor) error {
+		cancel()
+		return nil
+	})
+	_, err := scenario.Run(ctx, scenario.ScenarioConfig{
+		Name:        "voice test",
+		Description: "a voice scenario",
+		Agents:      []scenario.AgentAdapter{fastAgent(tr), &voicetest.User{}, &voicetest.Judge{Verdict: voicetest.Pass()}},
+		Script:      []scenario.ScriptStep{cancelRun, scenario.Succeed()},
+	}, voice.WithConfig(voice.Config{STT: &voicetest.STT{}, Logger: quiet}), scenario.WithQuiet())
+	if err == nil {
+		t.Fatal("expected the cancelled run to fail")
+	}
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if !tr.disconnected || tr.disconnectErr != nil {
+		t.Errorf("disconnected=%v under a context with err=%v; want a live context", tr.disconnected, tr.disconnectErr)
+	}
+}
+
 // --- connected-state gate ----------------------------------------------------
 
 type gatedTransport struct {

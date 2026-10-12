@@ -19,6 +19,9 @@ const ExtensionKey = "voice"
 
 type sessionKey struct{}
 
+// disconnectTimeout bounds one transport's Disconnect at the end of a run.
+const disconnectTimeout = 30 * time.Second
+
 // SessionOf returns the voice session of the run ex executes, or nil when
 // the run has no voice participant.
 func SessionOf(ex *scenario.Executor) *Session {
@@ -160,8 +163,14 @@ func (s *Session) Stop(ctx context.Context, _ *scenario.Executor) {
 		s.backfillTranscripts(ctx)
 		for _, p := range s.participants {
 			a := p.agent
-			_ = withSpan(ctx, SpanAdapterDisconnect, []attribute.KeyValue{adapterClass(a.name)},
+			// The run's context is already cancelled when the run was, but a
+			// disconnect still has work that must reach the far end (Twilio
+			// restores the voice URLs it rewrote, a realtime gateway closes
+			// its spend record), so it runs detached, under its own bound.
+			dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), disconnectTimeout)
+			_ = withSpan(dctx, SpanAdapterDisconnect, []attribute.KeyValue{adapterClass(a.name)},
 				func(ctx context.Context, _ traceSpan) error { return a.transport.Disconnect(ctx) })
+			cancel()
 		}
 	}
 	if s.playback != nil {
