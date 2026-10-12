@@ -17,8 +17,11 @@ import (
 // safe for concurrent use, so agents running a non-blocking turn may read it
 // while the script continues.
 type ExecutionState struct {
-	mu          sync.RWMutex
-	config      ScenarioConfig
+	mu     sync.RWMutex
+	config ScenarioConfig
+	// messages is append-only between rollbacks: an element below len is
+	// never written again, and a rollback moves the kept messages to a new
+	// array, so views handed out by messagesView stay valid and unchanged.
 	messages    []Message
 	rows        [][]byte // AG-UI JSON per message, encoded on demand
 	model       [][]byte // AI SDK model message JSON per message, on demand
@@ -87,6 +90,16 @@ func (s *ExecutionState) Messages() []Message {
 	return slices.Clip(slices.Clone(s.messages))
 }
 
+// messagesView returns the conversation without copying it: a slice of the
+// stored messages capped at its length, so an append by the holder copies
+// instead of writing into the state. Holders must not modify its elements;
+// see the messages field for why the view never changes under them.
+func (s *ExecutionState) messagesView() []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.messages[:len(s.messages):len(s.messages)]
+}
+
 // Len returns the number of messages.
 func (s *ExecutionState) Len() int {
 	s.mu.RLock()
@@ -97,6 +110,13 @@ func (s *ExecutionState) Len() int {
 // add stores a message, assigning its id (unless id is given) and turn, and
 // returns the stored message and its index.
 func (s *ExecutionState) add(m Message, id string) (Message, int) {
+	return s.addEncoded(m, id, nil)
+}
+
+// addEncoded is add with the message's model JSON (appendModelMessage of
+// m) already at hand, kept so chatMessagesInput does not encode it again;
+// nil encodes on demand.
+func (s *ExecutionState) addEncoded(m Message, id string, model []byte) (Message, int) {
 	m = m.clone()
 	if id == "" {
 		id = generateMessageID()
@@ -106,7 +126,7 @@ func (s *ExecutionState) add(m Message, id string) (Message, int) {
 	m.Turn = s.currentTurn
 	s.messages = append(s.messages, m)
 	s.rows = append(s.rows, nil)
-	s.model = append(s.model, nil)
+	s.model = append(s.model, model)
 	idx := len(s.messages) - 1
 	s.mu.Unlock()
 	return m, idx
@@ -268,8 +288,14 @@ func (s *ExecutionState) RollbackMessagesTo(index int) ([]Message, error) {
 	s.mu.Lock()
 	index = min(index, len(s.messages))
 	removed := slices.Clone(s.messages[index:])
-	clear(s.messages[index:])
-	s.messages = s.messages[:index]
+	// A new array for the kept messages: views of the old one (agents
+	// holding messagesView) keep seeing the conversation they were given,
+	// and the next add cannot overwrite a removed message they still hold.
+	if index < len(s.messages) {
+		kept := make([]Message, index, cap(s.messages))
+		copy(kept, s.messages[:index])
+		s.messages = kept
+	}
 	clear(s.rows[index:])
 	s.rows = s.rows[:index]
 	clear(s.model[index:])
@@ -349,21 +375,39 @@ func (s *ExecutionState) noteMissingToolCall(name string) {
 func (s *ExecutionState) chatMessagesInput() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	size := 40
 	for i := range s.messages {
 		if s.model[i] == nil {
-			s.model[i] = appendModelMessage(nil, s.messages[i])
+			s.model[i] = encodeModelMessage(s.messages[i])
 		}
-		size += len(s.model[i]) + 1
+	}
+	return chatMessagesJSON(s.model)
+}
+
+// encodeModelMessages returns the model JSON of each message, the pieces
+// of chatMessagesJSON that the state can keep (addEncoded).
+func encodeModelMessages(msgs []Message) [][]byte {
+	out := make([][]byte, len(msgs))
+	for i, m := range msgs {
+		out[i] = encodeModelMessage(m)
+	}
+	return out
+}
+
+// chatMessagesJSON joins encoded model messages as a chat_messages typed
+// value.
+func chatMessagesJSON(encoded [][]byte) string {
+	size := 40
+	for _, e := range encoded {
+		size += len(e) + 1
 	}
 	var b strings.Builder
 	b.Grow(size)
 	b.WriteString(`{"type":"chat_messages","value":[`)
-	for i, enc := range s.model {
+	for i, e := range encoded {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		b.Write(enc)
+		b.Write(e)
 	}
 	b.WriteString("]}")
 	return b.String()
@@ -371,13 +415,5 @@ func (s *ExecutionState) chatMessagesInput() string {
 
 // chatMessagesValue encodes messages as a chat_messages typed value.
 func chatMessagesValue(msgs []Message) string {
-	b := make([]byte, 0, 64*len(msgs)+40)
-	b = append(b, `{"type":"chat_messages","value":[`...)
-	for i, m := range msgs {
-		if i > 0 {
-			b = append(b, ',')
-		}
-		b = appendModelMessage(b, m)
-	}
-	return string(append(b, "]}"...))
+	return chatMessagesJSON(encodeModelMessages(msgs))
 }

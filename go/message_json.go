@@ -167,6 +167,29 @@ func appendModelMessage(b []byte, m Message) []byte {
 	return append(b, '}')
 }
 
+// encodeModelMessage returns appendModelMessage of m in a buffer sized up
+// front, so encoding takes one allocation instead of one per growth step.
+func encodeModelMessage(m Message) []byte {
+	return appendModelMessage(make([]byte, 0, modelMessageSizeHint(m)), m)
+}
+
+// modelMessageSizeHint estimates the model JSON size of m: the envelope,
+// the text, and per part and tool call their payload plus its keys. Escapes
+// and base64 make it an estimate; append grows the rare overflow.
+func modelMessageSizeHint(m Message) int {
+	n := 32 + len(m.Role) + len(m.Content)
+	if m.Role == RoleTool {
+		n += 96 + len(m.ToolCallID) + len(m.ToolName)
+	}
+	for _, p := range m.Parts {
+		n += 48 + len(p.Text) + len(p.MediaType) + len(p.URL) + len(p.Filename) + len(p.Raw) + base64.StdEncoding.EncodedLen(len(p.Data))
+	}
+	for _, tc := range m.ToolCalls {
+		n += 64 + len(tc.ID) + len(tc.Name) + len(tc.Arguments)
+	}
+	return n
+}
+
 // AppendMessageJSON appends the message as the JSON of an AI SDK
 // ModelMessage, {"role":…,"content":…}, the shape the JS SDK sends.
 func AppendMessageJSON(b []byte, m Message) []byte { return appendModelMessage(b, m) }

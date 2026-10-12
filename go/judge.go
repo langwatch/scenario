@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/langwatch/scenario/go/internal/jsjson"
@@ -207,6 +208,9 @@ func (j *JudgeAgent) prepareMessages(ctx context.Context, in AgentInput, model s
 		return msgs, hasAudio, nil
 	}
 	opts := JudgeInputOptions{IncludeAudio: j.includeAudio(hasAudio, model)}
+	// The executor hands the judge a view of the stored conversation;
+	// extensions get a copy they may modify.
+	msgs = slices.Clone(msgs)
 	var err error
 	for _, p := range in.Executor.hooks.judgeInput {
 		if msgs, err = p.PreprocessJudgeInput(ctx, in.Executor, msgs, opts); err != nil {

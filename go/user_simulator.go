@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 )
 
@@ -86,6 +87,9 @@ func (u *UserSimulatorAgent) Call(ctx context.Context, in AgentInput) (*AgentRet
 	}
 	history := in.Messages
 	if in.Executor != nil && hasAudioWithoutTranscript(history) {
+		// The executor hands the simulator a view of the stored
+		// conversation; extensions get a copy they may modify.
+		history = slices.Clone(history)
 		for _, p := range in.Executor.hooks.userSimInput {
 			prepared, err := p.PreprocessUserSimulatorInput(ctx, in.Executor, history)
 			if err != nil {
@@ -95,12 +99,19 @@ func (u *UserSimulatorAgent) Call(ctx context.Context, in AgentInput) (*AgentRet
 			history = prepared
 		}
 	}
+	// One slice for the whole prompt: audio stripped and roles reversed in
+	// place, message by message.
 	msgs := make([]Message, 0, len(history)+2)
 	msgs = append(msgs, SystemMsg(system), AssistantMsg("Hello, how can I help you today"))
-	msgs = append(msgs, stripAudio(history)...)
+	for _, m := range history {
+		msgs = append(msgs, stripAudioMessage(m))
+	}
+	for i, m := range msgs {
+		msgs[i] = reverseRole(m)
+	}
 	params := InferenceParams{
 		Model:       model.Model,
-		Messages:    reverseRoles(msgs),
+		Messages:    msgs,
 		Temperature: model.Temperature,
 		MaxTokens:   model.MaxTokens,
 	}
@@ -131,68 +142,55 @@ func hasAudioWithoutTranscript(msgs []Message) bool {
 	return false
 }
 
-// stripAudio prepares audio messages for a text-only model: their text
+// stripAudioMessage prepares an audio message for a text-only model: its text
 // parts are kept (an assistant turn with audio and text is reframed as
 // "[the agent said: …]" so the simulator does not parrot it), and an
-// audio-only message becomes "[audio message]". Other messages pass through.
-func stripAudio(msgs []Message) []Message {
-	out := make([]Message, len(msgs))
-	for i, m := range msgs {
-		if !m.HasAudio() {
-			out[i] = m
-			continue
-		}
-		var texts []string
-		for _, p := range m.Parts {
-			if p.Type == PartText {
-				texts = append(texts, p.Text)
-			}
-		}
-		stripped := m
-		stripped.Parts = nil
-		switch {
-		case len(texts) == 0:
-			stripped.Content = "[audio message]"
-		case m.Role == RoleAssistant:
-			stripped.Content = "[the agent said: " + strings.Join(texts, " ") + "]"
-		default:
-			stripped.Content = strings.Join(texts, " ")
-		}
-		out[i] = stripped
+// audio-only message becomes "[audio message]". Other messages pass
+// through.
+func stripAudioMessage(m Message) Message {
+	if !m.HasAudio() {
+		return m
 	}
-	return out
+	var texts []string
+	for _, p := range m.Parts {
+		if p.Type == PartText {
+			texts = append(texts, p.Text)
+		}
+	}
+	stripped := m
+	stripped.Parts = nil
+	switch {
+	case len(texts) == 0:
+		stripped.Content = "[audio message]"
+	case m.Role == RoleAssistant:
+		stripped.Content = "[the agent said: " + strings.Join(texts, " ") + "]"
+	default:
+		stripped.Content = strings.Join(texts, " ")
+	}
+	return stripped
 }
 
-// reverseRoles swaps user and assistant for the simulator, because models
+// reverseRole swaps user and assistant for the simulator, because models
 // are biased to answer as the assistant. Tool calls and results become
 // plain-text summaries on the user side.
-func reverseRoles(msgs []Message) []Message {
-	out := make([]Message, 0, len(msgs))
-	for _, m := range msgs {
-		switch {
-		case m.Role == RoleTool:
-			name := m.ToolName
-			if name == "" {
-				name = "unknown tool"
-			}
-			out = append(out, UserMsg("[Tool result from "+name+": "+m.Text()+"]"))
-		case m.Role == RoleAssistant && len(m.ToolCalls) > 0:
-			lines := make([]string, len(m.ToolCalls))
-			for i, tc := range m.ToolCalls {
-				lines[i] = "[Called tool " + tc.Name + " with: " + string(appendToolInput(nil, tc.Arguments)) + "]"
-			}
-			out = append(out, UserMsg(strings.Join(lines, "\n")))
-		case m.Role == RoleAssistant:
-			r := m
-			r.Role = RoleUser
-			out = append(out, r)
-		case m.Role == RoleUser:
-			r := m
-			r.Role = RoleAssistant
-			out = append(out, r)
-		default:
-			out = append(out, m)
+func reverseRole(m Message) Message {
+	switch {
+	case m.Role == RoleTool:
+		name := m.ToolName
+		if name == "" {
+			name = "unknown tool"
 		}
+		return UserMsg("[Tool result from " + name + ": " + m.Text() + "]")
+	case m.Role == RoleAssistant && len(m.ToolCalls) > 0:
+		lines := make([]string, len(m.ToolCalls))
+		for i, tc := range m.ToolCalls {
+			lines[i] = "[Called tool " + tc.Name + " with: " + string(appendToolInput(nil, tc.Arguments)) + "]"
+		}
+		return UserMsg(strings.Join(lines, "\n"))
+	case m.Role == RoleAssistant:
+		m.Role = RoleUser
+	case m.Role == RoleUser:
+		m.Role = RoleAssistant
 	}
-	return out
+	return m
 }
