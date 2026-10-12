@@ -374,7 +374,7 @@ func (a *Agent) plan(ctx context.Context, model scenario.ModelConfig, descriptio
 	if ends, ok := phaseEndsOf(a.cfg.Strategy, a.cfg.TotalTurns); ok {
 		params.PhaseEnds = &ends
 	}
-	res, err := model.LLM.Inference(ctx, scenario.InferenceParams{
+	res, err := scenario.TraceInference(ctx, model.LLM, scenario.InferenceParams{
 		Model:       model.Model,
 		Messages:    []scenario.Message{scenario.UserMsg(RenderMetapromptTemplate(a.cfg.MetapromptTemplate, params))},
 		Temperature: model.Temperature,
@@ -473,7 +473,7 @@ func (a *Agent) askScorer(ctx context.Context, model scenario.ModelConfig, respo
 		return fallback
 	}
 	zero, maxTokens := 0.0, int64(scorerMaxTokens)
-	res, err := model.LLM.Inference(ctx, scenario.InferenceParams{
+	res, err := scenario.TraceInference(ctx, model.LLM, scenario.InferenceParams{
 		Model:       model.Model,
 		Messages:    []scenario.Message{scenario.UserMsg(buildScorePrompt(a.cfg.Target, response))},
 		Temperature: &zero,
@@ -499,7 +499,7 @@ func (a *Agent) callAttacker(ctx context.Context, model scenario.ModelConfig) (s
 	messages := make([]scenario.Message, 0, len(a.history)+1)
 	messages = append(messages, scenario.SystemMsg(a.systemPrompt))
 	messages = append(messages, a.history...)
-	res, err := model.LLM.Inference(ctx, scenario.InferenceParams{
+	res, err := scenario.TraceInference(ctx, model.LLM, scenario.InferenceParams{
 		Model:       model.Model,
 		Messages:    messages,
 		Temperature: model.Temperature,

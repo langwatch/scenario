@@ -58,7 +58,7 @@ func NewJudgeAgent(cfg JudgeAgentConfig) *JudgeAgent {
 		cfg.MaxDiscoverySteps = 10
 	}
 	cfg.Criteria = append([]string(nil), cfg.Criteria...)
-	return &JudgeAgent{cfg: cfg}
+	return &JudgeAgent{cfg: cfg, invoker: invoker{role: AgentRoleJudge}}
 }
 
 // Role implements AgentAdapter.
@@ -259,7 +259,7 @@ type decisionOutcome struct {
 // decide is phase 1: continue, or move to the verdict. It never fetches
 // remote traces and never produces a verdict.
 func (j *JudgeAgent) decide(ctx context.Context, c judgeCall) (decisionOutcome, error) {
-	spans := j.collector().SpansForThread(c.in.ThreadID)
+	spans := withoutJudgeModelCalls(j.collector().SpansForThread(c.in.ThreadID))
 	content, large := judgeContent(c.in.ScenarioState.spanDigests(), spans, j.cfg.TokenThreshold, c.transcript, c.extra)
 
 	system := buildDecisionSystemPrompt(c.criteria, c.in.ScenarioConfig.Description, c.traces.fetch)
@@ -352,7 +352,7 @@ func (j *JudgeAgent) verdict(ctx context.Context, c judgeCall, forced, exhausted
 		evidenceExhausted := ts.fetch && len(traceIDs) > 0 && ts.fetcher.NoneSettled(c.in.ThreadID, traceIDs)
 		terminal := forced || evidenceExhausted
 
-		spans := collector.SpansForThread(c.in.ThreadID)
+		spans := withoutJudgeModelCalls(collector.SpansForThread(c.in.ThreadID))
 		extra := ""
 		if c.in.JudgmentRequest != nil {
 			extra = additionalContextSection(c.in.JudgmentRequest.AdditionalContext)

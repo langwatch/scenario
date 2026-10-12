@@ -219,7 +219,7 @@ func (t *Transport) reply(ctx context.Context, llm scenario.LLM, model, v string
 	if llm == nil {
 		return voice.AudioChunk{}, scenario.ErrNoModel
 	}
-	res, err := llm.Inference(ctx, params)
+	res, err := scenario.TraceInference(ctx, llm, params)
 	if err != nil {
 		return voice.AudioChunk{}, err
 	}
