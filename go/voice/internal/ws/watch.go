@@ -97,10 +97,18 @@ func (w *watch) end() bool {
 	return fired
 }
 
-// onFire runs when the watched context is cancelled.
+// onFire runs when the watched context is cancelled. It runs on its own
+// goroutine, so it can be late: by the time it holds mu, begin may have
+// replaced the context and started an operation under one that has not
+// ended. It fails the operation only when the context watched now is done.
 func (w *watch) onFire() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	select {
+	case <-w.done:
+	default:
+		return // a stale callback of a context no longer watched
+	}
 	if w.active {
 		w.fired = true
 		_ = w.set(aLongTimeAgo)
