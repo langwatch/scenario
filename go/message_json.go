@@ -171,6 +171,10 @@ func appendModelMessage(b []byte, m Message) []byte {
 // ModelMessage, {"role":…,"content":…}, the shape the JS SDK sends.
 func AppendMessageJSON(b []byte, m Message) []byte { return appendModelMessage(b, m) }
 
+// AppendMessageContentJSON appends the content of the message as the AI SDK
+// holds it: a string for plain text, otherwise an array of parts.
+func AppendMessageContentJSON(b []byte, m Message) []byte { return appendModelContent(b, m, false) }
+
 // MessageText returns the text a state transcript shows for a message: its
 // text, or its parts joined by newlines with tool calls and results as JSON.
 func MessageText(m Message) string { return messageText(m) }
