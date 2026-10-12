@@ -650,8 +650,8 @@ func TestAPISpanParamsAndMetrics(t *testing.T) {
 		"retrieval.documents":            `["doc"]`,
 	} {
 		v, ok := spanAttr(s, key)
-		if !ok || v.Emit() != want {
-			t.Errorf("%s = %q (present %v), want %q", key, v.Emit(), ok, want)
+		if !ok || v.String() != want {
+			t.Errorf("%s = %q (present %v), want %q", key, v.String(), ok, want)
 		}
 	}
 	for _, key := range []string{"_keys", "nested.b"} {

@@ -40,7 +40,7 @@ func (j *toolVerifyingJudge) Call(_ context.Context, in scenario.AgentInput) (*s
 			}), nil
 		}
 		for _, attr := range span.Attributes() {
-			if strings.Contains(attr.Value.Emit(), j.requiredTool) {
+			if strings.Contains(attr.Value.String(), j.requiredTool) {
 				return scenario.VerdictReturn(scenario.JudgeResult{
 					Success:     true,
 					Reasoning:   "Tool '" + j.requiredTool + "' was found in attribute " + string(attr.Key),

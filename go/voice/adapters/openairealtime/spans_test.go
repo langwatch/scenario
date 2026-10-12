@@ -233,7 +233,7 @@ func TestSpansCarryNoSensitiveData(t *testing.T) {
 					t.Errorf("span %s has deny-listed attribute %s", s.Name, kv.Key)
 				}
 			}
-			if v := kv.Value.Emit(); strings.Contains(v, apiKey) || strings.Contains(v, persona) {
+			if v := kv.Value.String(); strings.Contains(v, apiKey) || strings.Contains(v, persona) {
 				t.Errorf("span %s attribute %s leaks: %s", s.Name, kv.Key, v)
 			}
 		}

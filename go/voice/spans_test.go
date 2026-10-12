@@ -19,7 +19,7 @@ import (
 func spanAttr(s tracetest.SpanStub, key string) (string, bool) {
 	for _, kv := range s.Attributes {
 		if string(kv.Key) == key {
-			return kv.Value.Emit(), true
+			return kv.Value.String(), true
 		}
 	}
 	return "", false
@@ -200,7 +200,7 @@ func TestBackfillFailureLeavesTranscriptUnset(t *testing.T) {
 	for _, s := range spansNamed(voice.SpanSTTTranscribe) {
 		for _, e := range s.Events {
 			for _, kv := range e.Attributes {
-				if strings.Contains(kv.Value.Emit(), "sk-secret") {
+				if strings.Contains(kv.Value.String(), "sk-secret") {
 					t.Error("the provider error body reached the span")
 				}
 			}
