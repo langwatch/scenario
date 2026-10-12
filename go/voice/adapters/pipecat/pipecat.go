@@ -1,14 +1,3 @@
-// Package pipecat is the voice transport to a user-run Pipecat bot, a port
-// of the JavaScript SDK's PipecatAgentAdapter.
-//
-// Pipecat builds voice agents; the user runs the bot separately (for
-// example python bot.py -t twilio --port 8765) and this adapter connects to
-// it as a WebSocket client. A bot on the "-t twilio" transport speaks Twilio
-// Media Streams on its socket, so the adapter impersonates Twilio: a
-// synthetic connected + start handshake with stream and call SIDs, then
-// base64 µ-law 8 kHz media frames both ways. Transport "webrtc"
-// (SmallWebRTC) is not implemented: Connect fails with a
-// voice.PendingTransportError.
 package pipecat
 
 import (

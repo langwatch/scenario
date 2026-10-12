@@ -1,29 +1,3 @@
-// Package elevenlabs is the hosted ElevenLabs Conversational AI (ConvAI)
-// voice transport: ElevenLabs runs the STT, LLM and TTS loop; the transport
-// carries canonical PCM16 at 24 kHz in both directions, unconverted.
-//
-// The ConvAI WebSocket protocol is implemented here directly (there is no Go
-// SDK), mirroring what the official JavaScript SDK puts on the wire: the
-// signed-URL mint for a private agent, the conversation_initiation_client_data
-// handshake, base64 user_audio_chunk frames, ping/pong keepalive, audio gating
-// after an interruption by event_id, and the client tool reply.
-//
-// On top of the protocol it keeps the scenario reliability recipe of the
-// JavaScript adapter:
-//
-//   - a continuous microphone: a 20 ms pump feeds the user turn's PCM as
-//     960-byte frames at real-time cadence, then closing silence so the
-//     server VAD sees the audio-to-silence transition, then pauses once the
-//     agent answered so the inter-turn gap is not read as the user leaving;
-//   - a receive with a sliding idle deadline that inbound frames re-arm
-//     (only turn activity once the agent spoke) and an absolute ceiling
-//     nothing re-arms, each with its own diagnosis;
-//   - the agent's own transcript (agent_response, corrections) as the turn
-//     transcript, deliberate hangups (end_call, transfer_*), and the
-//     conversation id stamped on the first live span.
-//
-// [Transport] is usable on its own, outside a scenario run; [NewAgent] wraps
-// it as a scenario voice agent.
 package elevenlabs
 
 import (
