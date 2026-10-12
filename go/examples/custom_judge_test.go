@@ -19,7 +19,7 @@ import (
 // customLLMJudge is a judge that calls the LLM directly with structured output.
 type customLLMJudge struct {
 	criteria []string
-	llm      scenario.Inference
+	llm      scenario.LLM
 }
 
 func (j *customLLMJudge) Role() scenario.AgentRole { return scenario.AgentRoleJudge }
@@ -87,15 +87,16 @@ Return ONLY valid JSON, no markdown.`, criteriaList, transcript)
 		}
 	}
 
-	return scenario.NewScenarioResultAgentReturn(scenario.ScenarioResult{
+	return scenario.VerdictReturn(scenario.JudgeResult{
 		Success:       parsed.Pass,
-		Reasoning:     &parsed.Reasoning,
+		Reasoning:     parsed.Reasoning,
 		MetCriteria:   met,
 		UnmetCriteria: unmet,
 	}), nil
 }
 
 func TestCustomJudgeLLM(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	// A polite agent that always greets
@@ -109,7 +110,7 @@ func TestCustomJudgeLLM(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			politeAgent,
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 			&customLLMJudge{
 				criteria: []string{
@@ -129,7 +130,7 @@ func TestCustomJudgeLLM(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 	if len(result.MetCriteria) != 2 {
 		t.Fatalf("expected 2 met criteria, got %d", len(result.MetCriteria))
@@ -144,5 +145,5 @@ type staticAgent struct {
 func (a *staticAgent) Role() scenario.AgentRole { return scenario.AgentRoleAgent }
 
 func (a *staticAgent) Call(_ context.Context, _ scenario.AgentInput) (*scenario.AgentReturn, error) {
-	return scenario.NewStringAgentReturn(a.response), nil
+	return scenario.TextReturn(a.response), nil
 }

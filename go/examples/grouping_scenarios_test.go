@@ -17,7 +17,7 @@ func (a *echoAgent) Role() scenario.AgentRole { return scenario.AgentRoleAgent }
 
 func (a *echoAgent) Call(_ context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
 	lastMsg := input.Messages[len(input.Messages)-1]
-	return scenario.NewStringAgentReturn("You said: " + lastMsg.Content), nil
+	return scenario.TextReturn("You said: " + lastMsg.Content), nil
 }
 
 type dummyUserAgent struct{}
@@ -25,7 +25,7 @@ type dummyUserAgent struct{}
 func (a *dummyUserAgent) Role() scenario.AgentRole { return scenario.AgentRoleUser }
 
 func (a *dummyUserAgent) Call(_ context.Context, _ scenario.AgentInput) (*scenario.AgentReturn, error) {
-	return scenario.NewStringAgentReturn(""), nil
+	return scenario.TextReturn(""), nil
 }
 
 func TestGroupingScenarios_EchoFirst(t *testing.T) {
@@ -37,7 +37,8 @@ func TestGroupingScenarios_EchoFirst(t *testing.T) {
 		Script: []scenario.ScriptStep{
 			scenario.User("Hello world!"),
 			scenario.Agent(),
-			func(_ context.Context, _ scenario.Execution, state scenario.ExecutionState) (*scenario.ScenarioResult, error) {
+			scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+				state := ex.State()
 				msg, err := state.LastAgentMessage()
 				if err != nil {
 					t.Fatal(err)
@@ -45,8 +46,8 @@ func TestGroupingScenarios_EchoFirst(t *testing.T) {
 				if msg.Content != "You said: Hello world!" {
 					t.Fatalf("expected echo, got: %s", msg.Content)
 				}
-				return nil, nil
-			},
+				return nil
+			}),
 			scenario.Succeed("Agent correctly echoed the message."),
 		},
 	})
@@ -54,7 +55,7 @@ func TestGroupingScenarios_EchoFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }
 
@@ -67,7 +68,8 @@ func TestGroupingScenarios_EchoSecond(t *testing.T) {
 		Script: []scenario.ScriptStep{
 			scenario.User("This is another test."),
 			scenario.Agent(),
-			func(_ context.Context, _ scenario.Execution, state scenario.ExecutionState) (*scenario.ScenarioResult, error) {
+			scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+				state := ex.State()
 				msg, err := state.LastAgentMessage()
 				if err != nil {
 					t.Fatal(err)
@@ -75,8 +77,8 @@ func TestGroupingScenarios_EchoSecond(t *testing.T) {
 				if msg.Content != "You said: This is another test." {
 					t.Fatalf("expected echo, got: %s", msg.Content)
 				}
-				return nil, nil
-			},
+				return nil
+			}),
 			scenario.Succeed("Agent correctly echoed the message."),
 		},
 	})
@@ -84,6 +86,6 @@ func TestGroupingScenarios_EchoSecond(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }

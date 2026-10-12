@@ -4,14 +4,24 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
+	"testing"
 
 	scenario "github.com/langwatch/scenario/go"
 	scenarioOpenAI "github.com/langwatch/scenario/go/providers/openai"
-	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/v3"
 )
 
+// skipWithoutOpenAI skips examples that call OpenAI when no key is set.
+func skipWithoutOpenAI(t *testing.T) {
+	t.Helper()
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+}
+
 // newLLM creates an OpenAI-backed Inference provider for testing agents.
-func newLLM() scenario.Inference {
+func newLLM() scenario.LLM {
 	client := openai.NewClient() // uses OPENAI_API_KEY
 	return scenarioOpenAI.NewProvider(&client)
 }
@@ -43,14 +53,14 @@ func (a *funcAgent) Call(ctx context.Context, input scenario.AgentInput) (*scena
 	return a.callWithMessages(ctx, llm, messages, nil)
 }
 
-func (a *funcAgent) callWithMessages(ctx context.Context, llm scenario.Inference, messages []scenario.Message, collected []scenario.Message) (*scenario.AgentReturn, error) {
+func (a *funcAgent) callWithMessages(ctx context.Context, llm scenario.LLM, messages []scenario.Message, collected []scenario.Message) (*scenario.AgentReturn, error) {
 	params := scenario.InferenceParams{
 		Model:    "gpt-4.1-mini",
 		Messages: messages,
 	}
 	if len(a.tools) > 0 {
 		params.Tools = a.tools
-		params.ToolChoice = &scenario.ToolChoice{Type: "auto"}
+		params.ToolChoice = &scenario.ToolChoice{Type: scenario.ToolChoiceAuto}
 	}
 
 	result, err := llm.Inference(ctx, params)
@@ -61,7 +71,7 @@ func (a *funcAgent) callWithMessages(ctx context.Context, llm scenario.Inference
 	// If the model made tool calls, execute them and recurse
 	if len(result.Message.ToolCalls) > 0 && a.toolExecutor != nil {
 		toolCallMsg := scenario.Message{
-			Role:      scenario.MessageRoleAssistant,
+			Role:      scenario.RoleAssistant,
 			ToolCalls: result.Message.ToolCalls,
 			Content:   result.Message.Content,
 		}
@@ -82,10 +92,10 @@ func (a *funcAgent) callWithMessages(ctx context.Context, llm scenario.Inference
 	// Return all collected intermediate messages plus the final text response
 	if len(collected) > 0 {
 		finalMsg := scenario.AssistantMsg(result.Message.Content)
-		return scenario.NewMessagesAgentReturn(append(collected, finalMsg)), nil
+		return scenario.MessagesReturn(append(collected, finalMsg)...), nil
 	}
 
-	return scenario.NewStringAgentReturn(result.Message.Content), nil
+	return scenario.TextReturn(result.Message.Content), nil
 }
 
 // simulateWeather returns a random weather string for a city.

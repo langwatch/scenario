@@ -30,15 +30,12 @@ func TestErrorHandling_AgentError(t *testing.T) {
 			scenario.Agent(),
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
+	// Run reports the error and also returns the error result it sent to
+	// LangWatch, like the JS SDK rejecting run() after RUN_FINISHED.
+	if err == nil || !strings.Contains(err.Error(), "simulated agent failure") {
+		t.Fatalf("expected the agent error, got: %v", err)
 	}
-	// The Go SDK wraps agent errors into a failed ScenarioResult
-	// rather than returning an error from Run().
-	if result.Success {
-		t.Fatal("expected scenario to fail")
-	}
-	if result.Error == nil || !strings.Contains(*result.Error, "simulated agent failure") {
-		t.Fatalf("expected 'simulated agent failure' in result.Error, got: %v", result.Error)
+	if result.Success || !strings.Contains(result.Error, "simulated agent failure") {
+		t.Fatalf("expected the error in result.Error, got: %q", result.Error)
 	}
 }

@@ -16,6 +16,7 @@ import (
 )
 
 func TestSimpleToolMocking(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	// Track mock calls
@@ -66,13 +67,13 @@ func TestSimpleToolMocking(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			agent,
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 		},
 		Script: []scenario.ScriptStep{
 			scenario.User("Show me user data for ID 123"),
 			scenario.Agent(),
-			func(_ context.Context, _ scenario.Execution, _ scenario.ExecutionState) (*scenario.ScenarioResult, error) {
+			scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
 				mu.Lock()
 				defer mu.Unlock()
 
@@ -82,8 +83,8 @@ func TestSimpleToolMocking(t *testing.T) {
 				if mockCalls[0]["user_id"] != "123" {
 					t.Fatalf("expected user_id=123, got: %s", mockCalls[0]["user_id"])
 				}
-				return nil, nil
-			},
+				return nil
+			}),
 			scenario.Succeed("Agent called the tool with correct parameters."),
 		},
 	})
@@ -91,6 +92,6 @@ func TestSimpleToolMocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }

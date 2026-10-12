@@ -14,6 +14,7 @@ import (
 )
 
 func TestFalseAssumptions(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	agent := simpleAgent("You are a helpful assistant", nil, nil)
@@ -25,10 +26,10 @@ func TestFalseAssumptions(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			agent,
 			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 		},
 		Script: []scenario.ScriptStep{
@@ -44,15 +45,15 @@ func TestFalseAssumptions(t *testing.T) {
 
 			// Proceed for 2 more turns, with a callback on each turn
 			scenario.Proceed(
-				scenario.WithProceedTurns(2),
-				scenario.WithProceedOnTurn(func(state scenario.ExecutionState) error {
+				scenario.Turns(2),
+				scenario.OnTurn(func(_ context.Context, state *scenario.ExecutionState) error {
 					t.Logf("Turn %d: %d messages", state.CurrentTurn(), len(state.Messages()))
 					return nil
 				}),
 			),
 
 			// Judge the conversation
-			scenario.Judge(scenario.WithJudgeCriteria(
+			scenario.Judge(scenario.WithCriteria(
 				"user should get good recommendations on river crossing",
 				"agent should NOT keep following up about ATM recommendation after user has corrected them that they are actually just hiking",
 			)),
@@ -63,6 +64,6 @@ func TestFalseAssumptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }

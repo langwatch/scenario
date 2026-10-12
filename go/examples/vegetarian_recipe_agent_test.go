@@ -14,6 +14,7 @@ import (
 )
 
 func TestVegetarianRecipeAgent(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	agent := simpleAgent(
@@ -29,21 +30,21 @@ func TestVegetarianRecipeAgent(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			agent,
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 		},
 		Script: []scenario.ScriptStep{
 			scenario.User(),
 			scenario.Agent(),
-			scenario.Judge(scenario.WithJudgeCriteria(
+			scenario.Judge(scenario.WithCriteria(
 				"Agent either asks a relevant follow-up question or starts providing a recipe",
 			)),
 			scenario.User(),
 			scenario.Agent(),
-			scenario.Judge(scenario.WithJudgeCriteria(
+			scenario.Judge(scenario.WithCriteria(
 				"Agent should not ask more than two follow-up questions",
 				"Agent should generate a recipe",
 				"Recipe should include a list of ingredients",
@@ -57,6 +58,6 @@ func TestVegetarianRecipeAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }

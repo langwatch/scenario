@@ -15,6 +15,7 @@ import (
 )
 
 func TestWeatherAgent(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	weatherTool := scenario.ToolDefinition{
@@ -38,7 +39,9 @@ func TestWeatherAgent(t *testing.T) {
 		"You are a helpful assistant that may help the user with weather information. Do not guess the city if they don't provide it.",
 		[]scenario.ToolDefinition{weatherTool},
 		func(tc scenario.ToolCall) (string, error) {
-			var args struct{ City string `json:"city"` }
+			var args struct {
+				City string `json:"city"`
+			}
 			if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
 				return "", err
 			}
@@ -53,19 +56,21 @@ func TestWeatherAgent(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			agent,
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 		},
 		Script: []scenario.ScriptStep{
 			scenario.User(),
 			scenario.Agent(),
 			// Assert tool was called
-			func(_ context.Context, exec scenario.Execution, state scenario.ExecutionState) (*scenario.ScenarioResult, error) {
+			scenario.StepFunc(func(ctx context.Context, exec *scenario.Executor) error {
+				state := exec.State()
 				if !state.HasToolCall("get_current_weather") {
-					return exec.Fail(context.Background(), "Agent did not call get_current_weather tool")
+					exec.Fail(ctx, "Agent did not call get_current_weather tool")
+					return nil
 				}
-				return nil, nil
-			},
+				return nil
+			}),
 			scenario.Succeed("Agent called the weather tool as expected."),
 		},
 		SetID: "go-examples",
@@ -74,6 +79,6 @@ func TestWeatherAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }

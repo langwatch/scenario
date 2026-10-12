@@ -17,6 +17,7 @@ import (
 )
 
 func TestTravelAgent(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	weatherTool := scenario.ToolDefinition{
@@ -67,7 +68,9 @@ func TestTravelAgent(t *testing.T) {
 	executor := func(tc scenario.ToolCall) (string, error) {
 		switch tc.Name {
 		case "get_current_weather":
-			var args struct{ City string `json:"city"` }
+			var args struct {
+				City string `json:"city"`
+			}
 			json.Unmarshal([]byte(tc.Arguments), &args)
 			return simulateWeather(args.City), nil
 
@@ -116,10 +119,10 @@ func TestTravelAgent(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			agent,
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 		},
 		Script: []scenario.ScriptStep{
@@ -127,21 +130,25 @@ func TestTravelAgent(t *testing.T) {
 			scenario.Agent(),
 			scenario.User(),
 			scenario.Agent(),
-			func(_ context.Context, exec scenario.Execution, state scenario.ExecutionState) (*scenario.ScenarioResult, error) {
+			scenario.StepFunc(func(ctx context.Context, exec *scenario.Executor) error {
+				state := exec.State()
 				if !state.HasToolCall("get_current_weather") {
-					return exec.Fail(context.Background(), "Agent did not call get_current_weather")
+					exec.Fail(ctx, "Agent did not call get_current_weather")
+					return nil
 				}
-				return nil, nil
-			},
+				return nil
+			}),
 			scenario.User(),
 			scenario.Agent(),
-			func(_ context.Context, exec scenario.Execution, state scenario.ExecutionState) (*scenario.ScenarioResult, error) {
+			scenario.StepFunc(func(ctx context.Context, exec *scenario.Executor) error {
+				state := exec.State()
 				if !state.HasToolCall("get_accommodation") {
-					return exec.Fail(context.Background(), "Agent did not call get_accommodation")
+					exec.Fail(ctx, "Agent did not call get_accommodation")
+					return nil
 				}
-				return nil, nil
-			},
-			scenario.Judge(scenario.WithJudgeCriteria(
+				return nil
+			}),
+			scenario.Judge(scenario.WithCriteria(
 				"The agent should ask which city is the user asking accommodations for if they don't provide it.",
 				"The agent should share the prices of each accommodation for the user to consider.",
 				"The agent should not bias the user towards a specific accommodation.",
@@ -153,6 +160,6 @@ func TestTravelAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }

@@ -15,6 +15,7 @@ import (
 )
 
 func TestMultiturn10Scripted(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	agent := simpleAgent(
@@ -30,10 +31,10 @@ func TestMultiturn10Scripted(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			agent,
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 				Criteria: []string{
 					"Agent answered all 10 user questions relevantly",
 					"Agent provided specific and helpful travel advice about Japan",
@@ -81,6 +82,6 @@ func TestMultiturn10Scripted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }

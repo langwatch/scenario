@@ -14,6 +14,7 @@ import (
 )
 
 func TestMockedWeatherAgentTool(t *testing.T) {
+	skipWithoutOpenAI(t)
 	llm := newLLM()
 
 	agent := simpleAgent(
@@ -27,10 +28,10 @@ func TestMockedWeatherAgentTool(t *testing.T) {
 		Agents: []scenario.AgentAdapter{
 			agent,
 			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 			}),
 			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
-				AgentConfig: scenario.AgentConfig{Model: "gpt-4.1-mini", LLM: llm},
+				ModelConfig: scenario.ModelConfig{Model: "gpt-4.1-mini", LLM: llm},
 				Criteria: []string{
 					"Agent summarizes the weather information from the tool result",
 				},
@@ -39,8 +40,8 @@ func TestMockedWeatherAgentTool(t *testing.T) {
 		Script: []scenario.ScriptStep{
 			scenario.User("What's the weather in Paris?"),
 			// Inject a hardcoded assistant message with a tool call
-			scenario.AgentMessage(scenario.Message{
-				Role: scenario.MessageRoleAssistant,
+			scenario.MessageStep(scenario.Message{
+				Role: scenario.RoleAssistant,
 				ToolCalls: []scenario.ToolCall{
 					{
 						ID:        "call_mock_001",
@@ -61,6 +62,6 @@ func TestMockedWeatherAgentTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %v", result.Reasoning)
 	}
 }
