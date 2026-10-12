@@ -194,8 +194,8 @@ func TestConfiguredThrottleWindow(t *testing.T) {
 	_, _, show := env(t)
 	t.Setenv("SCENARIO_BROWSER_REOPEN_SECONDS", "0")
 	f := startLangWatch(t, false, http.StatusNotFound, 0)
-	if show(f) != Opened || show(f) != Opened {
-		t.Fatal("a zero window must never throttle")
+	if first, second := show(f), show(f); first != Opened || second != Opened {
+		t.Fatalf("a zero window must never throttle: %s then %s", first, second)
 	}
 }
 
@@ -261,8 +261,8 @@ func TestNeverAndAlwaysPolicies(t *testing.T) {
 		t.Fatalf("never: %s", got)
 	}
 	t.Setenv("SCENARIO_BROWSER", "always")
-	if show(f) != Opened || show(f) != Opened || f.count() != 0 || len(*opened) != 2 {
-		t.Fatalf("always: requests %d opened %v", f.count(), *opened)
+	if first, second := show(f), show(f); first != Opened || second != Opened || f.count() != 0 || len(*opened) != 2 {
+		t.Fatalf("always: %s then %s, requests %d opened %v", first, second, f.count(), *opened)
 	}
 	t.Setenv("SCENARIO_BROWSER", "")
 	if got := show(f, func(o *Options, _ *Location) { o.Headless = true }); got != SuppressedByPolicy {
