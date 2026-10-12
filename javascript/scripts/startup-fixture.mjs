@@ -7,13 +7,16 @@ const require = createRequire(import.meta.url);
 // require.cache only sees CommonJS. Record every file the ESM loader opens too,
 // so an eager `import` in index.mjs fails the same checks.
 const imported = new Set();
+const entry = process.argv[2];
+if (entry.endsWith(".mjs") && !module.registerHooks) {
+  throw new Error("checking the ESM entry needs module.registerHooks (Node 22.15+)");
+}
 module.registerHooks?.({
   load(url, context, nextLoad) {
     if (url.startsWith("file:")) imported.add(fileURLToPath(url));
     return nextLoad(url, context);
   },
 });
-const entry = process.argv[2];
 const sdk = entry.endsWith(".mjs") ? await import(entry) : require(fileURLToPath(entry));
 const loaded = (pattern) =>
   [...new Set([...Object.keys(require.cache), ...imported])].filter((path) => pattern.test(path));
