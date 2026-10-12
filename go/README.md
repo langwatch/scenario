@@ -111,21 +111,75 @@ is safe for concurrent use; runs already started keep the settings they read.
 
 ## Providers
 
-| Module | Client |
-|--------|--------|
-| `providers/openai` | `github.com/openai/openai-go/v3` |
-| `providers/anthropic` | `github.com/anthropics/anthropic-sdk-go` |
-| `providers/gemini` | `google.golang.org/genai` |
-| `providers/bedrock` | `github.com/aws/aws-sdk-go-v2/service/bedrockruntime` |
+| Module | Client | Registry names |
+|--------|--------|----------------|
+| [`providers/openai`](providers/openai) | `github.com/openai/openai-go/v3` | `openai`, `azure`, `openrouter`, `ollama`, `groq`, `together_ai`, `hosted_vllm`, `litellm_proxy`, `mistral`, `deepseek`, `xai`, `fireworks_ai` |
+| [`providers/anthropic`](providers/anthropic) | `github.com/anthropics/anthropic-sdk-go` | `anthropic` |
+| [`providers/gemini`](providers/gemini) | `google.golang.org/genai` | `gemini`, `google`, `vertex_ai` |
+| [`providers/bedrock`](providers/bedrock) | `github.com/aws/aws-sdk-go-v2/service/bedrockruntime` | `bedrock` |
 
 Each exposes `NewProvider(client)` plus message converters for your own
-agents (`scenarioopenai.ToOpenAIMessages`, `FromOpenAIMessages`, ...). Any
-type with `Inference(ctx, InferenceParams) (*InferenceResult, error)` is a
-`scenario.LLM`, so a gateway or a mock is a few lines.
+adapters. Any type with `Inference(ctx, InferenceParams) (*InferenceResult, error)`
+is a `scenario.LLM`.
 
 `ModelConfig.Temperature` and `MaxTokens` are pointers: nil leaves the
 provider default, which keeps reasoning models that reject a temperature
 working.
+
+### Model strings
+
+Like the JS and Python SDKs, a model can be a `"provider/model"` string.
+Register the providers you use once (nothing is registered by default, so
+importing the SDK sets up no client), then name models by string; API keys
+come from the usual environment variables (`OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `AWS_*`, …):
+
+```go
+func TestMain(m *testing.M) {
+	scenarioopenai.Register()    // openai/, azure/, openrouter/, ollama/, …
+	scenarioanthropic.Register() // anthropic/
+	// or one name at a time: scenario.RegisterProvider("openai", scenarioopenai.Factory)
+	scenario.Configure(scenario.WithDefaultModel(scenario.ModelConfig{Model: "openai/gpt-4.1-mini"}))
+	os.Exit(m.Run())
+}
+
+judge := scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+	ModelConfig: scenario.ModelConfig{Model: "anthropic/claude-sonnet-4-5"},
+	Criteria:    []string{"The agent offers help"},
+})
+```
+
+The string splits at its first slash, so `"openrouter/anthropic/claude-sonnet-4.5"`
+asks OpenRouter for `anthropic/claude-sonnet-4.5`. `ModelConfig.APIKey`,
+`BaseURL` and `Headers` override the environment for one model. An agent's
+model naming its own provider does not inherit the default `LLM`; a bare
+model name (`"gpt-4.1"`) keeps the default's provider. Your own agents can
+get a ready LLM with `scenario.ModelConfig{Model: "groq/llama-3.3-70b-versatile"}.Resolve()`.
+`scenario.RegisterProvider(name, factory)` adds your own providers.
+
+### Streaming your agent
+
+When granular events are on (`SCENARIO_SEND_GRANULAR_EVENTS=1` or
+`WithGranularEvents(true)`), `AgentInput.Stream` shows your agent's message
+live in LangWatch. Each provider module has a helper that runs a streaming
+completion, forwards text deltas and tool calls to it, and returns the final
+message; `Stream` is nil, and the helpers still work, when granular events
+are off:
+
+```go
+agent := scenario.AgentFunc(func(ctx context.Context, in scenario.AgentInput) (*scenario.AgentReturn, error) {
+	res, err := provider.Stream(ctx, scenario.InferenceParams{Model: "gpt-4.1-mini", Messages: in.Messages}, in.Stream)
+	if err != nil {
+		return nil, err
+	}
+	return scenario.MessageReturn(res.Message), nil
+})
+```
+
+`openai.StreamChatCompletion`, `anthropic.StreamMessage`,
+`gemini.StreamGenerateContent` and `bedrock.StreamConverse` do the same for
+requests built with the providers' own SDK types. The built-in user
+simulator and judge do not stream.
 
 ## Scripts
 

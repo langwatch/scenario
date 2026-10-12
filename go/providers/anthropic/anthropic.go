@@ -25,6 +25,21 @@ func NewProvider(client *anthropic.Client) *Provider {
 
 // Inference calls the Messages API.
 func (p *Provider) Inference(ctx context.Context, params scenario.InferenceParams) (*scenario.InferenceResult, error) {
+	resp, err := p.Client.Messages.New(ctx, toRequest(params))
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, errors.New("nil response from Anthropic")
+	}
+	return &scenario.InferenceResult{
+		Message: fromAnthropicResponse(resp),
+		Usage:   &scenario.Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens},
+	}, nil
+}
+
+// toRequest converts scenario inference params to a Messages API request.
+func toRequest(params scenario.InferenceParams) anthropic.MessageNewParams {
 	system, rest := splitSystem(params.Messages)
 	req := anthropic.MessageNewParams{
 		Model:     anthropic.Model(params.Model),
@@ -46,15 +61,5 @@ func (p *Provider) Inference(ctx context.Context, params scenario.InferenceParam
 	if params.ToolChoice != nil {
 		req.ToolChoice = toAnthropicToolChoice(params.ToolChoice)
 	}
-	resp, err := p.Client.Messages.New(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	if resp == nil {
-		return nil, errors.New("nil response from Anthropic")
-	}
-	return &scenario.InferenceResult{
-		Message: fromAnthropicResponse(resp),
-		Usage:   &scenario.Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens},
-	}, nil
+	return req
 }

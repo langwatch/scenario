@@ -81,9 +81,9 @@ func (u *UserSimulatorAgent) Call(ctx context.Context, in AgentInput) (*AgentRet
 	if system == "" {
 		system = buildUserSimulatorPrompt(in.ScenarioConfig.Description, u.cfg.Persona)
 	}
-	model := u.cfg.ModelConfig.merged(currentSettings().DefaultModel)
-	if model.LLM == nil {
-		return nil, ErrNoModel
+	model, err := u.cfg.ModelConfig.merged(currentSettings().DefaultModel)
+	if err != nil {
+		return nil, err
 	}
 	history := in.Messages
 	if in.Executor != nil && hasAudioWithoutTranscript(history) {
