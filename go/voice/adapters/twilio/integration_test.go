@@ -6,10 +6,11 @@ package twilio
 // twilio-a-leg-external.e2e.test.ts (AC11). It dials a real external number
 // over a real cloudflared quick tunnel and runs a scenario over the media
 // stream attached to our own leg. It bills a PSTN call, so it runs only when
-// the operator named the destination:
+// the operator opted in and named the destination:
 //
-//	TWILIO_ACCOUNT_SID=… TWILIO_AUTH_TOKEN=… TWILIO_PHONE_NUMBER=+1… \
-//	SCENARIO_TWILIO_EXTERNAL_TO=+1… go test -tags integration -run ALegExternal ./adapters/twilio
+//	SCENARIO_LIVE_TWILIO=1 TWILIO_ACCOUNT_SID=… TWILIO_AUTH_TOKEN=… \
+//	TWILIO_PHONE_NUMBER=+1… SCENARIO_TWILIO_EXTERNAL_TO=+1… \
+//	go test -tags integration -run ALegExternal ./adapters/twilio
 //
 // The user line is spoken with OpenAI TTS when OPENAI_API_KEY is set
 // (voice SCENARIO_TWILIO_E2E_VOICE, default openai/nova), else as a test
@@ -51,6 +52,9 @@ func (u speakingUser) Call(ctx context.Context, _ scenario.AgentInput) (*scenari
 }
 
 func TestALegExternalLive(t *testing.T) {
+	if os.Getenv("SCENARIO_LIVE_TWILIO") != "1" {
+		t.Skip("missing env: SCENARIO_LIVE_TWILIO=1 (bills a real PSTN call, opt-in only)")
+	}
 	for _, k := range []string{"TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "SCENARIO_TWILIO_EXTERNAL_TO"} {
 		if os.Getenv(k) == "" {
 			t.Skipf("set %s (and the other TWILIO_* vars) to dial a live a-leg call", k)

@@ -22,6 +22,7 @@ go 1.25.7
 use (
 	.
 	./examples
+	./live
 	./providers/anthropic
 	./providers/bedrock
 	./providers/gemini
