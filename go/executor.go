@@ -43,9 +43,11 @@ type Executor struct {
 	// merged is set when the result already holds the checkpoint criteria.
 	merged      bool
 	pendingTurn *TurnHandle
-	runCtx      context.Context
-	turnSpan    trace.Span
-	finished    bool
+	// inflight are the non-blocking turns not yet drained.
+	inflight []*TurnHandle
+	runCtx   context.Context
+	turnSpan trace.Span
+	finished bool
 }
 
 // checkpoint is the outcome of an inline-criteria judge step.
