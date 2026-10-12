@@ -24,7 +24,6 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import open from "open";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("scenario.browser.tabHandoff");
@@ -317,7 +316,10 @@ async function openTab(
 
   try {
     if (opener) opener(url);
-    else await open(url);
+    else {
+      const { default: open } = await import("open");
+      await open(url);
+    }
   } catch (error) {
     logger.debug("Could not open a browser", { error });
     return "failed_to_open";
