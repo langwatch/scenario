@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 )
@@ -24,6 +25,12 @@ type RunOptions struct {
 	// OnEvent receives every event of the run, in order, as it is
 	// delivered.
 	OnEvent func(Event)
+	// HTTPClient posts the run's events; defaults to a shared keep-alive
+	// client. Embedders pass their own (for example an egress-fenced one).
+	HTTPClient *http.Client
+	// Quiet suppresses the console banners (greeting, live link) regardless
+	// of SCENARIO_DISABLE_SIMULATION_REPORT_INFO.
+	Quiet bool
 }
 
 // RunOption configures RunOptions.
@@ -52,6 +59,12 @@ func WithValue(key, value any) RunOption {
 		o.Values[key] = value
 	}
 }
+
+// WithHTTPClient sets the client that posts the run's events.
+func WithHTTPClient(c *http.Client) RunOption { return func(o *RunOptions) { o.HTTPClient = c } }
+
+// WithQuiet suppresses the console banners.
+func WithQuiet() RunOption { return func(o *RunOptions) { o.Quiet = true } }
 
 // WithEventListener receives every event of the run.
 func WithEventListener(fn func(Event)) RunOption { return func(o *RunOptions) { o.OnEvent = fn } }
@@ -101,8 +114,13 @@ func Run(ctx context.Context, cfg ScenarioConfig, opts ...RunOption) (*ScenarioR
 	}
 
 	alerts := newAlertLogger(batchID, settings)
+	alerts.disabled = alerts.disabled || o.Quiet
 	alerts.greeting(lw.APIKey)
-	delivery := &eventDelivery{reporter: newEventReporter(lw), listener: o.OnEvent, alerts: alerts, setID: cfg.SetID, lw: lw}
+	reporter := newEventReporter(lw)
+	if o.HTTPClient != nil {
+		reporter.client = o.HTTPClient
+	}
+	delivery := &eventDelivery{reporter: reporter, listener: o.OnEvent, alerts: alerts, setID: cfg.SetID, lw: lw}
 	bus := newEventBus(delivery.deliver)
 
 	ex := newExecutor(cfg, runID, batchID, bus.publish, granular)

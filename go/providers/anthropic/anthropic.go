@@ -1,65 +1,60 @@
+// Package anthropic adapts the Anthropic Messages API to scenario.LLM.
 package anthropic
 
 import (
 	"context"
 	"errors"
 
-	scenario "github.com/langwatch/scenario/go"
 	"github.com/anthropics/anthropic-sdk-go"
+	scenario "github.com/langwatch/scenario/go"
 )
 
-// Provider implements scenario.Inference using the Anthropic Go SDK.
+// DefaultMaxTokens is used when the request sets no limit; the Messages API
+// requires one.
+const DefaultMaxTokens = 4096
+
+// Provider implements scenario.LLM with the Anthropic Go SDK.
 type Provider struct {
 	Client *anthropic.Client
 }
 
-// NewProvider creates a new Anthropic provider wrapping the given client.
+// NewProvider wraps an Anthropic client.
 func NewProvider(client *anthropic.Client) *Provider {
 	return &Provider{Client: client}
 }
 
-// Inference calls the Anthropic messages API.
+// Inference calls the Messages API.
 func (p *Provider) Inference(ctx context.Context, params scenario.InferenceParams) (*scenario.InferenceResult, error) {
-	systemBlocks, messages := extractSystemMessages(params.Messages)
-
-	anthropicParams := anthropic.MessageNewParams{
-		Model:    anthropic.Model(params.Model),
-		Messages: toAnthropicMessages(messages),
+	system, rest := splitSystem(params.Messages)
+	req := anthropic.MessageNewParams{
+		Model:     anthropic.Model(params.Model),
+		Messages:  ToAnthropicMessages(rest),
+		MaxTokens: DefaultMaxTokens,
 	}
-
-	if len(systemBlocks) > 0 {
-		anthropicParams.System = systemBlocks
+	if len(system) > 0 {
+		req.System = system
 	}
-
 	if params.Temperature != nil {
-		anthropicParams.Temperature = anthropic.Float(*params.Temperature)
+		req.Temperature = anthropic.Float(*params.Temperature)
 	}
-
-	maxTokens := int64(4096)
 	if params.MaxTokens != nil {
-		maxTokens = *params.MaxTokens
+		req.MaxTokens = *params.MaxTokens
 	}
-	anthropicParams.MaxTokens = maxTokens
-
 	if len(params.Tools) > 0 {
-		anthropicParams.Tools = toAnthropicTools(params.Tools)
+		req.Tools = toAnthropicTools(params.Tools)
 	}
 	if params.ToolChoice != nil {
-		anthropicParams.ToolChoice = toAnthropicToolChoice(params.ToolChoice)
+		req.ToolChoice = toAnthropicToolChoice(params.ToolChoice)
 	}
-
-	response, err := p.Client.Messages.New(ctx, anthropicParams)
+	resp, err := p.Client.Messages.New(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-
-	if response == nil {
+	if resp == nil {
 		return nil, errors.New("nil response from Anthropic")
 	}
-
-	msg := fromAnthropicResponse(response)
-
 	return &scenario.InferenceResult{
-		Message: msg,
+		Message: fromAnthropicResponse(resp),
+		Usage:   &scenario.Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens},
 	}, nil
 }

@@ -4,180 +4,191 @@ import (
 	"encoding/json"
 	"strings"
 
-	scenario "github.com/langwatch/scenario/go"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	scenario "github.com/langwatch/scenario/go"
 )
 
-// extractSystemMessages separates system messages from the rest,
-// returning Bedrock system content blocks and the remaining messages.
-func extractSystemMessages(msgs []scenario.Message) ([]types.SystemContentBlock, []scenario.Message) {
+func splitSystem(msgs []scenario.Message) ([]types.SystemContentBlock, []scenario.Message) {
 	var system []types.SystemContentBlock
-	var remaining []scenario.Message
-
-	for _, msg := range msgs {
-		if msg.Role == scenario.MessageRoleSystem {
-			system = append(system, &types.SystemContentBlockMemberText{
-				Value: msg.Content,
-			})
-		} else {
-			remaining = append(remaining, msg)
+	rest := make([]scenario.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == scenario.RoleSystem {
+			system = append(system, &types.SystemContentBlockMemberText{Value: m.Text()})
+			continue
 		}
+		rest = append(rest, m)
 	}
-
-	return system, remaining
+	return system, rest
 }
 
-// ToBedrockMessages converts scenario messages to Bedrock message types.
-// Exported for users who need to convert messages in their own agent adapters.
+// ToBedrockMessages converts scenario messages to Converse messages.
+// Consecutive user-side messages (user turns and tool results) merge, as
+// Converse requires alternating roles. Images and documents map to image and
+// document blocks; Converse takes no audio, so audio parts are dropped (an
+// audio-only turn becomes "[audio message]").
 func ToBedrockMessages(msgs []scenario.Message) []types.Message {
-	return toBedrockMessages(msgs)
-}
-
-func toBedrockMessages(msgs []scenario.Message) []types.Message {
-	var result []types.Message
-
-	for _, msg := range msgs {
-		switch msg.Role {
-		case scenario.MessageRoleUser:
-			result = append(result, types.Message{
-				Role: types.ConversationRoleUser,
-				Content: []types.ContentBlock{
-					&types.ContentBlockMemberText{Value: msg.Content},
-				},
-			})
-
-		case scenario.MessageRoleAssistant:
-			var blocks []types.ContentBlock
-			if msg.Content != "" {
-				blocks = append(blocks, &types.ContentBlockMemberText{Value: msg.Content})
+	out := make([]types.Message, 0, len(msgs))
+	add := func(role types.ConversationRole, blocks []types.ContentBlock) {
+		if len(blocks) == 0 {
+			return
+		}
+		if n := len(out); n > 0 && out[n-1].Role == role {
+			out[n-1].Content = append(out[n-1].Content, blocks...)
+			return
+		}
+		out = append(out, types.Message{Role: role, Content: blocks})
+	}
+	for _, m := range msgs {
+		switch m.Role {
+		case scenario.RoleUser:
+			add(types.ConversationRoleUser, contentBlocks(m))
+		case scenario.RoleTool:
+			add(types.ConversationRoleUser, []types.ContentBlock{&types.ContentBlockMemberToolResult{Value: types.ToolResultBlock{
+				ToolUseId: aws.String(m.ToolCallID),
+				Content:   []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{Value: m.Text()}},
+			}}})
+		case scenario.RoleAssistant:
+			blocks := contentBlocks(m)
+			for _, tc := range m.ToolCalls {
+				blocks = append(blocks, &types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
+					ToolUseId: aws.String(tc.ID),
+					Name:      aws.String(tc.Name),
+					Input:     document.NewLazyDocument(argsMap(tc.Arguments)),
+				}})
 			}
-			for _, tc := range msg.ToolCalls {
-				var input map[string]any
-				if tc.Arguments != "" {
-					_ = json.Unmarshal([]byte(tc.Arguments), &input)
-				}
-				if input == nil {
-					input = map[string]any{}
-				}
-				blocks = append(blocks, &types.ContentBlockMemberToolUse{
-					Value: types.ToolUseBlock{
-						ToolUseId: aws.String(tc.ID),
-						Name:      aws.String(tc.Name),
-						Input:     document.NewLazyDocument(input),
-					},
-				})
-			}
-			if len(blocks) > 0 {
-				result = append(result, types.Message{
-					Role:    types.ConversationRoleAssistant,
-					Content: blocks,
-				})
-			}
-
-		case scenario.MessageRoleTool:
-			result = append(result, types.Message{
-				Role: types.ConversationRoleUser,
-				Content: []types.ContentBlock{
-					&types.ContentBlockMemberToolResult{
-						Value: types.ToolResultBlock{
-							ToolUseId: aws.String(msg.ToolCallID),
-							Content: []types.ToolResultContentBlock{
-								&types.ToolResultContentBlockMemberText{Value: msg.Content},
-							},
-						},
-					},
-				},
-			})
-
-		default:
-			// Skip system (already extracted) and unknown roles
+			add(types.ConversationRoleAssistant, blocks)
 		}
 	}
-
-	return result
+	return out
 }
 
-// fromBedrockMessage converts a Bedrock response Message to a scenario message.
-func fromBedrockMessage(msg types.Message) scenario.Message {
-	result := scenario.Message{
-		Role: scenario.MessageRoleAssistant,
+func contentBlocks(m scenario.Message) []types.ContentBlock {
+	if len(m.Parts) == 0 {
+		if m.Content == "" {
+			return nil
+		}
+		return []types.ContentBlock{&types.ContentBlockMemberText{Value: m.Content}}
 	}
+	var blocks []types.ContentBlock
+	audioOnly := true
+	for _, p := range m.Parts {
+		switch {
+		case p.Type == scenario.PartText:
+			audioOnly = false
+			if p.Text != "" {
+				blocks = append(blocks, &types.ContentBlockMemberText{Value: p.Text})
+			}
+		case p.Type == scenario.PartImage && len(p.Data) > 0:
+			audioOnly = false
+			blocks = append(blocks, &types.ContentBlockMemberImage{Value: types.ImageBlock{
+				Format: types.ImageFormat(subtype(p.MediaType)),
+				Source: &types.ImageSourceMemberBytes{Value: p.Data},
+			}})
+		case p.Type == scenario.PartFile && !p.IsAudio() && len(p.Data) > 0:
+			audioOnly = false
+			name := p.Filename
+			if name == "" {
+				name = "document"
+			}
+			blocks = append(blocks, &types.ContentBlockMemberDocument{Value: types.DocumentBlock{
+				Format: types.DocumentFormat(subtype(p.MediaType)),
+				Name:   aws.String(name),
+				Source: &types.DocumentSourceMemberBytes{Value: p.Data},
+			}})
+		case !p.IsAudio():
+			audioOnly = false
+		}
+	}
+	if len(blocks) == 0 && audioOnly {
+		blocks = append(blocks, &types.ContentBlockMemberText{Value: "[audio message]"})
+	}
+	return blocks
+}
 
-	var textParts []string
+// subtype returns the part after "/" of a media type ("image/png" → "png").
+func subtype(mediaType string) string {
+	_, sub, _ := strings.Cut(mediaType, "/")
+	return sub
+}
+
+func argsMap(args string) map[string]any {
+	var v map[string]any
+	if args == "" || json.Unmarshal([]byte(args), &v) != nil || v == nil {
+		return map[string]any{}
+	}
+	return v
+}
+
+func fromBedrockMessage(msg types.Message) scenario.Message {
+	out := scenario.Message{Role: scenario.RoleAssistant}
+	var texts []string
 	for _, block := range msg.Content {
 		switch b := block.(type) {
 		case *types.ContentBlockMemberText:
-			textParts = append(textParts, b.Value)
+			texts = append(texts, b.Value)
 		case *types.ContentBlockMemberToolUse:
 			args := "{}"
+			// MarshalSmithyDocument yields the JSON as sent; decoding into
+			// any would turn numbers into strings.
 			if b.Value.Input != nil {
-				var parsed map[string]any
-				if err := b.Value.Input.UnmarshalSmithyDocument(&parsed); err == nil {
-					if encoded, err := json.Marshal(parsed); err == nil {
-						args = string(encoded)
-					}
+				if enc, err := b.Value.Input.MarshalSmithyDocument(); err == nil && len(enc) > 0 {
+					args = string(enc)
 				}
 			}
-			result.ToolCalls = append(result.ToolCalls, scenario.ToolCall{
-				ID:        aws.ToString(b.Value.ToolUseId),
-				Name:      aws.ToString(b.Value.Name),
-				Arguments: args,
-			})
+			out.ToolCalls = append(out.ToolCalls, scenario.ToolCall{ID: aws.ToString(b.Value.ToolUseId), Name: aws.ToString(b.Value.Name), Arguments: args})
 		}
 	}
-
-	result.Content = strings.Join(textParts, "\n")
-
-	return result
+	out.Content = strings.Join(texts, "\n")
+	return out
 }
 
-func toBedrockInferenceConfig(temperature *float64, maxTokens *int64) *types.InferenceConfiguration {
+func toInferenceConfig(temperature *float64, maxTokens *int64) *types.InferenceConfiguration {
 	if temperature == nil && maxTokens == nil {
 		return nil
 	}
-	config := &types.InferenceConfiguration{}
+	cfg := &types.InferenceConfiguration{}
 	if temperature != nil {
-		temp := float32(*temperature)
-		config.Temperature = &temp
+		cfg.Temperature = aws.Float32(float32(*temperature))
 	}
 	if maxTokens != nil {
-		mt := int32(*maxTokens)
-		config.MaxTokens = &mt
+		cfg.MaxTokens = aws.Int32(int32(*maxTokens))
 	}
-	return config
+	return cfg
 }
 
-func toBedrockToolConfig(tools []scenario.ToolDefinition, toolChoice *scenario.ToolChoice) *types.ToolConfiguration {
-	config := &types.ToolConfiguration{}
-
-	for _, tool := range tools {
-		config.Tools = append(config.Tools, &types.ToolMemberToolSpec{
-			Value: types.ToolSpecification{
-				Name:        aws.String(tool.Name),
-				Description: aws.String(tool.Description),
-				InputSchema: &types.ToolInputSchemaMemberJson{
-					Value: document.NewLazyDocument(tool.Parameters),
-				},
-			},
-		})
+// toToolConfig normalizes each schema through JSON first: smithy documents
+// cannot encode pre-encoded JSON values the core uses for ordered schemas.
+func toToolConfig(tools []scenario.ToolDefinition, choice *scenario.ToolChoice) (*types.ToolConfiguration, error) {
+	cfg := &types.ToolConfiguration{}
+	for _, t := range tools {
+		raw, err := json.Marshal(t.Parameters)
+		if err != nil {
+			return nil, err
+		}
+		var schema any
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			return nil, err
+		}
+		spec := types.ToolSpecification{
+			Name:        aws.String(t.Name),
+			InputSchema: &types.ToolInputSchemaMemberJson{Value: document.NewLazyDocument(schema)},
+		}
+		if t.Description != "" {
+			spec.Description = aws.String(t.Description)
+		}
+		cfg.Tools = append(cfg.Tools, &types.ToolMemberToolSpec{Value: spec})
 	}
-
-	if toolChoice != nil {
-		switch toolChoice.Type {
-		case "auto":
-			config.ToolChoice = &types.ToolChoiceMemberAuto{Value: types.AutoToolChoice{}}
-		case "required":
-			config.ToolChoice = &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}}
-		case "function":
-			config.ToolChoice = &types.ToolChoiceMemberTool{
-				Value: types.SpecificToolChoice{
-					Name: aws.String(toolChoice.FunctionName),
-				},
-			}
+	if choice != nil {
+		switch choice.Type {
+		case scenario.ToolChoiceAuto:
+			cfg.ToolChoice = &types.ToolChoiceMemberAuto{Value: types.AutoToolChoice{}}
+		case scenario.ToolChoiceRequired:
+			cfg.ToolChoice = &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}}
+		case scenario.ToolChoiceTool:
+			cfg.ToolChoice = &types.ToolChoiceMemberTool{Value: types.SpecificToolChoice{Name: aws.String(choice.ToolName)}}
 		}
 	}
-
-	return config
+	return cfg, nil
 }

@@ -1,3 +1,4 @@
+// Package gemini adapts the Google GenAI generateContent API to scenario.LLM.
 package gemini
 
 import (
@@ -8,54 +9,42 @@ import (
 	"google.golang.org/genai"
 )
 
-// Provider implements scenario.Inference using the Google GenAI Go SDK.
+// Provider implements scenario.LLM with the Google GenAI Go SDK.
 type Provider struct {
 	Client *genai.Client
 }
 
-// NewProvider creates a new Gemini provider wrapping the given client.
+// NewProvider wraps a GenAI client.
 func NewProvider(client *genai.Client) *Provider {
 	return &Provider{Client: client}
 }
 
-// Inference calls the Gemini generateContent API.
+// Inference calls generateContent.
 func (p *Provider) Inference(ctx context.Context, params scenario.InferenceParams) (*scenario.InferenceResult, error) {
-	systemInstruction, contents := extractSystemMessages(params.Messages)
-
-	config := &genai.GenerateContentConfig{}
-
-	if systemInstruction != nil {
-		config.SystemInstruction = systemInstruction
-	}
-
+	system, rest := splitSystem(params.Messages)
+	cfg := &genai.GenerateContentConfig{SystemInstruction: system}
 	if params.Temperature != nil {
-		temp := float32(*params.Temperature)
-		config.Temperature = &temp
+		cfg.Temperature = genai.Ptr(float32(*params.Temperature))
 	}
 	if params.MaxTokens != nil {
-		maxTokens := int32(*params.MaxTokens)
-		config.MaxOutputTokens = &maxTokens
+		cfg.MaxOutputTokens = int32(*params.MaxTokens)
 	}
-
 	if len(params.Tools) > 0 {
-		config.Tools = toGeminiTools(params.Tools)
+		cfg.Tools = toGeminiTools(params.Tools)
 	}
 	if params.ToolChoice != nil {
-		config.ToolConfig = toGeminiToolConfig(params.ToolChoice)
+		cfg.ToolConfig = toGeminiToolConfig(params.ToolChoice)
 	}
-
-	response, err := p.Client.Models.GenerateContent(ctx, params.Model, toGeminiContents(contents), config)
+	resp, err := p.Client.Models.GenerateContent(ctx, params.Model, ToGeminiContents(rest), cfg)
 	if err != nil {
 		return nil, err
 	}
-
-	if response == nil || len(response.Candidates) == 0 {
+	if resp == nil || len(resp.Candidates) == 0 {
 		return nil, errors.New("no response candidates from Gemini")
 	}
-
-	msg := fromGeminiResponse(response.Candidates[0])
-
-	return &scenario.InferenceResult{
-		Message: msg,
-	}, nil
+	res := &scenario.InferenceResult{Message: fromGeminiCandidate(resp.Candidates[0])}
+	if u := resp.UsageMetadata; u != nil {
+		res.Usage = &scenario.Usage{InputTokens: int64(u.PromptTokenCount), OutputTokens: int64(u.CandidatesTokenCount)}
+	}
+	return res, nil
 }

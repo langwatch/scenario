@@ -157,6 +157,14 @@ const (
 	pcm16SampleWidth = 2
 )
 
+// WAVFromPCM16 wraps raw canonical PCM16 audio (24 kHz, mono) in a WAV
+// container, for providers that accept WAV but not raw PCM.
+func WAVFromPCM16(pcm []byte) []byte {
+	h := wavHeader(len(pcm))
+	out := make([]byte, 0, len(h)+len(pcm))
+	return append(append(out, h[:]...), pcm...)
+}
+
 // appendWAVBase64 appends base64(wavHeader + pcm) without copying pcm: base64
 // blocks are 3 bytes, so the 44-byte header splits into 42 bytes plus 2 that
 // pair with the first payload byte.

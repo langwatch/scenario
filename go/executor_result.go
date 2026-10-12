@@ -50,8 +50,11 @@ func (ex *Executor) Fail(_ context.Context, reasoning string) *ScenarioResult {
 	return ex.setResult(ScenarioResult{Success: false, Reasoning: reasoning, MetCriteria: []string{}, UnmetCriteria: []string{}})
 }
 
-// reachedMaxTurns fails the run, listing the judge's criteria as unmet.
+// reachedMaxTurns fails the run, listing the judge's criteria as unmet. An
+// empty reasoning means the turn cap was hit (ReachedMaxTurns); a script
+// that ends without a verdict passes its own reasoning.
 func (ex *Executor) reachedMaxTurns(reasoning string) *ScenarioResult {
+	atCap := reasoning == ""
 	if reasoning == "" {
 		reasoning = "Reached maximum turns (" + strconv.Itoa(ex.cfg.MaxTurns) + ") without conclusion"
 	}
@@ -62,7 +65,7 @@ func (ex *Executor) reachedMaxTurns(reasoning string) *ScenarioResult {
 			break
 		}
 	}
-	return ex.setResult(ScenarioResult{Success: false, Reasoning: reasoning, MetCriteria: []string{}, UnmetCriteria: unmet})
+	return ex.setResult(ScenarioResult{Success: false, Reasoning: reasoning, MetCriteria: []string{}, UnmetCriteria: unmet, ReachedMaxTurns: atCap})
 }
 
 func (ex *Executor) compiledCheckpointsLocked() checkpoint {

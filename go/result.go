@@ -54,6 +54,9 @@ type ScenarioResult struct {
 	TotalTime time.Duration
 	// AgentTime is the time spent in the agents under test.
 	AgentTime time.Duration
+	// ReachedMaxTurns is set when the run ended because it hit MaxTurns
+	// without a verdict.
+	ReachedMaxTurns bool
 	// Error is set when the run ended in an error.
 	Error string
 	// Evaluations holds one result per scenario evaluator.

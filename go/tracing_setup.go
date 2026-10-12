@@ -133,6 +133,30 @@ func (st *tracingState) flush(ctx context.Context) {
 	}
 }
 
+// FlushTracing exports every finished span now. Run flushes after each run;
+// call it before exiting a process that started spans of its own.
+func FlushTracing(ctx context.Context) error {
+	st := ensureTracing()
+	if st.provider == nil {
+		return nil
+	}
+	return st.provider.ForceFlush(ctx)
+}
+
+// ShutdownTracing flushes and stops the tracing the SDK installed. A provider
+// the SDK attached to (owned by the application) is only flushed. Call it
+// once, when no run is in progress.
+func ShutdownTracing(ctx context.Context) error {
+	st := ensureTracing()
+	if st.provider == nil {
+		return nil
+	}
+	if !st.owned {
+		return st.provider.ForceFlush(ctx)
+	}
+	return st.provider.Shutdown(ctx)
+}
+
 // ScenarioOnly is a LangWatch exporter filter that keeps only the spans the
 // scenario SDK starts.
 func ScenarioOnly() langwatch.Filter {

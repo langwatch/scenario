@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -154,20 +157,14 @@ func TestEndOfScriptAndMaxTurns(t *testing.T) {
 	t.Parallel()
 	sim, _ := userSim("x")
 	res, _ := Run(context.Background(), baseConfigWith(sim, User("hi"), Agent()))
-	if res.Success || !strings.HasPrefix(res.Reasoning, "Reached end of script without conclusion, add one of the following:\n- Add `Scenario.judge()`") {
+	if res.Success || res.ReachedMaxTurns || !strings.HasPrefix(res.Reasoning, "Reached end of script without conclusion, add one of the following:\n- Add `Scenario.judge()`") {
 		t.Fatalf("%q", res.Reasoning)
 	}
-	judge := judgeWith(&fakeLLM{answer: func(int, InferenceParams) (*InferenceResult, error) {
-		return toolAnswer("continue_test", "{}"), nil
-	}}, "criterion a")
-	cfg := baseConfig(&echoAgent{text: "ok"}, sim, judge)
+	cfg := baseConfig(&echoAgent{text: "ok"}, sim, silentJudge{})
 	cfg.MaxTurns = 2
 	cfg.Script = []ScriptStep{Proceed(), Proceed()}
-	// The judge cannot continue on the last turn; with a non-judging judge
-	// the run ends at the turn cap.
-	judge.cfg.ModelConfig.LLM = &fakeLLM{answer: func(int, InferenceParams) (*InferenceResult, error) { return toolAnswer("continue_test", "{}"), nil }}
 	res, _ = Run(context.Background(), cfg)
-	if res.Success || !slices.Equal(res.UnmetCriteria, []string{"criterion a"}) {
+	if res.Success || !slices.Equal(res.UnmetCriteria, []string{"criterion a"}) || !res.ReachedMaxTurns {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -446,3 +443,41 @@ func TestRunStartedMetadataOrder(t *testing.T) {
 		t.Fatalf("got  %s\nwant %s", p[i:], want)
 	}
 }
+
+type countingTransport struct{ n atomic.Int32 }
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`)), Header: http.Header{}}, nil
+}
+
+func TestInjectedHTTPClientAndIDs(t *testing.T) {
+	t.Parallel()
+	tr := &countingTransport{}
+	sim, _ := userSim("x")
+	cfg := baseConfig(&echoAgent{text: "ok"}, sim)
+	cfg.ThreadID, cfg.SetID = "scenariothread_given", "set-given"
+	cfg.Script = []ScriptStep{User("hi"), Agent(), Succeed()}
+	rec := &eventRecorder{}
+	res, err := Run(context.Background(), cfg,
+		WithHTTPClient(&http.Client{Transport: tr}), WithQuiet(), WithEventListener(rec.record),
+		WithLangWatch(LangWatchConfig{Endpoint: "http://langwatch.internal", APIKey: "sk-lw-x"}),
+		WithBatchRunID("scenariobatch_given"), WithRunID("scenariorun_given"))
+	if err != nil || res.RunID != "scenariorun_given" {
+		t.Fatal(err)
+	}
+	if tr.n.Load() != int32(len(rec.all())) || tr.n.Load() == 0 {
+		t.Fatalf("every event must go through the injected client: %d of %d", tr.n.Load(), len(rec.all()))
+	}
+	p := decode(t, rec.all()[0].Payload)
+	if p["batchRunId"] != "scenariobatch_given" || p["scenarioSetId"] != "set-given" || res.Messages[0].Turn != 0 {
+		t.Fatalf("payload %v", p)
+	}
+}
+
+// silentJudge never decides.
+type silentJudge struct{}
+
+func (silentJudge) Role() AgentRole                                        { return AgentRoleJudge }
+func (silentJudge) Criteria() []string                                     { return []string{"criterion a"} }
+func (silentJudge) Call(context.Context, AgentInput) (*AgentReturn, error) { return nil, nil }
