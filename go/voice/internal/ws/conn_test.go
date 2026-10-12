@@ -563,10 +563,12 @@ func TestValueContextsShareTheRegistration(t *testing.T) {
 	defer cancel()
 	type key struct{}
 	ctxs := []context.Context{base, context.WithValue(base, key{}, 1), context.WithValue(base, key{}, 2)}
-	var buf []byte
+	// The message is built once: a []byte("v") per call would itself be
+	// the allocation counted, since Write's argument escapes.
+	msg, buf := []byte("v"), []byte(nil)
 	write := func() {
 		for _, ctx := range ctxs {
-			if err := client.Write(ctx, MessageText, []byte("v")); err != nil {
+			if err := client.Write(ctx, MessageText, msg); err != nil {
 				t.Fatal(err)
 			}
 			var err error
