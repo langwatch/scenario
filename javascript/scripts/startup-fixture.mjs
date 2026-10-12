@@ -1,14 +1,24 @@
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
+import module, { createRequire } from "node:module";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
+// require.cache only sees CommonJS. Record every file the ESM loader opens too,
+// so an eager `import` in index.mjs fails the same checks.
+const imported = new Set();
+module.registerHooks?.({
+  load(url, context, nextLoad) {
+    if (url.startsWith("file:")) imported.add(fileURLToPath(url));
+    return nextLoad(url, context);
+  },
+});
 const entry = process.argv[2];
 const sdk = entry.endsWith(".mjs") ? await import(entry) : require(fileURLToPath(entry));
-const loaded = (pattern) => Object.keys(require.cache).filter((path) => pattern.test(path));
+const loaded = (pattern) =>
+  [...new Set([...Object.keys(require.cache), ...imported])].filter((path) => pattern.test(path));
 assert.deepEqual(loaded(/[/\\]@opentelemetry[/\\]sdk-node[/\\]/), []);
-assert.deepEqual(loaded(/[/\\]langwatch[/\\]dist[/\\]index\.js$/), []);
+assert.deepEqual(loaded(/[/\\]langwatch[/\\]dist[/\\]index\.m?js$/), []);
 assert.deepEqual(loaded(/[/\\]open[/\\]index\.js$/), []);
 assert.deepEqual(loaded(/[/\\]@elevenlabs[/\\]/), []);
 assert.equal(sdk.default, sdk.scenario);
