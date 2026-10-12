@@ -43,6 +43,105 @@
         { "type": "chore", "section": "Miscellaneous", "hidden": false },
         { "type": "docs", "section": "Documentation", "hidden": false },
         { "type": "refactor", "section": "Code Refactoring", "hidden": false }
+      ],
+      "extra-files": ["go.work", "examples/go.mod", "version.go"],
+      "exclude-paths": ["go/voice", "go/providers", "go/examples"]
+    },
+    "go/voice": {
+      "component": "go/voice",
+      "package-name": "go/voice",
+      "release-type": "go",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": false,
+      "extra-files": ["go.mod"],
+      "exclude-paths": ["go/voice/tunnel/ngrok"],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": false }
+      ]
+    },
+    "go/voice/tunnel/ngrok": {
+      "component": "go/voice/tunnel/ngrok",
+      "package-name": "go/voice/tunnel/ngrok",
+      "release-type": "go",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": false,
+      "extra-files": ["go.mod"],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": false }
+      ]
+    },
+    "go/providers/openai": {
+      "component": "go/providers/openai",
+      "package-name": "go/providers/openai",
+      "release-type": "go",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": false,
+      "extra-files": ["go.mod"],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": false }
+      ]
+    },
+    "go/providers/anthropic": {
+      "component": "go/providers/anthropic",
+      "package-name": "go/providers/anthropic",
+      "release-type": "go",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": false,
+      "extra-files": ["go.mod"],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": false }
+      ]
+    },
+    "go/providers/gemini": {
+      "component": "go/providers/gemini",
+      "package-name": "go/providers/gemini",
+      "release-type": "go",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": false,
+      "extra-files": ["go.mod"],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": false }
+      ]
+    },
+    "go/providers/bedrock": {
+      "component": "go/providers/bedrock",
+      "package-name": "go/providers/bedrock",
+      "release-type": "go",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": false,
+      "extra-files": ["go.mod"],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": false }
       ]
     }
   },
@@ -54,5 +153,13 @@
   "sequential-calls": true,
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": true,
-  "monorepo-tags": true
+  "monorepo-tags": true,
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "go-sdk",
+      "components": ["go", "go/voice", "go/voice/tunnel/ngrok", "go/providers/openai", "go/providers/anthropic", "go/providers/gemini", "go/providers/bedrock"],
+      "merge": true
+    }
+  ]
 }
