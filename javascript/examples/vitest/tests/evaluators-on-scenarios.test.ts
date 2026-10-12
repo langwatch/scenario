@@ -109,10 +109,21 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY || !process.env.OPENAI_API_KEY)(
     });
 
     expect(result.success, result.reasoning).toBe(true);
-    const statuses = Object.fromEntries(
-      (result.evaluations ?? []).map((evaluation) => [evaluation.evaluatorId, evaluation.status])
+    const evaluations = Object.fromEntries(
+      (result.evaluations ?? []).map((evaluation) => [evaluation.evaluatorId, evaluation])
     );
-    expect(statuses["langevals/exact_match"]).toBe("passed");
-    expect(["passed", "failed"]).toContain(statuses["langevals/llm_boolean"]);
+    const exact = evaluations["langevals/exact_match"];
+    expect(exact?.status, exact?.details).toBe("passed");
+    // llm_boolean calls a model with the LangWatch project's own provider
+    // key. When that key is rejected the evaluator reports an error, which
+    // says nothing about this SDK; any other error still fails (#1010).
+    const llm = evaluations["langevals/llm_boolean"];
+    const providerUnavailable =
+      llm?.status === "error" && /AuthenticationError|API key|model provider/i.test(llm.details ?? "");
+    if (providerUnavailable) {
+      console.warn(`llm_boolean could not reach its model provider: ${llm.details}`);
+    } else {
+      expect(["passed", "failed"], llm?.details).toContain(llm?.status);
+    }
   });
 });
