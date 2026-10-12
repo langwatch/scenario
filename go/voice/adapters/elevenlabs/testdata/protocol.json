@@ -1,0 +1,76 @@
+{
+  "comment": "Pinned ElevenLabs ConvAI wire shapes, as the official JavaScript SDK (@elevenlabs/elevenlabs-js 2.64.0, Conversation.js) sends and accepts them. protocol_test.go fails when the Go transport drifts from this file. Outbound values are compared byte for byte, key order included.",
+  "signed_url": {
+    "method": "GET",
+    "path": "/v1/convai/conversation/get-signed-url",
+    "query": "agent_id=agt_1",
+    "auth_header": "xi-api-key",
+    "response": {"signed_url": "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=agt_1&conversation_signature=sig"},
+    "dial_url": "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=agt_1&conversation_signature=sig&source=js_sdk&version=2.64.0",
+    "dial_url_without_query": "wss://gw.example/convai?source=js_sdk&version=2.64.0"
+  },
+  "outbound": {
+    "init_minimal": {"type":"conversation_initiation_client_data","conversation_config_override":{"agent":{}}},
+    "init_full": {"type":"conversation_initiation_client_data","conversation_config_override":{"agent":{"first_message":"Hi","language":"es","prompt":{"prompt":"X"}},"tts":{"stability":0.4}},"dynamic_variables":{"tenant_id":"acme","tier":2,"vip":true}},
+    "user_audio_chunk": {"user_audio_chunk":"EAAgADAAQAA="},
+    "pong_number": {"type":"pong","event_id":42},
+    "pong_string": {"type":"pong","event_id":"7"},
+    "user_message": {"type":"user_message","text":"hello there"},
+    "contextual_update": {"type":"contextual_update","text":"the user is on the pricing page"},
+    "client_tool_result": {"type":"client_tool_result","tool_call_id":"call_1","result":"Tool 'lookup_order' is not registered","is_error":true}
+  },
+  "inbound": [
+    {
+      "frame": {"type":"conversation_initiation_metadata","conversation_initiation_metadata_event":{"conversation_id":"conv_1","agent_output_audio_format":"pcm_24000","user_input_audio_format":"pcm_24000"}},
+      "expect": {"type":"conversation_initiation_metadata","conversation_id":"conv_1","output_format":"pcm_24000","input_format":"pcm_24000"}
+    },
+    {
+      "frame": {"type":"audio","audio_event":{"audio_base_64":"EAAgADAAQAA=","event_id":3}},
+      "expect": {"type":"audio","audio_hex":"1000200030004000","event_id":3}
+    },
+    {
+      "frame": {"audio_event":{"event_id":"4","audio_base_64":"EAAgAA=="},"type":"audio"},
+      "expect": {"type":"audio","audio_hex":"10002000","event_id":4}
+    },
+    {
+      "frame": {"type":"agent_response","agent_response_event":{"agent_response":"  I'm here "}},
+      "expect": {"type":"agent_response","agent_response":"I'm here"}
+    },
+    {
+      "frame": {"type":"agent_response_correction","agent_response_correction_event":{"original_agent_response":"draft","corrected_agent_response":"final "}},
+      "expect": {"type":"agent_response_correction","corrected":"final"}
+    },
+    {
+      "frame": {"type":"user_transcript","user_transcription_event":{"user_transcript":"hello world"}},
+      "expect": {"type":"user_transcript","user_transcript":"hello world"}
+    },
+    {
+      "frame": {"type":"interruption","interruption_event":{"event_id":"12"}},
+      "expect": {"type":"interruption","event_id":12}
+    },
+    {
+      "frame": {"type":"ping","ping_event":{"event_id":42,"ping_ms":100}},
+      "expect": {"type":"ping","event_id":42,"pong":{"type":"pong","event_id":42}}
+    },
+    {
+      "frame": {"type":"client_tool_call","client_tool_call":{"tool_name":"lookup_order","tool_call_id":"call_1","parameters":{"order_id":"42"}}},
+      "expect": {"type":"client_tool_call","reply":{"type":"client_tool_result","tool_call_id":"call_1","result":"Tool 'lookup_order' is not registered","is_error":true}}
+    },
+    {
+      "frame": {"type":"agent_tool_request","agent_tool_request":{"tool_name":"lookup_property","tool_call_id":"t1"}},
+      "expect": {"type":"agent_tool_request"}
+    },
+    {
+      "frame": {"type":"agent_tool_response","agent_tool_response":{"tool_name":"end_call","tool_call_id":"end_call_bf80","tool_type":"system","is_error":false,"is_blocked":false,"event_id":20,"is_called":true}},
+      "expect": {"type":"agent_tool_response","tool_name":"end_call","hangup":true}
+    },
+    {
+      "frame": {"type":"vad_score","vad_score_event":{"vad_score":0.02}},
+      "expect": {"type":"vad_score"}
+    },
+    {
+      "frame": {"type":"agent_chat_response_part","text_response_part":{"text":"","type":"stop"}},
+      "expect": {"type":"agent_chat_response_part"}
+    }
+  ]
+}
