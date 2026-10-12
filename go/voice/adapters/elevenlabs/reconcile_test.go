@@ -40,17 +40,22 @@ func TestBurstRemainderDoesNotBleedIntoTheNextTurn(t *testing.T) {
 	t.Parallel()
 	f := newFake(t)
 	a := must(NewAgent(f.options("agt-burst")))
-	a.ResponseTimeout = 3 * time.Second
+	// A generous first-chunk budget: the fake answers once it sees the
+	// commit, which a loaded machine may take a while to schedule.
+	a.ResponseTimeout = 10 * time.Second
 	a.ResponseTailSilence = 100 * time.Millisecond
 	a.ResponseMaxDuration = 500 * time.Millisecond // the drain stops at 1s
 	a.TranscriptGraceWait = 0
 
 	// The fake agent answers each user turn once its speech reaches the
-	// wire: the first with a 1.5s burst, the second with 0.2s.
+	// wire: the first with a 1.5s burst, the second with 0.2s. The burst's
+	// first chunk alone reaches the drain's 1s ceiling, so the drain stops
+	// without waiting on the wall clock and the 0.5s remainder stays queued.
 	replies := [][]voice.AudioChunk{
-		{voicetest.Tone(0.5, ""), voicetest.Tone(0.5, ""), voicetest.Tone(0.5, "")},
+		{voicetest.Tone(1.0, ""), voicetest.Tone(0.5, "")},
 		{voicetest.Tone(0.2, "")},
 	}
+	emitted := []chan struct{}{make(chan struct{}), make(chan struct{})}
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -67,14 +72,26 @@ func TestBurstRemainderDoesNotBleedIntoTheNextTurn(t *testing.T) {
 				data, _ := encodeJSON(audioEvent(c.Data))
 				_ = f.tryEmit(data)
 			}
+			close(emitted[turn])
 			turn++
 		}
 	}()
+	// The next user turn starts only once the whole burst is queued at the
+	// transport, as with a hosted agent whose burst is near-instant.
+	burstQueued := scenario.StepFunc(func(context.Context, *scenario.Executor) error {
+		select {
+		case <-emitted[0]:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the fake never sent the burst")
+		}
+		f.sync()
+		return nil
+	})
 
 	res, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
 		Name: "burst", Description: "burst",
 		Agents: []scenario.AgentAdapter{a, &voicetest.User{}, &voicetest.Judge{Verdict: voicetest.Pass()}},
-		Script: []scenario.ScriptStep{scenario.User(), scenario.Agent(), scenario.User(), scenario.Agent(), scenario.Succeed()},
+		Script: []scenario.ScriptStep{scenario.User(), scenario.Agent(), burstQueued, scenario.User(), scenario.Agent(), scenario.Succeed()},
 	}, voice.WithConfig(voice.Config{STT: &voicetest.STT{}, Logger: quietLogger()}), scenario.WithQuiet())
 	if err != nil {
 		t.Fatal(err)
