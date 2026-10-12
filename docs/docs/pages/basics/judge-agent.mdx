@@ -85,6 +85,53 @@ const result = await scenario.run({
 expect(result.success).toBe(true);
 ```
 
+```go [go]
+package billing_test
+
+import (
+	"context"
+	"testing"
+
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/openai/openai-go/v3"
+)
+
+func TestBillingInquiryQuality(t *testing.T) {
+	client := openai.NewClient()
+	model := scenario.ModelConfig{LLM: scenarioopenai.NewProvider(&client), Model: "gpt-4o"}
+
+	result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
+		Name: "billing inquiry handling",
+		Description: `
+			User received an unexpected charge on their credit card and is
+			concerned but polite. They have their account information ready.
+		`,
+		Agents: []scenario.AgentAdapter{
+			customerSupportAgent,
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{ModelConfig: model}),
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+				ModelConfig: model,
+				Criteria: []string{
+					"Agent asks for account information to investigate",
+					"Agent explains the charge clearly",
+					"Agent offers a solution or next steps",
+					"Agent maintains a helpful and empathetic tone",
+					"Agent should not make promises about refunds without verification",
+				},
+			}),
+		},
+		MaxTurns: 8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("scenario failed: %s", result.Reasoning)
+	}
+}
+```
+
 :::
 
 ---
@@ -120,6 +167,18 @@ expect(result.success).toBe(true);
 | `maxTokens` | `number` | No | Model default | Maximum tokens for judge reasoning and explanations. |
 | `systemPrompt` | `string` | No | Built-in | Custom system prompt to override default judge behavior. |
 | `name` | `string` | No | `"Judge"` | Display name in logs and traces. |
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="go">
+
+| Field | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `Criteria` | `[]string` | No | `nil` | Success criteria to evaluate. Include positive requirements and negative constraints. |
+| `ModelConfig` | `scenario.ModelConfig` | No | Global config | The model: `LLM` (the provider), `Model` (e.g. `"gpt-4o"`), `Temperature` (`*float64`) and `MaxTokens` (`*int64`). Unset fields come from `scenario.Configure(scenario.WithDefaultModel(...))`. A nil `Temperature` keeps the provider default. |
+| `SystemPrompt` | `string` | No | Built-in | Custom system prompt to override default judge behavior. |
+| `Name` | `string` | No | `"JudgeAgent"` | Display name in logs and traces. |
+| `TokenThreshold` | `int` | No | `8192` | Estimated trace size above which the judge reads the traces step by step instead of in full. |
+| `MaxDiscoverySteps` | `int` | No | `10` | Maximum tool calls the judge makes while reading large traces. |
 
 </LanguageTabs.MarkdownTab>
 </LanguageTabs>
@@ -168,6 +227,26 @@ scenario.judgeAgent({
 });
 ```
 
+```go [go]
+// Good - specific and measurable
+scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+	Criteria: []string{
+		"Agent asks for the user's order number",
+		"Agent provides a tracking link",
+		"Agent offers to help with anything else",
+		"Agent should not promise delivery dates without checking the system",
+	},
+})
+
+// Avoid vague criteria
+scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+	Criteria: []string{
+		"Agent is helpful",            // Too vague
+		"Agent does everything right", // Not measurable
+	},
+})
+```
+
 :::
 
 ### Positive requirements and fail conditions
@@ -178,7 +257,7 @@ Write one requirement per criterion. The judge checks and explains each criterio
 
 ## Reading the Result
 
-The result lists the judge's verdict on every criterion, in the order you declared them, next to the existing `passed_criteria` / `failed_criteria` (Python) and `metCriteria` / `unmetCriteria` (TypeScript) lists:
+The result lists the judge's verdict on every criterion, in the order you declared them, next to the existing `passed_criteria` / `failed_criteria` (Python), `metCriteria` / `unmetCriteria` (TypeScript) and `MetCriteria` / `UnmetCriteria` (Go) lists:
 
 :::code-group
 
@@ -197,6 +276,17 @@ for (const verdict of result.criteria ?? []) {
 // result.inconclusiveCriteria lists the criteria the judge could not check
 ```
 
+```go [go]
+result, err := scenario.Run(ctx, cfg)
+if err != nil {
+	t.Fatal(err)
+}
+for _, verdict := range result.Criteria {
+	fmt.Println(verdict.Criterion, verdict.Status, verdict.Reasoning)
+}
+// result.InconclusiveCriteria lists the criteria the judge could not check
+```
+
 :::
 
 Each entry has:
@@ -212,7 +302,7 @@ Each entry has:
 
 ## Model Compatibility
 
-The judge answers through tool calls with a forced tool choice. Some models refuse parts of that call: Claude Opus 5.5 (including on Bedrock) refuses a forced tool choice, Claude Sonnet 5 refuses any `temperature`, GPT-5.5 refuses a `temperature` other than the default, and GPT-5.6 models refuse function tools with reasoning on the Chat Completions API that the Python SDK uses. When a provider refuses a call for one of these reasons, the judge and the user simulator send it again without that parameter and keep that change for their later calls: tool choice `auto` plus an instruction to answer with the tool, or no temperature, in both SDKs, and `reasoning_effort: "none"` in the Python SDK. The TypeScript SDK needs no reasoning retry, because it calls OpenAI through the Responses API. No configuration is needed.
+The judge answers through tool calls with a forced tool choice. Some models refuse parts of that call: Claude Opus 5.5 (including on Bedrock) refuses a forced tool choice, Claude Sonnet 5 refuses any `temperature`, GPT-5.5 refuses a `temperature` other than the default, and GPT-5.6 models refuse function tools with reasoning on the Chat Completions API that the Python SDK uses. When a provider refuses a call for one of these reasons, the judge and the user simulator send it again without that parameter and keep that change for their later calls: tool choice `auto` plus an instruction to answer with the tool, or no temperature, in every SDK, and `reasoning_effort: "none"` in the Python SDK. The TypeScript SDK needs no reasoning retry, because it calls OpenAI through the Responses API. No configuration is needed.
 
 ## Guaranteeing a Minimum Number of Turns
 
@@ -221,7 +311,7 @@ turn 1, most criteria are unmet simply because the agent hasn't had a chance to
 act yet — and an eager judge can read "not met yet" as "failed" and end the run
 immediately.
 
-`minTurns` (Python: `min_turns`) sets a floor: the first `minTurns` turns of a
+`minTurns` (Python: `min_turns`, Go: `MinTurns`) sets a floor: the first `minTurns` turns of a
 run are guaranteed to happen, because the judge is not offered the option to
 end the test on those turns. With `minTurns: 4`, turns 1–4 always run, and the
 earliest the judge can end the run on its own is turn 5. It pairs with
@@ -265,6 +355,26 @@ const result = await scenario.run({
   minTurns: 4, // turns 1-4 always run; earliest verdict on turn 5
   maxTurns: 10,
 });
+```
+
+```go [go]
+result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+	Name:        "refund negotiation",
+	Description: "User wants a refund for a subscription they forgot to cancel",
+	Agents: []scenario.AgentAdapter{
+		myAgent,
+		scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+		scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+			Criteria: []string{
+				"Agent acknowledges the request",
+				"Agent checks the account history",
+				"Agent offers a resolution",
+			},
+		}),
+	},
+	MinTurns: 4, // turns 1-4 always run; earliest verdict on turn 5
+	MaxTurns: 10,
+})
 ```
 
 :::

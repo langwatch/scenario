@@ -129,6 +129,76 @@ describe("Frustrated Customer Handling", () => {
 });
 ```
 
+```go [go]
+package support_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/openai/openai-go/v3"
+)
+
+var technicalSupportAgent = scenario.AgentFunc(func(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
+	// Your technical support agent implementation
+	userMessage, err := input.ScenarioState.LastUserMessage()
+	if err != nil {
+		return nil, err
+	}
+	reply, err := mySupportBot.Process(ctx, userMessage.Text())
+	if err != nil {
+		return nil, err
+	}
+	return scenario.TextReturn(reply), nil
+})
+
+func TestFrustratedCustomerHandling(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	client := openai.NewClient()
+	llm := scenarioopenai.NewProvider(&client)
+	temperature := 0.3 // Some variability for realistic frustration
+
+	result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+		Name: "frustrated customer with internet issues",
+		Description: `
+			User is a non-technical person experiencing slow internet for 3 days.
+			They've already tried calling support twice with no resolution.
+			They're frustrated and tired of technical jargon. They just want
+			their internet to work and are losing patience with troubleshooting steps.
+		`,
+		Agents: []scenario.AgentAdapter{
+			technicalSupportAgent,
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
+				ModelConfig: scenario.ModelConfig{LLM: llm, Model: "gpt-4o", Temperature: &temperature},
+			}),
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+				ModelConfig: scenario.ModelConfig{LLM: llm, Model: "gpt-4o"},
+				Criteria: []string{
+					"Agent acknowledges the customer's frustration empathetically",
+					"Agent avoids excessive technical jargon",
+					"Agent provides simple, clear instructions",
+					"Agent offers escalation if troubleshooting doesn't work",
+					"Agent remains professional despite customer frustration",
+				},
+			}),
+		},
+		MaxTurns: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("scenario failed: %s", result.Reasoning)
+	}
+	t.Logf("Test completed with %d messages", len(result.Messages))
+}
+```
+
 :::
 
 ---
@@ -162,6 +232,16 @@ describe("Frustrated Customer Handling", () => {
 | `maxTokens` | `number` | No | Model default | Maximum tokens for user messages. Keep reasonable for natural brevity. |
 | `systemPrompt` | `string` | No | Built-in | Custom system prompt to override default user simulation behavior. |
 | `name` | `string` | No | `"User"` | Display name in logs and traces. |
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="go">
+
+| Field | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `ModelConfig` | `scenario.ModelConfig` | No | Global config | The model: `LLM` (the provider), `Model` (e.g. `"gpt-4o"`), `Temperature` (`*float64`) and `MaxTokens` (`*int64`). Unset fields come from `scenario.Configure(scenario.WithDefaultModel(...))`. A nil `Temperature` keeps the provider default; higher values (0.3-0.7) create more varied user messages. |
+| `SystemPrompt` | `string` | No | Built-in | Custom system prompt to override default user simulation behavior. |
+| `Persona` | `string` | No | `""` | Text added to the built-in prompt to shape the simulated user, without replacing it. |
+| `Name` | `string` | No | `"UserSimulatorAgent"` | Display name in logs and traces. |
 
 </LanguageTabs.MarkdownTab>
 </LanguageTabs>
