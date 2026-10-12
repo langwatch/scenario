@@ -330,6 +330,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	base := a.publicBaseURL
 	a.mu.Unlock()
 	if base == "" && a.tunnelProvider == nil {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return errors.New("TwilioAgentAdapter: publicBaseUrl is required. Set Options.Tunnel or " +
 			"supply a stable public HTTPS URL routing to this machine.")
 	}
@@ -612,6 +613,7 @@ func (a *Adapter) ReceiveAudio(ctx context.Context, timeout time.Duration) (voic
 	return c, err
 }
 
+//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 var errStreamReset = errors.New("TwilioAgentAdapter: stream reset before audio arrived.")
 
 // SendDTMF implements voice.DTMFSender over REST (<Play digits>). It is
@@ -622,9 +624,11 @@ func (a *Adapter) SendDTMF(ctx context.Context, tones string) error {
 	nonce, rest, callSID := a.streamNonce, a.rest, a.callSID
 	a.mu.Unlock()
 	if nonce != "" && a.embed == nil {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return errors.New(ALegSendDTMFUnsupported)
 	}
 	if rest == nil || callSID == "" {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return errors.New("TwilioAgentAdapter: no active call; sendDtmf requires an in-progress call.")
 	}
 	return rest.SendDTMF(ctx, callSID, tones)
@@ -678,6 +682,7 @@ func (a *Adapter) LocalBaseURL() (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.server == nil {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return "", errors.New("TwilioAgentAdapter: not connected; localBaseUrl unavailable.")
 	}
 	return a.server.baseURL(), nil
@@ -685,6 +690,7 @@ func (a *Adapter) LocalBaseURL() (string, error) {
 
 func (a *Adapter) assertConnectedLocked() error {
 	if !a.connected {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return errors.New("TwilioAgentAdapter: not connected; call connect() first.")
 	}
 	return nil
@@ -695,6 +701,7 @@ func (a *Adapter) assertStreamLiveLocked() error {
 		return err
 	}
 	if a.streamConn == nil || a.streamSID == "" {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return errors.New("TwilioAgentAdapter: no live media stream. Call placeCall() or waitForCall() first.")
 	}
 	return nil

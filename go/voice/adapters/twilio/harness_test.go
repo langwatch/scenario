@@ -185,7 +185,6 @@ func connected(t *testing.T, a *Adapter) *Adapter {
 
 type startOpts struct {
 	nonce, callSID, streamSID string
-	noNonce                   bool
 }
 
 // startFrame is an inbound start frame; the call SID defaults to the

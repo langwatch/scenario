@@ -135,7 +135,7 @@ func buildProvider(opts ProviderOptions) (LLM, error) {
 	llm, gen := r.built[key], r.gen
 	r.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("%w: provider %q is not registered; register it once with scenario.RegisterProvider(%q, <provider module>.Factory), from github.com/langwatch/scenario/go/providers/...", ErrNoModel, opts.Provider, opts.Provider)
+		return nil, fmt.Errorf("%w: provider %q is not registered; register it once with scenario.RegisterProvider(%q, <provider module>.Factory) using a module under github.com/langwatch/scenario/go/providers", ErrNoModel, opts.Provider, opts.Provider)
 	}
 	if llm != nil {
 		return llm, nil

@@ -93,6 +93,7 @@ func (c *RESTClient) request(ctx context.Context, method, path string, form url.
 		return nil
 	}
 	if err := json.Unmarshal(data, out); err != nil {
+		//lint:ignore ST1005 "Twilio REST <method> <path>" prefix, as in the JS SDK
 		return fmt.Errorf("Twilio REST %s %s: decoding response: %w", method, path, err)
 	}
 	return nil
@@ -110,6 +111,7 @@ func (c *RESTClient) ResolvePhoneNumberSID(ctx context.Context, phoneNumber stri
 		return "", err
 	}
 	if len(data.Numbers) == 0 || data.Numbers[0].SID == "" {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return "", fmt.Errorf("No incoming phone number found on this Twilio account matching %s. "+
 			"Check that the number is purchased and in E.164.", strconv.Quote(phoneNumber))
 	}
@@ -147,6 +149,7 @@ func (c *RESTClient) PlaceCall(ctx context.Context, p PlaceCallParams) (string, 
 		return "", err
 	}
 	if data.SID == "" {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return "", errors.New("Twilio REST Calls.create returned no sid")
 	}
 	return data.SID, nil

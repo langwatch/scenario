@@ -56,13 +56,6 @@ func fixed(text string) *fakeLLM {
 	return &fakeLLM{answer: func(int, scenario.InferenceParams) (string, error) { return text, nil }}
 }
 
-// sequence answers the n-th request with texts[n-1], repeating the last.
-func sequence(texts ...string) *fakeLLM {
-	return &fakeLLM{answer: func(n int, _ scenario.InferenceParams) (string, error) {
-		return texts[min(n, len(texts))-1], nil
-	}}
-}
-
 // isScorerRequest reports whether a metaprompt-model request is a scoring
 // request rather than plan generation.
 func isScorerRequest(p scenario.InferenceParams) bool {

@@ -106,14 +106,6 @@ func (r *eventRecorder) all() []Event {
 	return append([]Event(nil), r.events...)
 }
 
-func (r *eventRecorder) types() []EventType {
-	var out []EventType
-	for _, e := range r.all() {
-		out = append(out, e.Type)
-	}
-	return out
-}
-
 func decode(t *testing.T, payload []byte) map[string]any {
 	t.Helper()
 	var m map[string]any

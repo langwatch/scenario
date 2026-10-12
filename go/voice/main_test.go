@@ -63,6 +63,4 @@ func tryScenario(agents []scenario.AgentAdapter, script []scenario.ScriptStep, c
 	}, voice.WithConfig(cfg), scenario.WithQuiet())
 }
 
-func pcm(c voice.AudioChunk) []byte { return c.Data }
-
 func newBufLogger(w io.Writer) *slog.Logger { return slog.New(slog.NewTextHandler(w, nil)) }

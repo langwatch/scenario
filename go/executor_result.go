@@ -28,12 +28,6 @@ func (ex *Executor) setResult(r ScenarioResult) *ScenarioResult {
 	return ex.result
 }
 
-func (ex *Executor) clearResult() {
-	ex.mu.Lock()
-	ex.result = nil
-	ex.mu.Unlock()
-}
-
 // Succeed ends the scenario as successful.
 func (ex *Executor) Succeed(_ context.Context, reasoning string) *ScenarioResult {
 	if reasoning == "" {

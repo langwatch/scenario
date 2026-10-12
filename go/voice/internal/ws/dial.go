@@ -129,9 +129,11 @@ func handshakeClient(c *http.Client) (*http.Client, *connCapture) {
 	}
 	if t, ok := base.(*http.Transport); ok {
 		t = t.Clone()
+		//lint:ignore SA1019 a caller's legacy Transport.Dial is honoured as is
+		legacyDial := t.Dial != nil
 		if dial := t.DialContext; dial != nil {
 			t.DialContext = capture.wrap(dial)
-		} else if t.Dial == nil { //nolint:staticcheck // honour a legacy Dial as is
+		} else if !legacyDial {
 			var d net.Dialer
 			t.DialContext = capture.wrap(d.DialContext)
 		}
@@ -195,10 +197,10 @@ func verifyServerResponse(resp *http.Response, key string, offered []string) err
 		return fmt.Errorf("expected handshake response status code %d but got %d", http.StatusSwitchingProtocols, resp.StatusCode)
 	}
 	if !headerHasToken(resp.Header, "Connection", "upgrade") {
-		return fmt.Errorf("Connection header %q does not contain Upgrade", resp.Header.Get("Connection"))
+		return fmt.Errorf("handshake response Connection header %q does not contain Upgrade", resp.Header.Get("Connection"))
 	}
 	if !headerHasToken(resp.Header, "Upgrade", "websocket") {
-		return fmt.Errorf("Upgrade header %q does not contain websocket", resp.Header.Get("Upgrade"))
+		return fmt.Errorf("handshake response Upgrade header %q does not contain websocket", resp.Header.Get("Upgrade"))
 	}
 	if got := resp.Header.Get("Sec-WebSocket-Accept"); got != acceptKey(key) {
 		return fmt.Errorf("invalid Sec-WebSocket-Accept %q", got)

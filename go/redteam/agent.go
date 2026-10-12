@@ -395,6 +395,7 @@ func (a *Agent) plan(ctx context.Context, model scenario.ModelConfig, descriptio
 	}
 	text := res.Message.Text()
 	if text == "" {
+		//lint:ignore ST1005 same message as the JS and Python SDKs
 		return "", errors.New("Metaprompt model returned no content")
 	}
 	a.attackPlan = text
@@ -520,6 +521,7 @@ func (a *Agent) callAttacker(ctx context.Context, model scenario.ModelConfig) (s
 	}
 	text := res.Message.Text()
 	if text == "" {
+		//lint:ignore ST1005 same message as the JS and Python SDKs
 		return "", errors.New("Attacker model returned no content")
 	}
 	return text, nil

@@ -154,9 +154,6 @@ func (r *resolved) warn(msg string, args ...any) { r.Logger.Warn(msg, args...) }
 
 func (r *resolved) sleep(ctx context.Context, d time.Duration) error { return r.Clock.Sleep(ctx, d) }
 
-// seconds converts a duration to float seconds.
-func seconds(d time.Duration) float64 { return d.Seconds() }
-
 // durationOf converts float seconds to a duration.
 func durationOf(s float64) time.Duration { return time.Duration(s * float64(time.Second)) }
 

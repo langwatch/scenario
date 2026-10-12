@@ -73,6 +73,8 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 const maxEmptyCompletionAttempts = 3
 
 // errNoUserContent is the error the platform classifies; keep it verbatim.
+//
+//lint:ignore ST1005 the platform matches the JS SDK's exact message
 var errNoUserContent = errors.New("No response content from LLM")
 
 // Call implements AgentAdapter.

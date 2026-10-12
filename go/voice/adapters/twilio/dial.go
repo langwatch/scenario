@@ -103,6 +103,7 @@ func (a *Adapter) PlaceCall(ctx context.Context, opts CallOptions) error {
 		}
 	case AttachBLeg, AttachOriginatorOnly:
 		if opts.MaxCallDuration != 0 {
+			//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 			return errors.New(`placeCall: maxCallDuration is only supported with attachStream="a-leg"; ` +
 				`b-leg and originator-only modes hold the originator leg with <Pause> and are bounded by it.`)
 		}
@@ -268,6 +269,7 @@ func (a *Adapter) dialPreconditionsLocked(m mode) error {
 		return nil
 	}
 	if a.mode != modeIdle {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return fmt.Errorf("TwilioAgentAdapter: already in '%s' mode; cannot switch to '%s'. "+
 			"Disconnect and reconnect to reuse this adapter in the other direction.", a.mode, m)
 	}
@@ -279,6 +281,7 @@ func (a *Adapter) dialPreconditionsLocked(m mode) error {
 // allowlisted; membership is exact, so a near-miss is a refusal.
 func (a *Adapter) assertCalleeAllowed(to string) error {
 	if a.allowedCallees == nil {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return fmt.Errorf(`placeCall: attachStream="a-leg" requires allowedCallees. a-leg dials numbers `+
 			`this Twilio account does not own, so destinations are deny-by-default: set `+
 			`twilio.Options.AllowedCallees listing every number this adapter may dial, including %s.`, RedactE164(to))
@@ -288,6 +291,7 @@ func (a *Adapter) assertCalleeAllowed(to string) error {
 		return err
 	}
 	if _, ok := a.allowedCallees[n]; !ok {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return fmt.Errorf("placeCall: destination %s is not in allowedCallees. Add it to "+
 			"twilio.Options.AllowedCallees to permit this destination.", RedactE164(to))
 	}

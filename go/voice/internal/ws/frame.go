@@ -27,8 +27,6 @@ const (
 	opPong         opcode = 0xA
 )
 
-func (op opcode) isControl() bool { return op&0x8 != 0 }
-
 const (
 	// maxControlPayload is the largest control frame payload (RFC 6455 5.5).
 	maxControlPayload = 125

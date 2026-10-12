@@ -30,6 +30,7 @@ var (
 // reach logs in full.
 func ValidateE164(phoneNumber string) error {
 	if !e164RE.MatchString(phoneNumber) {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return fmt.Errorf("phone_number %s is not in E.164 format "+
 			"(expected e.g. '+14155551234', pattern: leading '+' then 7–15 digits).", RedactE164(phoneNumber))
 	}
@@ -48,6 +49,7 @@ func NormalizeE164(phoneNumber string) (string, error) {
 // in TwiML; anything else is rejected to prevent XML injection.
 func ValidateDTMF(tones string) error {
 	if !dtmfRE.MatchString(tones) {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return fmt.Errorf("DTMF tones %s must match [0-9*#wW]+ — this string is embedded in TwiML, "+
 			"non-DTMF chars are rejected to prevent XML injection.", strconv.Quote(tones))
 	}
@@ -122,9 +124,11 @@ func ResolveMaxCallDuration(requested time.Duration) (int, error) {
 		return int(DefaultMaxCallDuration / time.Second), nil
 	}
 	if requested < 0 {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return 0, fmt.Errorf("maxCallDuration must be a positive number of seconds, got %v.", requested)
 	}
 	if requested > MaxCallDurationCap {
+		//lint:ignore ST1005 same message as the JS SDK's Twilio adapter
 		return 0, fmt.Errorf("maxCallDuration=%v exceeds the %ds cap on a-leg calls. A-leg mode dials "+
 			"numbers this account does not own; the cap bounds spend and is not per-call overridable.",
 			requested, int(MaxCallDurationCap/time.Second))
