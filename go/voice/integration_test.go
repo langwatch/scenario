@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -119,8 +120,8 @@ func TestUserSimulatorSTTFallbackIsCachedAcrossTurns(t *testing.T) {
 	}}
 	sim := voice.NewUserSimulator(scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{ModelConfig: scenario.ModelConfig{LLM: llm, Model: "m"}}),
 		voice.UserSimulatorOptions{Voice: "fake/v", Synthesize: voicetest.Synthesize})
-	n := 0
-	stt := &voicetest.STT{Fn: func(c voice.AudioChunk) (string, error) { n++; return "agent words", nil }}
+	var n atomic.Int32 // the transcript back-fill transcribes segments in parallel
+	stt := &voicetest.STT{Fn: func(c voice.AudioChunk) (string, error) { n.Add(1); return "agent words", nil }}
 	runScenario(t, []scenario.AgentAdapter{fastAgent(tr), sim, &voicetest.Judge{}}, []scenario.ScriptStep{
 		scenario.User("hi"), scenario.Agent(), scenario.User(), scenario.Agent(), scenario.User(), scenario.Succeed(),
 	}, voice.Config{STT: stt})
@@ -138,8 +139,8 @@ func TestUserSimulatorSTTFallbackIsCachedAcrossTurns(t *testing.T) {
 	}
 	// Two distinct agent replies were transcribed for the simulator, each
 	// once; the back-fill reuses nothing, so allow the run total to exceed.
-	if n < 2 {
-		t.Errorf("%d STT calls", n)
+	if n.Load() < 2 {
+		t.Errorf("%d STT calls", n.Load())
 	}
 }
 
