@@ -45,10 +45,14 @@ func ToBedrockMessages(msgs []scenario.Message) []types.Message {
 		case scenario.RoleUser:
 			add(types.ConversationRoleUser, contentBlocks(m))
 		case scenario.RoleTool:
-			add(types.ConversationRoleUser, []types.ContentBlock{&types.ContentBlockMemberToolResult{Value: types.ToolResultBlock{
+			result := types.ToolResultBlock{
 				ToolUseId: aws.String(m.ToolCallID),
 				Content:   []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{Value: m.Text()}},
-			}}})
+			}
+			if m.IsError {
+				result.Status = types.ToolResultStatusError
+			}
+			add(types.ConversationRoleUser, []types.ContentBlock{&types.ContentBlockMemberToolResult{Value: result}})
 		case scenario.RoleAssistant:
 			blocks := contentBlocks(m)
 			for _, tc := range m.ToolCalls {

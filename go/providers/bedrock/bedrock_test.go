@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	scenario "github.com/langwatch/scenario/go"
 )
 
@@ -52,5 +53,18 @@ func TestInferenceRequestAndResponse(t *testing.T) {
 	}
 	if strings.Count(body, `"role":"user"`) != 2 || !strings.Contains(body, `"criteria":{"type":"object"}`) {
 		t.Errorf("request:\n%s", body)
+	}
+}
+
+func TestFailedToolResultsHaveErrorStatus(t *testing.T) {
+	failed := scenario.ToolMsg("a", "boom")
+	failed.IsError = true
+	msgs := ToBedrockMessages([]scenario.Message{failed, scenario.ToolMsg("b", "fine")})
+	var statuses []types.ToolResultStatus
+	for _, b := range msgs[0].Content {
+		statuses = append(statuses, b.(*types.ContentBlockMemberToolResult).Value.Status)
+	}
+	if len(statuses) != 2 || statuses[0] != types.ToolResultStatusError || statuses[1] != "" {
+		t.Fatalf("statuses = %v", statuses)
 	}
 }

@@ -24,6 +24,8 @@ func TestAGUIConversion(t *testing.T) {
 			`{"id":"m1-0","role":"tool","toolCallId":"c","content":"\"sunny\""}`},
 		{"tool json result", Message{ID: "m1", Role: RoleTool, ToolCallID: "c", Content: `{ "t": 1 }`},
 			`{"id":"m1-0","role":"tool","toolCallId":"c","content":"{\"t\":1}"}`},
+		{"failed tool result carries no error flag, as in JS", Message{ID: "m1", Role: RoleTool, ToolCallID: "c", Content: "boom", IsError: true},
+			`{"id":"m1-0","role":"tool","toolCallId":"c","content":"\"boom\""}`},
 		{"wav audio", Message{ID: "m1", Role: RoleUser, Parts: []Part{AudioPart("audio/wav", []byte("RIFFxx"))}},
 			`{"id":"m1","role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRnh4","format":"wav","mimeType":"audio/wav"}}]}`},
 	}
@@ -44,6 +46,25 @@ func TestPCM16IsWrappedInWAV(t *testing.T) {
 		want := base64.StdEncoding.EncodeToString(append(h[:], pcm...))
 		if got := string(appendWAVBase64(nil, pcm)); got != want {
 			t.Fatalf("n=%d: base64 differs", n)
+		}
+	}
+}
+
+func TestFailedToolResultsUseAISDKErrorOutputs(t *testing.T) {
+	cases := []struct {
+		msg  Message
+		want string
+	}{
+		{Message{Role: RoleTool, ToolCallID: "c", ToolName: "f", Content: "boom", IsError: true},
+			`{"role":"tool","content":[{"type":"tool-result","toolCallId":"c","toolName":"f","output":{"type":"error-text","value":"boom"}}]}`},
+		{Message{Role: RoleTool, ToolCallID: "c", ToolName: "f", Content: `{"code":3}`, IsError: true},
+			`{"role":"tool","content":[{"type":"tool-result","toolCallId":"c","toolName":"f","output":{"type":"error-json","value":{"code":3}}}]}`},
+		{Message{Role: RoleTool, ToolCallID: "c", ToolName: "f", Content: "fine"},
+			`{"role":"tool","content":[{"type":"tool-result","toolCallId":"c","toolName":"f","output":{"type":"text","value":"fine"}}]}`},
+	}
+	for _, c := range cases {
+		if got := string(AppendMessageJSON(nil, c.msg)); got != c.want {
+			t.Errorf("got  %s\nwant %s", got, c.want)
 		}
 	}
 }

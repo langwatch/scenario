@@ -51,3 +51,13 @@ func TestInferenceRequestAndResponse(t *testing.T) {
 		}
 	}
 }
+
+func TestFailedToolResultsSetIsError(t *testing.T) {
+	failed := scenario.ToolMsg("a", "boom")
+	failed.IsError = true
+	msgs := ToAnthropicMessages([]scenario.Message{failed, scenario.ToolMsg("b", "fine")})
+	blocks := msgs[0].Content
+	if len(blocks) != 2 || blocks[0].OfToolResult == nil || !blocks[0].OfToolResult.IsError.Value || blocks[1].OfToolResult.IsError.Value {
+		t.Fatalf("is_error must follow IsError: %+v", blocks)
+	}
+}

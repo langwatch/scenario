@@ -549,7 +549,7 @@ func (j *JudgeAgent) loop(ctx context.Context, llm LLM, params InferenceParams, 
 			if err != nil {
 				out = "Error: " + err.Error()
 			}
-			results = append(results, Message{Role: RoleTool, ToolCallID: tc.ID, ToolName: tc.Name, Content: out})
+			results = append(results, Message{Role: RoleTool, ToolCallID: tc.ID, ToolName: tc.Name, Content: out, IsError: err != nil})
 		}
 		assistant := res.Message
 		assistant.Role = RoleAssistant

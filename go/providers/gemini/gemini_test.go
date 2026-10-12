@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -46,5 +47,21 @@ func TestInferenceRequestAndResponse(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("request lacks %s:\n%s", want, body)
 		}
+	}
+}
+
+func TestFailedToolResultsAnswerUnderError(t *testing.T) {
+	text := scenario.Message{Role: scenario.RoleTool, ToolCallID: "c1", ToolName: "f", Content: "boom", IsError: true}
+	obj := scenario.Message{Role: scenario.RoleTool, ToolCallID: "c2", ToolName: "f", Content: `{"code":3}`, IsError: true}
+	ok := scenario.Message{Role: scenario.RoleTool, ToolCallID: "c3", ToolName: "f", Content: "fine"}
+	parts := ToGeminiContents([]scenario.Message{text, obj, ok})[0].Parts
+	if got := parts[0].FunctionResponse.Response; !reflect.DeepEqual(got, map[string]any{"error": "boom"}) {
+		t.Errorf("text error response = %v", got)
+	}
+	if got := parts[1].FunctionResponse.Response; !reflect.DeepEqual(got, map[string]any{"error": map[string]any{"code": float64(3)}}) {
+		t.Errorf("json error response = %v", got)
+	}
+	if got := parts[2].FunctionResponse.Response; !reflect.DeepEqual(got, map[string]any{"result": "fine"}) {
+		t.Errorf("success response = %v", got)
 	}
 }

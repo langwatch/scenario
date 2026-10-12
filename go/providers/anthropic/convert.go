@@ -46,7 +46,7 @@ func ToAnthropicMessages(msgs []scenario.Message) []anthropic.MessageParam {
 			appendBlocks(anthropic.MessageParamRoleUser, contentBlocks(m))
 		case scenario.RoleTool:
 			appendBlocks(anthropic.MessageParamRoleUser, []anthropic.ContentBlockParamUnion{
-				anthropic.NewToolResultBlock(m.ToolCallID, m.Text(), false),
+				anthropic.NewToolResultBlock(m.ToolCallID, m.Text(), m.IsError),
 			})
 		case scenario.RoleAssistant:
 			blocks := contentBlocks(m)

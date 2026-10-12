@@ -59,7 +59,7 @@ func ToGeminiContents(msgs []scenario.Message) []*genai.Content {
 			if name == "" {
 				name = names[m.ToolCallID]
 			}
-			part := genai.NewPartFromFunctionResponse(name, responseMap(m.Text()))
+			part := genai.NewPartFromFunctionResponse(name, responseMap(m.Text(), m.IsError))
 			part.FunctionResponse.ID = m.ToolCallID
 			add(genai.RoleUser, []*genai.Part{part})
 		}
@@ -98,9 +98,19 @@ func argsMap(args string) map[string]any {
 	return v
 }
 
-func responseMap(content string) map[string]any {
+// responseMap is the function response of a tool result: its JSON object,
+// or the text under "result"; a failed call goes under "error".
+func responseMap(content string, isError bool) map[string]any {
 	var v map[string]any
-	if json.Unmarshal([]byte(content), &v) == nil && v != nil {
+	parsed := json.Unmarshal([]byte(content), &v) == nil && v != nil
+	if isError {
+		// Gemini reads a failed call from the "error" key of the response.
+		if parsed {
+			return map[string]any{"error": v}
+		}
+		return map[string]any{"error": content}
+	}
+	if parsed {
 		return v
 	}
 	return map[string]any{"result": content}
