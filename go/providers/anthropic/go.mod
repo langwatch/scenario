@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.73.0
-	github.com/langwatch/scenario/go v0.0.0
+	github.com/langwatch/scenario/go v0.1.0 // x-release-please-version
 )
 
 require (
@@ -42,5 +42,3 @@ require (
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/langwatch/scenario/go => ../../

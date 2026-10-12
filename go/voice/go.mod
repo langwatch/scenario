@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/coder/websocket v1.8.14
-	github.com/langwatch/scenario/go v0.0.0
+	github.com/langwatch/scenario/go v0.1.0 // x-release-please-version
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
@@ -31,5 +31,3 @@ require (
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/langwatch/scenario/go => ../
