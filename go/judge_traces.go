@@ -97,7 +97,7 @@ func resolveTraceFetcher(own RemoteTraceFetcher, s *Settings) RemoteTraceFetcher
 // when a mapping read the trace and found nothing. It never fails, and
 // returns at once when no message carries a trace id or no API key is set.
 func (ex *Executor) SettleRemoteTraces(ctx context.Context) {
-	ids := messageTraceIDs(ex.state.Messages())
+	ids := messageTraceIDs(ex.state.messagesView())
 	lw := resolveLangWatch(ex.cfg.LangWatch)
 	if len(ids) == 0 || lw.APIKey == "" {
 		return

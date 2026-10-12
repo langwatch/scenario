@@ -66,8 +66,11 @@ func (e *eventEmitter) snapshotLocked() {
 	if e.publish == nil {
 		return
 	}
-	rows := e.state.aguiRowsJSON()
-	e.emitLocked(EventMessageSnapshot, func(ts int64) []byte { return e.base.snapshotPayload(ts, rows) }, true)
+	e.emitLocked(EventMessageSnapshot, func(ts int64) []byte {
+		var payload []byte
+		e.state.withAGUIRowsJSON(func(rows [][]byte) { payload = e.base.snapshotPayload(ts, rows) })
+		return payload
+	}, true)
 }
 
 // messageAdded stores a message with store and reports it at the index it
@@ -86,7 +89,9 @@ func (e *eventEmitter) messageAdded(store func() (Message, int), stream *Message
 	if e.publish == nil {
 		return m
 	}
-	row := aguiRows(m)[0]
+	row := aguiRowOf(m)
+	// A later snapshot (rollback, aborted stream) reuses this encoding.
+	e.state.keepAGUIRow(index, m.ID, row.json)
 	startIndex := index
 	if stream != nil && stream.started {
 		startIndex = stream.index

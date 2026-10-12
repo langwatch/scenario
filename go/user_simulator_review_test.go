@@ -16,8 +16,10 @@ func TestReverseRolesNamesToolResultFromItsCall(t *testing.T) {
 		ToolMsg("c2", "orphan"),
 	}
 	var got []string
-	for _, m := range reverseRoles(msgs) {
-		got = append(got, string(m.Role)+":"+m.Content)
+	names := toolNamesByCallID(msgs)
+	for _, m := range msgs {
+		r := reverseRole(m, names)
+		got = append(got, string(r.Role)+":"+r.Content)
 	}
 	want := []string{
 		`user:[Called tool lookup with: {"q":1}]`,
