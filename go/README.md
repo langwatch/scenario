@@ -2,25 +2,31 @@
 
 ![scenario](https://github.com/langwatch/scenario/raw/refs/heads/main/assets/scenario-wide.webp)
 
-A powerful Go library for testing AI agents in realistic, scripted scenarios.
-
-Scenario provides a declarative DSL for defining test cases, allowing you to control conversation flow, simulate user behavior, and evaluate agent performance against predefined criteria.
+Test AI agents with simulated users and an LLM judge, in realistic, scripted
+multi-turn scenarios. The Go SDK follows the JavaScript SDK: same script DSL,
+same judge, same events and traces in [LangWatch](https://langwatch.ai).
 
 ## Features
 
-- **Provider Agnostic** — works with any LLM provider through a simple `Inference` interface
-- **Scenario-Based Testing** — define multi-turn conversation scenarios with user simulators and judges
-- **Scripted Conversations** — fine-grained control over conversation flow with `User()`, `Agent()`, `Judge()`, `Proceed()`
-- **LangWatch Integration** — real-time monitoring and trace reporting
-- **Testing Integration** — use with `go test` for CI/CD pipelines
+- **Provider agnostic**: any model behind the small `scenario.LLM` interface;
+  adapters for OpenAI, Anthropic, Gemini and Bedrock in separate modules
+- **Scripted or simulated conversations**: `User()`, `Agent()`, `Judge()`,
+  `Proceed()`, `Succeed()`, `Fail()` and your own steps
+- **Two-phase judge** with a verdict per criterion (passed, failed,
+  inconclusive), reading both the transcript and the OpenTelemetry spans of
+  your agent
+- **Multimodal messages**: text, images, files and audio
+- **LangWatch**: live events and traces of every run
+- **`go test` native**: runs are independent and safe under `t.Parallel()`
 
 ## Installation
 
 ```bash
 go get github.com/langwatch/scenario/go
+go get github.com/langwatch/scenario/go/providers/openai   # or anthropic, gemini, bedrock
 ```
 
-## Quick Start
+## Quick start
 
 ```go
 package myagent_test
@@ -29,305 +35,162 @@ import (
 	"context"
 	"testing"
 
+	"github.com/openai/openai-go/v3"
 	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
 )
 
-// echoAgent implements scenario.AgentAdapter.
-type echoAgent struct{}
+func TestGreeting(t *testing.T) {
+	t.Parallel()
+	client := openai.NewClient() // OPENAI_API_KEY
+	model := scenario.ModelConfig{LLM: scenarioopenai.NewProvider(&client), Model: "gpt-4.1-mini"}
 
-func (a *echoAgent) Role() scenario.AgentRole { return scenario.AgentRoleAgent }
-func (a *echoAgent) Call(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
-	lastMsg := input.Messages[len(input.Messages)-1]
-	return scenario.NewStringAgentReturn("You said: " + lastMsg.Content), nil
-}
-
-func TestEchoAgent(t *testing.T) {
-	result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
-		Name:        "Echo Agent Test",
-		Description: "The agent should echo back the user's message.",
-		Agents:      []scenario.AgentAdapter{&echoAgent{}},
-		Script: []scenario.ScriptStep{
-			scenario.User("Hello world!"),
-			scenario.Agent(),
-			scenario.Succeed("Agent correctly echoed the message."),
-		},
+	agent := scenario.AgentFunc(func(ctx context.Context, in scenario.AgentInput) (*scenario.AgentReturn, error) {
+		return scenario.TextReturn("Hello! How can I help you today?"), nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
-	}
-}
-```
-
-## Advanced Example
-
-A weather agent with tool calls, a user simulator, and a judge with criteria:
-
-```go
-package myagent_test
-
-import (
-	"context"
-	"testing"
-
-	scenario "github.com/langwatch/scenario/go"
-	scenarioOpenAI "github.com/langwatch/scenario/go/providers/openai"
-	"github.com/openai/openai-go"
-)
-
-func TestWeatherAgent(t *testing.T) {
-	client := openai.NewClient() // uses OPENAI_API_KEY
-	llm := scenarioOpenAI.NewProvider(&client)
 
 	result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
-		Name:        "Weather agent test",
-		Description: "User asks about the weather in Tokyo and the agent uses the weather tool to respond",
+		Name:        "greeting",
+		Description: "The user says hello to a customer support agent",
 		Agents: []scenario.AgentAdapter{
-			&weatherAgent{}, // your agent under test
-			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
-				AgentConfig: scenario.AgentConfig{
-					Model: "gpt-4o-mini",
-					LLM:   llm,
-				},
-			}),
+			agent,
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{ModelConfig: model}),
 			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
-				AgentConfig: scenario.AgentConfig{
-					Model: "gpt-4o-mini",
-					LLM:   llm,
-				},
-				Criteria: []string{
-					"Agent uses the get_weather tool",
-					"Agent provides the weather information to the user",
-				},
+				ModelConfig: model,
+				Criteria:    []string{"The agent greets the user", "The agent offers help"},
 			}),
-		},
-		Script: []scenario.ScriptStep{
-			scenario.User("What's the weather like in Tokyo?"),
-			scenario.Agent(),
-			// Custom assertion as a script step
-			func(ctx context.Context, exec scenario.Execution, state scenario.ExecutionState) (*scenario.ScenarioResult, error) {
-				if !state.HasToolCall("get_weather") {
-					return exec.Fail(ctx, "Agent did not call get_weather tool")
-				}
-				return nil, nil
-			},
-			scenario.Proceed(),
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
+		t.Fatalf("scenario failed: %s", result.Reasoning)
 	}
 }
 ```
 
-## Core Concepts
+Without a script the scenario runs `Proceed()`: the user simulator, your
+agent and the judge take turns until the judge decides or `MaxTurns` (10) is
+reached.
 
-### `Run()`
-
-The main entry point. Takes a `ScenarioConfig` and optional `RunOption`s:
+Set a process-wide default model once instead of on every agent:
 
 ```go
-result, err := scenario.Run(ctx, scenario.ScenarioConfig{
-	Name:        "My test",
-	Description: "Description of what's being tested",
-	Agents:      []scenario.AgentAdapter{...},
-	Script:      []scenario.ScriptStep{...},
-	MaxTurns:    10, // default: 10
-})
+scenario.Configure(scenario.WithDefaultModel(model))
 ```
 
-### `AgentAdapter` Interface
+## Scripts
 
-Every agent implements this interface:
+```go
+Script: []scenario.ScriptStep{
+	scenario.User("i need to change my flight"), // fixed user message
+	scenario.Agent(),                             // your agent answers
+	scenario.User(),                              // the simulator writes the next message
+	scenario.Agent(),
+	scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+		return scenario.Assert(ex.State().HasToolCall("lookup_booking"), "agent looked up the booking")
+	}),
+	scenario.Judge(scenario.WithCriteria("The agent asks for the booking reference")), // checkpoint
+	scenario.Proceed(scenario.Turns(3)),
+	scenario.Judge(), // final verdict on the judge's own criteria
+},
+```
+
+| Step | Meaning |
+|------|---------|
+| `User(text...)` / `Agent(text...)` | add a fixed message, or let the simulator / your agent produce one |
+| `MessageStep(msg)` | inject any message (tool calls, tool results, system) |
+| `Judge(opts...)` | verdict now; `WithCriteria` makes it a checkpoint, `WithAdditionalContext` adds evidence |
+| `Proceed(Turns(n), OnTurn(f), OnStep(f))` | let the agents converse |
+| `Succeed(reason)` / `Fail(reason)` | end the scenario |
+| `StepFunc(fn)` | your own step; return `scenario.Assert(...)` for checks |
+
+`ScriptStep` is an interface (`Run(ctx, *Executor) error`), so packages can
+add their own steps.
+
+## Agents
 
 ```go
 type AgentAdapter interface {
-	Role() AgentRole  // AgentRoleAgent, AgentRoleUser, or AgentRoleJudge
+	Role() AgentRole // AgentRoleAgent, AgentRoleUser or AgentRoleJudge
 	Call(ctx context.Context, input AgentInput) (*AgentReturn, error)
 }
 ```
 
-### Built-in Agents
+`AgentInput` carries the conversation (`Messages`, `NewMessages`), the
+thread id, the live `ScenarioState`, the config and `PropagationHeaders`
+(W3C `traceparent`): forward them to an HTTP agent so its spans join the
+scenario trace. Return `TextReturn`, `MessageReturn`, `MessagesReturn` (tool
+calls and results) or, for judges, `VerdictReturn`. `NewConnectedAgent`
+runs an agent written against the LangWatch connected-agent contract.
 
-- **`NewUserSimulatorAgent(cfg)`** — LLM-powered user simulator that generates realistic user messages based on the scenario description
-- **`NewJudgeAgent(cfg)`** — LLM-powered judge that evaluates the conversation against criteria
+The built-in agents are `NewUserSimulatorAgent` (with an optional `Persona`)
+and `NewJudgeAgent` (custom `SystemPrompt`, criteria, trace discovery
+settings). `ScenarioConfig.MinTurns` keeps the judge from ending the test
+early; an explicit `Judge()` and the last turn always get a verdict.
 
-### Script Steps
-
-| Step | Description |
-|------|-------------|
-| `User("message")` | Inject a user message |
-| `User()` | Call the user simulator agent |
-| `Agent("message")` | Inject an agent message |
-| `Agent()` | Call the agent under test |
-| `Judge()` | Call the judge for evaluation |
-| `Judge(WithJudgeCriteria(...))` | Judge with inline criteria (checkpoint) |
-| `Proceed()` | Auto-run turns until the judge decides |
-| `Proceed(WithProceedTurns(n))` | Auto-run for n turns |
-| `Succeed("reason")` | End the scenario as passed |
-| `Fail("reason")` | End the scenario as failed |
-
-Custom script steps are just functions:
+## Results
 
 ```go
-func(ctx context.Context, exec scenario.Execution, state scenario.ExecutionState) (*scenario.ScenarioResult, error) {
-	if state.HasToolCall("my_tool") {
-		return nil, nil // continue
-	}
-	return exec.Fail(ctx, "Expected tool call not found")
-}
+result.Success
+result.Reasoning
+result.MetCriteria, result.UnmetCriteria, result.InconclusiveCriteria
+result.Criteria        // per criterion: requirement, status, reasoning
+result.ReachedMaxTurns // ended at the turn cap
+result.Messages, result.TotalTime, result.AgentTime
 ```
+
+`Run` returns an error for an invalid config, an agent failure or a failed
+`Assert`; the result is still returned and reported in those cases.
+
+## State views
+
+Inside a step or an agent, `ex.State()` / `input.ScenarioState` offers
+`Messages()`, `LastMessage()`, `LastUserMessage()`, `LastAgentMessage()`,
+`LastToolCall(name)`, `HasToolCall(name)`, `FirstUserMessage()`,
+`Transcript()`, `ToolCalls(name...)` (merged from messages and tool spans,
+with `First`, `Last`, `Inputs`, `Outputs`), `Turns()`, `Traces()`, `Spans()`,
+`Contexts()`, `Fields()` / `Field(name)` and `Criteria()`.
 
 ## Providers
 
-The SDK uses a `Inference` interface for LLM calls. Provider packages adapt specific SDKs:
+| Module | Client |
+|--------|--------|
+| `providers/openai` | `github.com/openai/openai-go/v3` |
+| `providers/anthropic` | `github.com/anthropics/anthropic-sdk-go` |
+| `providers/gemini` | `google.golang.org/genai` |
+| `providers/bedrock` | `github.com/aws/aws-sdk-go-v2/service/bedrockruntime` |
 
-### OpenAI
+Each exposes `NewProvider(client)` plus message converters for your own
+adapters. Any type with `Inference(ctx, InferenceParams) (*InferenceResult, error)`
+is a `scenario.LLM`.
 
-```bash
-go get github.com/langwatch/scenario/go/providers/openai
-```
+## LangWatch
 
-```go
-import (
-	scenarioOpenAI "github.com/langwatch/scenario/go/providers/openai"
-	"github.com/openai/openai-go"
-)
+Set `LANGWATCH_API_KEY` (and `LANGWATCH_PROJECT_ID` for personal access
+tokens) to stream each run to LangWatch; `LANGWATCH_ENDPOINT` selects a
+self-hosted instance. Per run, `scenario.WithLangWatch(...)`,
+`WithBatchRunID`, `WithRunID`, `WithHTTPClient` and the config's `SetID` /
+`ThreadID` override everything without touching the environment.
 
-client := openai.NewClient() // uses OPENAI_API_KEY env var
-llm := scenarioOpenAI.NewProvider(&client)
-```
+Tracing is set up on the first run. To customize it, call
+`scenario.SetupScenarioTracing(scenario.TracingOptions{...})` first (extra
+processors, an exporter, `Filters: []langwatch.Filter{scenario.ScenarioOnly()}`).
+An application that already set a global SDK `TracerProvider` keeps it: the
+scenario span collector and exporter are attached to it. `FlushTracing` and
+`ShutdownTracing` are available for process exit.
 
-### Anthropic
+Group runs with `SetID`; all runs of one `go test ./...` invocation share a
+batch (`SCENARIO_BATCH_RUN_ID` overrides it).
 
-```bash
-go get github.com/langwatch/scenario/go/providers/anthropic
-```
-
-```go
-import (
-	scenarioAnthropic "github.com/langwatch/scenario/go/providers/anthropic"
-	"github.com/anthropics/anthropic-sdk-go"
-)
-
-client := anthropic.NewClient() // uses ANTHROPIC_API_KEY env var
-llm := scenarioAnthropic.NewProvider(&client)
-```
-
-### Gemini
+## Development
 
 ```bash
-go get github.com/langwatch/scenario/go/providers/gemini
-```
-
-```go
-import (
-	scenarioGemini "github.com/langwatch/scenario/go/providers/gemini"
-	"google.golang.org/genai"
-)
-
-client, _ := genai.NewClient(ctx, &genai.ClientConfig{
-	APIKey:  os.Getenv("GEMINI_API_KEY"),
-	Backend: genai.BackendGoogleAI,
-})
-llm := scenarioGemini.NewProvider(client)
-```
-
-### AWS Bedrock
-
-```bash
-go get github.com/langwatch/scenario/go/providers/bedrock
-```
-
-```go
-import (
-	scenarioBedrock "github.com/langwatch/scenario/go/providers/bedrock"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-)
-
-cfg, _ := config.LoadDefaultConfig(ctx)
-client := bedrockruntime.NewFromConfig(cfg)
-llm := scenarioBedrock.NewProvider(client)
-```
-
-### Custom Provider
-
-Implement the `Inference` interface for any provider:
-
-```go
-type Inference interface {
-	Inference(ctx context.Context, params InferenceParams) (*InferenceResult, error)
-}
-```
-
-## LangWatch Integration
-
-Set environment variables to enable real-time trace reporting:
-
-```bash
-export LANGWATCH_API_KEY="your-api-key"
-export LANGWATCH_ENDPOINT="https://app.langwatch.ai"
-```
-
-Or configure programmatically:
-
-```go
-scenario.Run(ctx, cfg,
-	scenario.WithEndpoint("https://app.langwatch.ai"),
-	scenario.WithAPIKey("your-api-key"),
-	scenario.WithBatchRunID("my-batch"),
-)
-```
-
-Additional environment variables:
-- `SCENARIO_BATCH_RUN_ID` — group runs across test files into a single batch
-
-### SetID Grouping
-
-Group related scenarios with `SetID` to view them together in LangWatch:
-
-```go
-scenario.Run(ctx, scenario.ScenarioConfig{
-	SetID: "weather-agent-tests",
-	// ...
-})
-```
-
-## Testing Integration
-
-Use with `go test`:
-
-```go
-func TestMyAgent(t *testing.T) {
-	result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
-		Name:        "Agent handles refund request",
-		Description: "A customer asks for a refund and the agent processes it correctly",
-		Agents: []scenario.AgentAdapter{
-			&myAgent{},
-			scenario.NewUserSimulatorAgent(userSimCfg),
-			scenario.NewJudgeAgent(judgeCfg),
-		},
-		Script: []scenario.ScriptStep{
-			scenario.Proceed(),
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Success {
-		t.Fatalf("scenario failed: %v", *result.Reasoning)
-	}
-}
-```
-
-```bash
-go test ./... -v
+go vet ./... && go test -race ./...          # core
+(cd providers/openai && go test -race ./...) # each provider
+(cd examples && go vet ./...)                 # examples (need OPENAI_API_KEY to run)
+go test -run TestGolden -update .             # regenerate testdata/events
 ```
 
 ## License
