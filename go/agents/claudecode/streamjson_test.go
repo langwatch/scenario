@@ -215,16 +215,27 @@ func TestABlockWithNoPartLeavesALineNamingIt(t *testing.T) {
 	}
 }
 
-func TestAFailedToolResultKeepsItsText(t *testing.T) {
-	// Deviation: the core message model has no error flag for tool results,
-	// so the JS "error-text" output becomes a plain tool result.
+func TestAFailedToolResultIsMarkedAsAnError(t *testing.T) {
 	tr := parse(t, inner(t,
 		`{"role":"assistant","content":[{"type":"tool_use","id":"toolu_03","name":"Bash","input":{"command":"false"}}]}`,
 		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_03","content":"exit 1","is_error":true}]}`,
 	))
-	want := scenario.Message{Role: scenario.RoleTool, ToolCallID: "toolu_03", ToolName: "Bash", Content: "exit 1"}
+	want := scenario.Message{Role: scenario.RoleTool, ToolCallID: "toolu_03", ToolName: "Bash", Content: "exit 1", IsError: true}
 	if !reflect.DeepEqual(tr.Messages[1], want) {
 		t.Fatalf("message = %+v", tr.Messages[1])
+	}
+	if got := string(scenario.AppendMessageJSON(nil, tr.Messages[1])); !strings.Contains(got, `"output":{"type":"error-text","value":"exit 1"}`) {
+		t.Fatalf("AI SDK form = %s", got)
+	}
+}
+
+func TestANonBooleanIsErrorIsNotAnError(t *testing.T) {
+	tr := parse(t, inner(t,
+		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"x","content":"ok","is_error":"no"}]}`,
+		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"y","content":"ok","is_error":false}]}`,
+	))
+	if len(tr.Messages) != 2 || tr.Messages[0].IsError || tr.Messages[1].IsError {
+		t.Fatalf("messages = %+v", tr.Messages)
 	}
 }
 
