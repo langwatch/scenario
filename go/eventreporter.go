@@ -2,195 +2,199 @@ package scenario
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"sync"
 	"time"
 )
 
-// EventReporter posts scenario events to the LangWatch API via HTTP.
-type EventReporter struct {
-	endpoint string
-	apiKey   string
-	client   *http.Client
-	enabled  bool
+// Delivery policy, matching the JS event bus: three attempts in total with
+// exponential backoff, no retry of permanent client errors.
+const (
+	eventMaxAttempts  = 3
+	eventRetryBase    = 100 * time.Millisecond
+	eventLogMaxChars  = 2000
+	eventsAPIPath     = "/api/scenario-events"
+	httpClientTimeout = 30 * time.Second
+)
+
+// eventReporter posts events to LangWatch.
+type eventReporter struct {
+	url       string
+	apiKey    string
+	projectID string
+	client    *http.Client
+	retryBase time.Duration
 }
 
-// NewEventReporter creates an EventReporter. It is only enabled when both endpoint and apiKey are non-empty.
-func NewEventReporter(endpoint, apiKey string) *EventReporter {
-	return &EventReporter{
-		endpoint: endpoint,
-		apiKey:   apiKey,
-		client:   &http.Client{Timeout: 10 * time.Second},
-		enabled:  endpoint != "" && apiKey != "",
-	}
-}
-
-// eventPayload is the JSON structure sent to the API.
-type eventPayload struct {
-	Type           string      `json:"type"`
-	Timestamp      int64       `json:"timestamp"`
-	BatchRunID     string      `json:"batchRunId,omitempty"`
-	ScenarioID     string      `json:"scenarioId,omitempty"`
-	ScenarioRunID  string      `json:"scenarioRunId,omitempty"`
-	ScenarioSetID  string      `json:"scenarioSetId,omitempty"`
-	Metadata       interface{} `json:"metadata,omitempty"`
-	Messages       interface{} `json:"messages,omitempty"`
-	Status         ScenarioRunStatus `json:"status,omitempty"`
-	Results        interface{} `json:"results,omitempty"`
-}
-
-type runFinishedResults struct {
-	Verdict       string   `json:"verdict"`
-	MetCriteria   []string `json:"metCriteria"`
-	UnmetCriteria []string `json:"unmetCriteria"`
-	Reasoning     string   `json:"reasoning,omitempty"`
-	Error         string   `json:"error,omitempty"`
-}
-
-// postResult holds the parsed response from the API.
-type postResult struct {
-	SetURL string
-}
-
-// ReportEvents consumes events from the bus and posts them. Blocks until the channel is closed.
-// When onSetURL is non-nil, it is called once with the first non-empty setUrl from the API.
-func (r *EventReporter) ReportEvents(ch <-chan ScenarioEvent, onSetURL func(string)) {
-	if !r.enabled {
-		// Drain the channel even if disabled
-		for range ch {
+// resolveLangWatch fills empty fields from the environment.
+func resolveLangWatch(cfgs ...LangWatchConfig) LangWatchConfig {
+	var out LangWatchConfig
+	for _, c := range cfgs {
+		if out.Endpoint == "" {
+			out.Endpoint = c.Endpoint
 		}
-		return
-	}
-
-	setURLSent := false
-	for event := range ch {
-		result := r.postEvent(event)
-		if !setURLSent && result.SetURL != "" && onSetURL != nil {
-			onSetURL(result.SetURL)
-			setURLSent = true
+		if out.APIKey == "" {
+			out.APIKey = c.APIKey
+		}
+		if out.ProjectID == "" {
+			out.ProjectID = c.ProjectID
 		}
 	}
+	if out.Endpoint == "" {
+		out.Endpoint = os.Getenv("LANGWATCH_ENDPOINT")
+	}
+	if out.Endpoint == "" {
+		out.Endpoint = DefaultLangWatchEndpoint
+	}
+	if out.APIKey == "" {
+		out.APIKey = os.Getenv("LANGWATCH_API_KEY")
+	}
+	if out.ProjectID == "" {
+		out.ProjectID = os.Getenv("LANGWATCH_PROJECT_ID")
+	}
+	return out
 }
 
-func (r *EventReporter) postEvent(event ScenarioEvent) postResult {
-	payload := r.buildPayload(event)
-	if payload == nil {
-		return postResult{}
+func newEventReporter(lw LangWatchConfig) *eventReporter {
+	r := &eventReporter{apiKey: lw.APIKey, projectID: lw.ProjectID, client: sharedHTTPClient(), retryBase: eventRetryBase}
+	if base, err := url.Parse(lw.Endpoint); err == nil {
+		r.url = base.ResolveReference(&url.URL{Path: eventsAPIPath}).String()
 	}
+	return r
+}
 
-	body, err := json.Marshal(payload)
+func (r *eventReporter) enabled() bool { return r.apiKey != "" && r.url != "" }
+
+var (
+	httpClientOnce sync.Once
+	httpClient     *http.Client
+)
+
+// sharedHTTPClient is one keep-alive client for all runs of the process.
+func sharedHTTPClient() *http.Client {
+	httpClientOnce.Do(func() {
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.MaxIdleConns = 64
+		t.MaxIdleConnsPerHost = 16
+		t.IdleConnTimeout = 90 * time.Second
+		httpClient = &http.Client{Transport: t, Timeout: httpClientTimeout}
+	})
+	return httpClient
+}
+
+// httpStatusError is a non-2xx response.
+type httpStatusError struct {
+	status int
+	body   string
+}
+
+func (e *httpStatusError) Error() string {
+	return "event POST failed with status " + strconv.Itoa(e.status) + ": " + e.body
+}
+
+// permanent reports a 4xx other than 408 and 429: retrying cannot succeed.
+func (e *httpStatusError) permanent() bool {
+	return e.status >= 400 && e.status < 500 && e.status != 408 && e.status != 429
+}
+
+// postWithRetry delivers one event, retrying transient failures, and returns
+// the set URL of a RUN_STARTED response. An event that keeps failing is
+// logged and dropped so it never blocks the events behind it.
+func (r *eventReporter) postWithRetry(ctx context.Context, ev Event) string {
+	var err error
+	for attempt := 1; attempt <= eventMaxAttempts; attempt++ {
+		var setURL string
+		setURL, err = r.post(ctx, ev)
+		if err == nil {
+			return setURL
+		}
+		var se *httpStatusError
+		if errors.As(err, &se) && se.permanent() {
+			break
+		}
+		if attempt < eventMaxAttempts {
+			logger().Warn("event delivery failed, retrying", "type", string(ev.Type), "attempt", attempt, "error", err.Error())
+			time.Sleep(r.retryBase << (attempt - 1))
+		}
+	}
+	logger().Error("dropping event after failed delivery", "type", string(ev.Type), "scenarioRunId", ev.ScenarioRunID, "error", err.Error(), "event", redactedEventSummary(ev.Payload))
+	return ""
+}
+
+func (r *eventReporter) post(ctx context.Context, ev Event) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.url, bytes.NewReader(ev.Payload))
 	if err != nil {
-		return postResult{}
+		return "", err
 	}
-
-	url := fmt.Sprintf("%s/api/scenario-events", r.endpoint)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
-	if err != nil {
-		return postResult{}
-	}
-
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Auth-Token", r.apiKey)
-
+	req.Header.Set("Authorization", "Bearer "+r.apiKey)
+	if r.projectID != "" {
+		req.Header.Set("X-Project-Id", r.projectID)
+	}
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return postResult{}
+		return "", err
 	}
 	defer resp.Body.Close()
-
-	// Parse response for setUrl
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return postResult{}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", &httpStatusError{status: resp.StatusCode, body: string(body)}
 	}
-
-	var respData struct {
+	if ev.Type != EventRunStarted {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return "", nil
+	}
+	// The server accepted the event; a body that does not parse is not a
+	// delivery failure.
+	var data struct {
 		URL string `json:"url"`
 	}
-	if err := json.Unmarshal(respBody, &respData); err != nil {
-		return postResult{}
-	}
-
-	return postResult{SetURL: respData.URL}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&data)
+	return data.URL, nil
 }
 
-func (r *EventReporter) buildPayload(event ScenarioEvent) *eventPayload {
-	ts := event.Timestamp().UnixMilli()
-
-	switch e := event.(type) {
-	case RunStartedEvent:
-		metadata := map[string]any{
-			"name":        e.ScenarioName,
-			"description": e.Description,
+// redactedEventSummary shortens an event for a failure log: base64 runs of
+// 200+ characters (audio) are elided and the text is capped.
+func redactedEventSummary(payload []byte) string {
+	out := make([]byte, 0, min(len(payload), eventLogMaxChars+64))
+	for i := 0; i < len(payload); {
+		j := i
+		for j < len(payload) && isBase64Char(payload[j]) {
+			j++
 		}
-		for k, v := range e.Metadata {
-			metadata[k] = v
-		}
-		return &eventPayload{
-			Type:          string(EventRunStarted),
-			Timestamp:     ts,
-			BatchRunID:    e.BatchRunID,
-			ScenarioID:    e.ScenarioID,
-			ScenarioRunID: e.ScenarioRunID,
-			ScenarioSetID: e.ScenarioSetID,
-			Metadata:      metadata,
-		}
-
-	case MessageSnapshotEvent:
-		return &eventPayload{
-			Type:          string(EventMessageSnapshot),
-			Timestamp:     ts,
-			BatchRunID:    e.BatchRunID,
-			ScenarioID:    e.ScenarioID,
-			ScenarioRunID: e.ScenarioRunID,
-			ScenarioSetID: e.ScenarioSetID,
-			Messages:      e.Messages,
-		}
-
-	case RunFinishedEvent:
-		status := ScenarioRunStatusFailed
-		verdict := "failure"
-		if e.Result != nil && e.Result.Success {
-			status = ScenarioRunStatusSuccess
-			verdict = "success"
-		}
-		if e.Result != nil && e.Result.Error != nil {
-			status = ScenarioRunStatusError
-		}
-
-		var results *runFinishedResults
-		if e.Result != nil {
-			reasoning := ""
-			if e.Result.Reasoning != nil {
-				reasoning = *e.Result.Reasoning
+		if j-i >= 200 {
+			k := j
+			for k < len(payload) && k-j < 2 && payload[k] == '=' {
+				k++
 			}
-			errStr := ""
-			if e.Result.Error != nil {
-				errStr = *e.Result.Error
-			}
-			results = &runFinishedResults{
-				Verdict:       verdict,
-				MetCriteria:   e.Result.MetCriteria,
-				UnmetCriteria: e.Result.UnmetCriteria,
-				Reasoning:     reasoning,
-				Error:         errStr,
-			}
+			out = append(out, "<audio:"...)
+			out = strconv.AppendInt(out, int64(k-i), 10)
+			out = append(out, " b64 chars elided>"...)
+			i = k
+		} else if j > i {
+			out = append(out, payload[i:j]...)
+			i = j
+		} else {
+			out = append(out, payload[i])
+			i++
 		}
-
-		return &eventPayload{
-			Type:          string(EventRunFinished),
-			Timestamp:     ts,
-			BatchRunID:    e.BatchRunID,
-			ScenarioID:    e.ScenarioID,
-			ScenarioRunID: e.ScenarioRunID,
-			ScenarioSetID: e.ScenarioSetID,
-			Status:        status,
-			Results:       results,
+		if len(out) > eventLogMaxChars*4 {
+			break
 		}
-
-	default:
-		return nil
 	}
+	if len(out) > eventLogMaxChars {
+		return string(out[:eventLogMaxChars]) + "... (" + strconv.Itoa(len(out)) + " chars, truncated)"
+	}
+	return string(out)
+}
+
+func isBase64Char(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/'
 }

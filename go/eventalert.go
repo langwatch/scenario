@@ -1,108 +1,106 @@
 package scenario
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 )
 
-// createCoordinationFile creates a coordination file in the system's temp directory
-// to prevent duplicate messages across processes in the same batch run.
-// Returns true if this process should show the message (first to create the file).
-func createCoordinationFile(fileType string) bool {
-	batchID := getCachedBatchRunID()
-	if batchID == "" {
-		return true
+// alertLogger prints the console banners about event reporting: the
+// greeting when no API key is set, and the "follow it live" link once per
+// scenario set. Coordination files in the temp directory keep parallel test
+// processes of one batch from printing them twice.
+type alertLogger struct {
+	out        io.Writer
+	batchRunID string
+	disabled   bool
+	headless   bool
+	opener     BatchRunOpener
+}
+
+func newAlertLogger(batchRunID string, s *Settings) *alertLogger {
+	return &alertLogger{
+		out:        os.Stdout,
+		batchRunID: batchRunID,
+		disabled:   os.Getenv("SCENARIO_DISABLE_SIMULATION_REPORT_INFO") != "",
+		headless:   s.Headless,
+		opener:     s.BatchRunOpener,
 	}
-	filePath := filepath.Join(os.TempDir(), fmt.Sprintf("scenario-%s-%s", fileType, batchID))
-	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+}
+
+var separator = strings.Repeat("─", 60)
+
+// claim creates the coordination file for kind and reports whether this
+// process is the first to do so.
+func (a *alertLogger) claim(kind string) bool {
+	path := filepath.Join(os.TempDir(), "scenario-"+kind+"-"+a.batchRunID)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
-		// File already exists or filesystem is read-only
 		return false
 	}
-	f.Close()
+	_, _ = f.WriteString(strconv.Itoa(os.Getpid()))
+	_ = f.Close()
 	return true
 }
 
-func isGreetingDisabled() bool {
-	return os.Getenv("SCENARIO_DISABLE_SIMULATION_REPORT_INFO") != ""
+// greeting prints the reporting status banner when no API key is set.
+func (a *alertLogger) greeting(apiKey string) {
+	if a.disabled || !a.claim("greeting") || apiKey != "" {
+		return
+	}
+	fmt.Fprintf(a.out, "\n%s\n🎭  Running Scenario Tests\n%s\n", separator, separator)
+	fmt.Fprintln(a.out, "➡️  LangWatch API key not configured")
+	fmt.Fprintln(a.out, "   Simulations will only output final results")
+	fmt.Fprintln(a.out, "")
+	fmt.Fprintln(a.out, "💡 To visualize conversations in real time:")
+	fmt.Fprintln(a.out, "   • Set LANGWATCH_API_KEY environment variable")
+	fmt.Fprintln(a.out, "   • Or pass LangWatch config to scenario.Run")
+	fmt.Fprintln(a.out, "")
+	fmt.Fprintf(a.out, "%s\n\n", separator)
 }
 
-// showGreeting prints the initial banner when scenario tests start.
-// Only shows once per batch run across processes. Only shows the "set API key"
-// message when no API key is configured.
-func showGreeting(apiKey string) {
-	if isGreetingDisabled() {
+// watchMessage prints the live link of the batch, once per scenario set,
+// and opens it unless headless.
+func (a *alertLogger) watchMessage(ctx context.Context, setID, setURL string, lw LangWatchConfig) {
+	if a.disabled || !a.claim("watch-"+setID) {
 		return
 	}
-
-	if !createCoordinationFile("greeting") {
-		return
+	batchURL := setURL + "/" + a.batchRunID
+	fmt.Fprintf(a.out, "\n%s\n🎭  Running Scenario Tests\n%s\n", separator, separator)
+	fmt.Fprintf(a.out, "Follow it live: %s\n", batchURL)
+	if !a.headless {
+		opener := a.opener
+		if opener == nil {
+			opener = openInBrowser
+		}
+		if opener(ctx, BatchRunInfo{BatchURL: batchURL, BatchRunID: a.batchRunID, ScenarioSetID: setID, LangWatch: lw}) {
+			fmt.Fprintln(a.out, "↻ Sent to the LangWatch tab you already have open")
+		}
 	}
-
-	if apiKey == "" {
-		separator := "────────────────────────────────────────────────────────────"
-		fmt.Println()
-		fmt.Println(separator)
-		fmt.Println("🎭  Running Scenario Tests")
-		fmt.Println(separator)
-		fmt.Println("➡️  LangWatch API key not configured")
-		fmt.Println("   Simulations will only output final results")
-		fmt.Println()
-		fmt.Println("💡 To visualize conversations in real time:")
-		fmt.Println("   • Set LANGWATCH_API_KEY environment variable")
-		fmt.Println()
-		fmt.Println(separator)
-		fmt.Println()
-	}
+	fmt.Fprintf(a.out, "%s\n\n", separator)
 }
 
-// showWatchMessage prints the live follow URL and opens it in the browser.
-// Only shows once per scenarioSetId per batch run across processes.
-func showWatchMessage(setURL, scenarioSetID string) {
-	if isGreetingDisabled() {
-		return
-	}
-
-	if !createCoordinationFile("watch-" + scenarioSetID) {
-		return
-	}
-
-	if setURL == "" {
-		return
-	}
-
-	batchRunID := getCachedBatchRunID()
-	batchURL := fmt.Sprintf("%s/%s", setURL, batchRunID)
-
-	separator := "────────────────────────────────────────────────────────────"
-	fmt.Println()
-	fmt.Println(separator)
-	fmt.Println("🎭  Running Scenario Tests")
-	fmt.Println(separator)
-	fmt.Printf("Follow it live: %s\n", batchURL)
-	fmt.Println(separator)
-	fmt.Println()
-
-	if os.Getenv("SCENARIO_HEADLESS") == "" {
-		openBrowser(batchURL)
-	}
-}
-
-// openBrowser opens the given URL in the default browser.
-func openBrowser(url string) {
+// openInBrowser is the default BatchRunOpener.
+func openInBrowser(_ context.Context, info BatchRunInfo) bool {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", info.BatchURL)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", info.BatchURL)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", info.BatchURL)
 	default:
-		return
+		return false
 	}
-	_ = cmd.Start()
+	if cmd.Start() == nil {
+		go func() { _ = cmd.Wait() }()
+	}
+	return false
 }

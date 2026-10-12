@@ -2,213 +2,154 @@ package scenario
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 )
 
-var (
-	ErrScenarioNameRequired         = errors.New("a scenario name is required")
-	ErrScenarioDescriptionRequired  = errors.New("a scenario description is required")
-	ErrMaxTurnsMustBePositive       = errors.New("the maximum number of turns must be positive")
-	ErrNoAgentsSpecified            = errors.New("no agents specified")
-	ErrNoAgentInAgentsWithAgentRole = errors.New("no agent was provided in the agents slice with the role agent")
-	ErrAgentWithInvalidRole         = errors.New("agent with invalid role")
-)
-
-// RunOptions configures optional behavior for Run().
+// RunOptions are per-invocation options of Run.
 type RunOptions struct {
-	// Endpoint is the LangWatch API endpoint for event reporting.
-	Endpoint string
-	// APIKey is the LangWatch API key for authentication.
-	APIKey string
-	// BatchRunID groups scenario runs. Falls back to SCENARIO_BATCH_RUN_ID env var.
+	// LangWatch overrides ScenarioConfig.LangWatch and the environment.
+	LangWatch LangWatchConfig
+	// BatchRunID groups runs; defaults to BatchRunID().
 	BatchRunID string
+	// RunID pre-assigns the run id (platform use).
+	RunID string
+	// SendGranularEvents selects granular message events for this run,
+	// overriding SCENARIO_SEND_GRANULAR_EVENTS and Configure. Default off.
+	SendGranularEvents *bool
+	// Values are merged over ScenarioConfig.Values.
+	Values map[any]any
+	// OnEvent receives every event of the run, in order, as it is
+	// delivered.
+	OnEvent func(Event)
 }
 
-// RunOption configures a RunOptions.
+// RunOption configures RunOptions.
 type RunOption func(*RunOptions)
 
-// WithEndpoint sets the LangWatch endpoint.
-func WithEndpoint(endpoint string) RunOption {
-	return func(o *RunOptions) { o.Endpoint = endpoint }
+// WithLangWatch sets the LangWatch project of the run.
+func WithLangWatch(c LangWatchConfig) RunOption { return func(o *RunOptions) { o.LangWatch = c } }
+
+// WithBatchRunID sets the batch run id.
+func WithBatchRunID(id string) RunOption { return func(o *RunOptions) { o.BatchRunID = id } }
+
+// WithRunID pre-assigns the run id.
+func WithRunID(id string) RunOption { return func(o *RunOptions) { o.RunID = id } }
+
+// WithGranularEventsForRun selects granular message events for this run.
+func WithGranularEventsForRun(on bool) RunOption {
+	return func(o *RunOptions) { o.SendGranularEvents = &on }
 }
 
-// WithAPIKey sets the LangWatch API key.
-func WithAPIKey(apiKey string) RunOption {
-	return func(o *RunOptions) { o.APIKey = apiKey }
+// WithValue sets a per-run value read through Executor.Value.
+func WithValue(key, value any) RunOption {
+	return func(o *RunOptions) {
+		if o.Values == nil {
+			o.Values = map[any]any{}
+		}
+		o.Values[key] = value
+	}
 }
 
-// WithBatchRunID sets the batch run ID.
-func WithBatchRunID(batchRunID string) RunOption {
-	return func(o *RunOptions) { o.BatchRunID = batchRunID }
-}
+// WithEventListener receives every event of the run.
+func WithEventListener(fn func(Event)) RunOption { return func(o *RunOptions) { o.OnEvent = fn } }
 
+// Run executes a scenario and returns its result. Runs are independent and
+// safe to execute in parallel (t.Parallel()).
+//
+// The error is non-nil when the configuration is invalid (result nil), or
+// when the run ended in an error or a failed assertion; the result is then
+// the error result that was reported to LangWatch. A scenario that merely
+// fails its criteria returns a result with Success false and a nil error.
 func Run(ctx context.Context, cfg ScenarioConfig, opts ...RunOption) (*ScenarioResult, error) {
-	// Apply options
-	options := &RunOptions{}
+	var o RunOptions
 	for _, opt := range opts {
-		opt(options)
+		opt(&o)
 	}
-
-	// Validate
-	if cfg.Name == "" {
-		return nil, ErrScenarioNameRequired
-	}
-	if cfg.Description == "" {
-		return nil, ErrScenarioDescriptionRequired
-	}
-	if cfg.MaxTurns < 0 {
-		return nil, ErrMaxTurnsMustBePositive
-	}
-	if cfg.MaxTurns == 0 {
-		cfg.MaxTurns = 10 // Default
-	}
-	if len(cfg.Agents) == 0 {
-		return nil, ErrNoAgentsSpecified
-	}
-	if err := validateAgentsSlice(cfg.Agents); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-
-	// Apply defaults
-	if cfg.ThreadID == "" {
-		cfg.ThreadID = generateThreadID(ctx)
-	}
-	if cfg.ID == "" {
-		cfg.ID = generateScenarioID(ctx)
-	}
-
-	script := cfg.Script
-	if len(script) == 0 {
-		script = []ScriptStep{
-			Proceed(),
+	cfg = cfg.withDefaults()
+	if len(o.Values) > 0 {
+		merged := make(map[any]any, len(cfg.Values)+len(o.Values))
+		for k, v := range cfg.Values {
+			merged[k] = v
 		}
-	}
-
-	// Determine batch run ID
-	batchRunID := options.BatchRunID
-	if batchRunID == "" {
-		batchRunID = getBatchRunID(ctx)
-	}
-
-	// Create event bus
-	eventBus := NewEventBus()
-
-	// Apply default SetID
-	if cfg.SetID == "" {
-		cfg.SetID = "default"
-	}
-
-	// Optionally set up event reporter
-	endpoint := options.Endpoint
-	if endpoint == "" {
-		endpoint = os.Getenv("LANGWATCH_ENDPOINT")
-	}
-	if endpoint == "" {
-		endpoint = "https://app.langwatch.ai"
-	}
-	apiKey := options.APIKey
-	if apiKey == "" {
-		apiKey = os.Getenv("LANGWATCH_API_KEY")
-	}
-
-	// Show greeting banner
-	showGreeting(apiKey)
-
-	reporter := NewEventReporter(endpoint, apiKey)
-	ch := eventBus.Subscribe()
-
-	// Start reporter goroutine
-	reporterDone := make(chan struct{})
-	scenarioSetID := cfg.SetID
-	go func() {
-		defer close(reporterDone)
-		reporter.ReportEvents(ch, func(setURL string) {
-			showWatchMessage(setURL, scenarioSetID)
-		})
-	}()
-
-	// Set up observability (OTel tracing) if API key is configured
-	var obsHandle *ObservabilityHandle
-	if apiKey != "" {
-		var err error
-		obsHandle, err = setupObservability(ctx, endpoint, apiKey)
-		if err != nil {
-			// Non-fatal: continue without observability
-			obsHandle = nil
+		for k, v := range o.Values {
+			merged[k] = v
 		}
+		cfg.Values = merged
 	}
 
-	// Wire span collector into judge agents
-	if obsHandle != nil {
-		for _, agent := range cfg.Agents {
-			if ja, ok := agent.(*JudgeAgent); ok {
-				ja.spanCollector = obsHandle.collector
-			}
-		}
+	settings := currentSettings()
+	tracing := ensureTracing()
+	lw := resolveLangWatch(o.LangWatch, cfg.LangWatch)
+	cfg.LangWatch = lw
+	batchID := o.BatchRunID
+	if batchID == "" {
+		batchID = BatchRunID()
+	}
+	runID := o.RunID
+	if runID == "" {
+		runID = generateRunID()
+	}
+	granular := settings.GranularEvents
+	if o.SendGranularEvents != nil {
+		granular = *o.SendGranularEvents
 	}
 
-	// Create execution and run
-	execution := NewScenarioExecution(cfg, script, eventBus, batchRunID)
-	if obsHandle != nil {
-		execution.tracer = obsHandle.tracer
-		execution.spanCollector = obsHandle.collector
+	alerts := newAlertLogger(batchID, settings)
+	alerts.greeting(lw.APIKey)
+	delivery := &eventDelivery{reporter: newEventReporter(lw), listener: o.OnEvent, alerts: alerts, setID: cfg.SetID, lw: lw}
+	bus := newEventBus(delivery.deliver)
+
+	ex := newExecutor(cfg, runID, batchID, bus.publish, granular)
+	result, err := ex.execute(ctx)
+
+	if cfg.Verbose && result != nil && !result.Success {
+		printFailure(os.Stdout, cfg.Name, result)
 	}
-	result := execution.Run(ctx)
-
-	// Verbose output on failure
-	if cfg.Verbose && !result.Success {
-		fmt.Printf("Scenario failed: %s\n", cfg.Name)
-		if result.Reasoning != nil {
-			fmt.Printf("Reasoning: %s\n", *result.Reasoning)
-		}
-		fmt.Println("--------------------------------")
-		if len(result.MetCriteria) > 0 {
-			fmt.Printf("Met criteria:\n")
-			for _, c := range result.MetCriteria {
-				fmt.Printf("  - %s\n", c)
-			}
-		}
-		if len(result.UnmetCriteria) > 0 {
-			fmt.Printf("Unmet criteria:\n")
-			for _, c := range result.UnmetCriteria {
-				fmt.Printf("  - %s\n", c)
-			}
-		}
+	bus.drain(eventBusDrainTimeout)
+	tracing.flush(context.WithoutCancel(ctx))
+	DefaultSpanCollector().ClearThread(cfg.ThreadID)
+	if f := settings.RemoteTraceFetcher; f != nil {
+		f.ClearThread(cfg.ThreadID)
 	}
-
-	// Drain event bus and wait for reporter
-	eventBus.Drain()
-	<-reporterDone
-
-	// Shutdown observability
-	if obsHandle != nil {
-		obsHandle.Shutdown(ctx)
-	}
-
-	return result, nil
+	return result, err
 }
 
-func validateAgentsSlice(agents []AgentAdapter) error {
-	foundAgent := false
-	for _, a := range agents {
-		if a.Role() == AgentRoleAgent {
-			foundAgent = true
-			break
+// printFailure prints a failed run like the JS verbose output.
+func printFailure(w io.Writer, name string, r *ScenarioResult) {
+	fmt.Fprintf(w, "Scenario failed: %s\n", name)
+	fmt.Fprintf(w, "Reasoning: %s\n", r.Reasoning)
+	fmt.Fprintln(w, "--------------------------------")
+	fmt.Fprintf(w, "Met criteria: %s\n", strings.Join(r.MetCriteria, "\n- "))
+	fmt.Fprintf(w, "Unmet criteria: %s\n", strings.Join(r.UnmetCriteria, "\n- "))
+	for _, m := range r.Messages {
+		fmt.Fprintln(w, formatMessage(m))
+	}
+}
+
+func formatMessage(m Message) string {
+	switch m.Role {
+	case RoleUser:
+		return "User: " + messageText(m)
+	case RoleAssistant:
+		parts := []string{}
+		if t := m.Text(); t != "" {
+			parts = append(parts, t)
 		}
-	}
-	if !foundAgent {
-		return ErrNoAgentInAgentsWithAgentRole
-	}
-
-	for i, a := range agents {
-		role := a.Role()
-
-		if role != AgentRoleAgent && role != AgentRoleJudge && role != AgentRoleUser {
-			return fmt.Errorf("%v: index:%d given:%s", ErrAgentWithInvalidRole, i, role)
+		for _, tc := range m.ToolCalls {
+			parts = append(parts, "(tool call): "+tc.Name+" id:"+tc.ID+" args:("+tc.Arguments+")")
 		}
+		if len(parts) == 1 {
+			return "Assistant: " + parts[0]
+		}
+		return "Assistant: \n" + strings.Join(parts, "\n")
+	case RoleTool:
+		return "Tool: (tool result): " + m.ToolName + " id:" + m.ToolCallID + " result:(" + m.Text() + ")"
 	}
-
-	return nil
+	return string(m.Role) + ": " + m.Text()
 }
