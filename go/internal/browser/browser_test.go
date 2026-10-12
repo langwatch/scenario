@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -266,5 +267,26 @@ func TestNeverAndAlwaysPolicies(t *testing.T) {
 	t.Setenv("SCENARIO_BROWSER", "")
 	if got := show(f, func(o *Options, _ *Location) { o.Headless = true }); got != SuppressedByPolicy {
 		t.Errorf("headless: %s", got)
+	}
+}
+
+func TestNoStateDirWritesNothingToWorkingDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("the home directory does not come from $HOME here")
+	}
+	_, opened, show := env(t)
+	t.Setenv("LANGWATCH_STATE_DIR", "")
+	t.Setenv("HOME", "")
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	f := startLangWatch(t, false, http.StatusNotFound, 0)
+	if got := show(f); got != Opened {
+		t.Fatalf("outcome %s", got)
+	}
+	if entries, _ := os.ReadDir(cwd); len(entries) != 0 {
+		t.Errorf("working directory holds %v", entries)
+	}
+	if len(*opened) != 1 {
+		t.Errorf("opened %v", *opened)
 	}
 }
