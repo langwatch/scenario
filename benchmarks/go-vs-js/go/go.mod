@@ -3,7 +3,7 @@ module github.com/langwatch/scenario/benchmarks/go-vs-js
 go 1.25.0
 
 require (
-	github.com/langwatch/scenario/go v0.0.0
+	github.com/langwatch/scenario/go v0.1.0
 	github.com/langwatch/scenario/go/voice v0.0.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 )
