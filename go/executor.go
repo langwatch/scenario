@@ -223,6 +223,9 @@ func (ex *Executor) execute(ctx context.Context) (res *ScenarioResult, err error
 			if err := ex.awaitPendingTurn(); err != nil {
 				return ex.finishWithError(runCtx, err)
 			}
+			// The verdict may have come while a non-blocking turn was in
+			// flight: the result carries the conversation as it ended.
+			r.Messages = ex.state.Messages()
 			ex.mu.Lock()
 			if !ex.merged {
 				cp := ex.compiledCheckpointsLocked()

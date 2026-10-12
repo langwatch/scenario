@@ -78,3 +78,25 @@ func TestTakenNonBlockingTurnErrorIsNotReportedTwice(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 }
+
+// A verdict reached while a non-blocking turn is in flight still returns
+// the message that turn added.
+func TestResultIncludesDrainedTurnMessages(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	agent := AgentFunc(func(context.Context, AgentInput) (*AgentReturn, error) {
+		<-release
+		return TextReturn("late reply"), nil
+	})
+	cfg := baseConfig(agent)
+	cfg.Script = []ScriptStep{StepFunc(func(ctx context.Context, ex *Executor) error {
+		ex.AgentNonBlocking(ctx)
+		ex.Succeed(ctx, "")
+		close(release)
+		return nil
+	})}
+	res, err := Run(context.Background(), cfg)
+	if err != nil || len(res.Messages) != 1 || res.Messages[0].Content != "late reply" {
+		t.Fatalf("%+v %v", res, err)
+	}
+}
