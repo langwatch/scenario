@@ -163,7 +163,7 @@ func buildReport(opts ReportOptions, now time.Time) report {
 	}
 	messages := make([]json.RawMessage, len(result.Messages))
 	for i, m := range result.Messages {
-		messages[i] = appendMessage(nil, m)
+		messages[i] = scenario.AppendMessageJSON(nil, m)
 	}
 	rep := report{
 		TestName:        opts.TestName,
