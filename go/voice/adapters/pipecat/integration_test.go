@@ -12,11 +12,14 @@ import (
 )
 
 // TestLiveBot talks to a running Pipecat bot (python bot.py -t twilio):
-// set PIPECAT_BOT_URL, such as ws://localhost:8765/ws.
+// set PIPECAT_URL (or PIPECAT_BOT_URL), such as ws://localhost:8765/ws.
 func TestLiveBot(t *testing.T) {
-	url := os.Getenv("PIPECAT_BOT_URL")
+	url := os.Getenv("PIPECAT_URL")
 	if url == "" {
-		t.Skip("set PIPECAT_BOT_URL to talk to a running Pipecat bot")
+		url = os.Getenv("PIPECAT_BOT_URL")
+	}
+	if url == "" {
+		t.Skip("missing env: one of PIPECAT_URL, PIPECAT_BOT_URL (a running Pipecat bot)")
 	}
 	a, err := New(Options{URL: url})
 	if err != nil {
