@@ -167,6 +167,14 @@ func appendModelMessage(b []byte, m Message) []byte {
 	return append(b, '}')
 }
 
+// AppendMessageJSON appends the message as the JSON of an AI SDK
+// ModelMessage, {"role":…,"content":…}, the shape the JS SDK sends.
+func AppendMessageJSON(b []byte, m Message) []byte { return appendModelMessage(b, m) }
+
+// MessageText returns the text a state transcript shows for a message: its
+// text, or its parts joined by newlines with tool calls and results as JSON.
+func MessageText(m Message) string { return messageText(m) }
+
 // buildJudgeTranscript renders one "role: <content JSON>" line per message,
 // with inline media truncated, as the JS JudgeUtils transcript does.
 func buildJudgeTranscript(messages []Message) string {
