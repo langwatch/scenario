@@ -1,72 +1,189 @@
+# Always-run workflow with internal path gating + aggregator, the same shape as
+# python-ci and javascript-ci. See #364.
+#
+# The workflow always starts; `changes` decides whether the jobs do real work
+# (anything under go/, this file or the Makefile changed) or skip, and
+# `go-complete` reports one final status that branch protection can require
+# without it ever being stuck pending on a pull request that touches no Go.
+#
+# go/ holds several Go modules (the root module, voice, voice/tunnel/ngrok,
+# providers/*, examples). `changes` lists every directory under go/ with a
+# go.mod, so a new module joins the matrix without editing this file, and
+# `workspace` fails if it was not also added to go/go.work.
+#
+# Each step calls the Makefile target of the same name with GO_MODULES set to
+# the matrix module, so CI and `make go-check` run exactly the same commands.
+#
+# The examples module is compile-only: its tests drive live models, so `make
+# go-test` builds their test binaries and runs none of them.
 name: go-ci
 
 on:
   push:
     branches:
       - main
-    paths:
-      - "go/**"
-      - ".github/workflows/go-ci.yml"
   pull_request:
-    paths:
-      - "go/**"
-      - ".github/workflows/go-ci.yml"
+    # `ready_for_review` is what runs the jobs for a pull request that opened as
+    # a draft, which every release-please pull request does. Without it the last
+    # run on the draft, with every job skipped, would stand as the check for a
+    # release nobody tested. See specs/release-pr-drafts.feature.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CI: true
+  # The LangWatch Go SDK this module depends on requires Go 1.25. setup-go
+  # resolves the newest 1.25 patch release, which must stay at or above the go
+  # line of go/go.work (1.25.7, from voice/tunnel/ngrok).
+  GO_VERSION: "1.25"
+  # Use exactly the toolchain installed above. A go line that outgrows it then
+  # fails here, instead of silently downloading a different toolchain.
+  GOTOOLCHAIN: local
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
+  changes:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ["1.25"]
-
+    outputs:
+      relevant: ${{ steps.detect.outputs.relevant }}
+      modules: ${{ steps.modules.outputs.modules }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/detect-changes
+        id: detect
+        with:
+          filters: |
+            relevant:
+              - 'go/**'
+              - 'Makefile'
+              - '.github/workflows/go-ci.yml'
+      - name: List the Go modules
+        id: modules
+        run: |
+          modules=$(make --no-print-directory go-modules | jq -R . | jq -s -c .)
+          echo "Go modules: $modules"
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Go ${{ matrix.go-version }}
+  workspace:
+    name: go.work lists every module
+    needs: changes
+    # The draft half of the condition keeps a release-please pull request from
+    # running Go CI on every merge to main. It comes back on `ready_for_review`.
+    if: needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - run: make go-work-check
+
+  check:
+    name: check (${{ matrix.module }})
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.changes.outputs.modules) }}
+    env:
+      GO_MODULES: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: ${{ matrix.go-version }}
-          cache-dependency-path: go/go.sum
+          go-version: ${{ env.GO_VERSION }}
+          # Cached below instead, per module: setup-go keys its cache on the
+          # go.sum hashes alone, so every matrix leg would race to save one
+          # entry holding only the winner's build cache.
+          cache: false
 
-      - name: Download dependencies
-        run: go mod download
-        working-directory: go
+      - name: Cache Go modules, build cache and staticcheck
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+          key: go-check-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ matrix.module }}-${{ hashFiles('go/**/go.sum', 'go/go.work.sum') }}
+          restore-keys: |
+            go-check-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ matrix.module }}-
+            go-check-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
 
-      - name: Vet
-        run: go vet ./...
-        working-directory: go
+      - name: gofmt
+        run: make go-fmt-check
 
-      - name: Run tests
-        run: go test ./... -v -timeout 60s
-        working-directory: go
+      - name: go vet
+        run: make go-vet
 
-      - name: Download provider dependencies
+      - name: staticcheck
+        run: make go-staticcheck
+
+      - name: go test -race (compile only for go/examples)
+        run: make go-test
+
+  tidy:
+    name: go mod tidy (${{ matrix.module }})
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.changes.outputs.modules) }}
+    env:
+      GO_MODULES: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        id: setup-go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Cache Go modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/pkg/mod
+          key: go-tidy-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('go/**/go.sum', 'go/go.work.sum') }}
+          restore-keys: |
+            go-tidy-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
+
+      # Tidies outside the workspace, the way a consumer resolves the module,
+      # with this repository's other modules pointed at their directories for
+      # the duration of the call. See the go-tidy target in the Makefile.
+      - name: go mod tidy leaves go.mod and go.sum unchanged
+        run: make go-tidy-check
+
+  go-complete:
+    needs: [changes, workspace, check, tidy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all needs succeeded or were legitimately skipped
         run: |
-          for dir in providers/*/; do
-            echo "==> $dir"
-            (cd "$dir" && go mod download)
-          done
-        working-directory: go
-
-      - name: Vet providers
-        run: |
-          for dir in providers/*/; do
-            echo "==> $dir"
-            (cd "$dir" && go vet ./...)
-          done
-        working-directory: go
-
-      - name: Test (Examples)
-        run: go test ./... -v -timeout 300s
-        env:
-          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        working-directory: go/examples
+          echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success" or .value.result == "skipped")'

@@ -2,13 +2,8 @@ module github.com/langwatch/scenario/go/voice/tunnel/ngrok
 
 go 1.25.7
 
-replace (
-	github.com/langwatch/scenario/go => ../../../
-	github.com/langwatch/scenario/go/voice => ../../
-)
-
 require (
-	github.com/langwatch/scenario/go/voice v0.0.0
+	github.com/langwatch/scenario/go/voice v0.1.0 // x-release-please-version
 	golang.ngrok.com/ngrok/v2 v2.2.0
 )
 

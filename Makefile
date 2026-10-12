@@ -26,6 +26,10 @@ help:
 	@echo "  make python/pdocs"
 
 	@echo "  make python/test tests/test_specific.py"
+	@echo ""
+	@echo "Go SDK (every module under go/, or GO_MODULES=\"go/voice ...\"):"
+	@echo "  make go-fmt go-vet go-test go-tidy"
+	@echo "  make go-check   # what go-ci runs"
 
 # Directory forwarding rule - handles patterns like python/target
 %/:
@@ -112,6 +116,135 @@ voice-demos-up: voice-pipecat-up voice-elevenlabs-provision
 # Tear down all voice demo infrastructure.
 voice-demos-down: voice-pipecat-down
 	@echo "Voice demo infra stopped."
+
+# ---------------------------------------------------------------------------
+# Go SDK (go/)
+#
+# go/ holds several Go modules: the root module github.com/langwatch/scenario/go
+# and one module per directory with its own go.mod (voice, voice/tunnel/ngrok,
+# providers/*, examples). Every target below runs once per module, from that
+# module's directory, inside the workspace in go/go.work.
+#
+# Restrict a target to some modules with GO_MODULES, which is how go-ci runs one
+# module per job:
+#   make go-test GO_MODULES=go/voice
+#   make go-vet GO_MODULES="go go/providers/openai"
+# ---------------------------------------------------------------------------
+
+GO ?= go
+# Every directory under go/ that holds a go.mod, testdata excluded.
+GO_ALL_MODULES := $(shell find go -name go.mod -not -path '*/testdata/*' -exec dirname {} \; 2>/dev/null | sort)
+GO_MODULES ?= $(GO_ALL_MODULES)
+# Modules whose tests call live models: go-test compiles them and runs nothing.
+GO_COMPILE_ONLY_MODULES ?= go/examples
+GO_TEST_FLAGS ?= -race -count=1 -timeout 10m
+# Pinned so a staticcheck release cannot fail a pull request that changed
+# nothing. 2025.1.1 is the first release that understands Go 1.25.
+STATICCHECK_VERSION ?= 2025.1.1
+
+# Every file `go list` attributes to a module's packages, build-tag-excluded
+# files included. gofmt recurses into directories, so handing it a module
+# directory would also check the modules nested under it.
+GO_LIST_FILES := '{{$$d := .Dir}}{{range .GoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}{{range .IgnoredGoFiles}}{{$$d}}/{{.}}{{"\n"}}{{end}}'
+
+.PHONY: go-modules go-fmt go-fmt-check go-vet go-staticcheck go-test \
+	go-tidy go-tidy-check go-work-check go-check
+
+# List the Go modules the targets below run over.
+go-modules:
+	@printf '%s\n' $(GO_MODULES)
+
+# Rewrite every Go file with gofmt.
+go-fmt:
+	@set -e; for m in $(GO_MODULES); do \
+		echo "==> gofmt -w ($$m)"; \
+		files=$$(cd $$m && $(GO) list -e -f $(GO_LIST_FILES) ./...); \
+		[ -z "$$files" ] || gofmt -w $$files; \
+	done
+
+# Fail, listing the files, when any Go file is not gofmt-formatted.
+go-fmt-check:
+	@status=0; for m in $(GO_MODULES); do \
+		echo "==> gofmt -l ($$m)"; \
+		files=$$(cd $$m && $(GO) list -e -f $(GO_LIST_FILES) ./...) || { status=1; continue; }; \
+		[ -n "$$files" ] || continue; \
+		bad=$$(gofmt -l $$files); \
+		if [ -n "$$bad" ]; then echo "$$bad"; status=1; fi; \
+	done; \
+	if [ $$status -ne 0 ]; then echo "Run 'make go-fmt' and commit the result."; fi; \
+	exit $$status
+
+go-vet:
+	@set -e; for m in $(GO_MODULES); do \
+		echo "==> go vet ($$m)"; \
+		( cd $$m && $(GO) vet ./... ); \
+	done
+
+go-staticcheck:
+	@set -e; for m in $(GO_MODULES); do \
+		echo "==> staticcheck $(STATICCHECK_VERSION) ($$m)"; \
+		( cd $$m && $(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./... ); \
+	done
+
+# Run each module's tests with GO_TEST_FLAGS (race detector on by default).
+# Modules in GO_COMPILE_ONLY_MODULES are compiled, tests included, and not run.
+go-test:
+	@set -e; for m in $(GO_MODULES); do \
+		case " $(GO_COMPILE_ONLY_MODULES) " in \
+		*" $$m "*) \
+			echo "==> go test -c, compile only ($$m)"; \
+			out=$$(mktemp -d); \
+			( cd $$m && $(GO) test -count=1 -c -o "$$out/" ./... ) || { rm -rf "$$out"; exit 1; }; \
+			rm -rf "$$out" ;; \
+		*) \
+			echo "==> go test $(GO_TEST_FLAGS) ($$m)"; \
+			( cd $$m && $(GO) test $(GO_TEST_FLAGS) ./... ) ;; \
+		esac; \
+	done
+
+# Run `go mod tidy` on each module the way a consumer would resolve it: outside
+# the workspace (GOWORK=off). The other modules of this repository are pointed
+# at their directories for the duration of the call and the replace directives
+# are dropped again afterwards, so the result does not depend on which versions
+# are tagged yet, and go.sum never records hashes for this repository's own
+# modules (the workspace does not need them, and before a release they cannot
+# exist).
+go-tidy:
+	@set -e; root=$$(pwd); for m in $(GO_MODULES); do \
+		echo "==> go mod tidy ($$m)"; \
+		reps=""; drops=""; \
+		for o in $(GO_ALL_MODULES); do \
+			[ "$$o" = "$$m" ] && continue; \
+			p=$$(awk '/^module /{print $$2; exit}' $$o/go.mod); \
+			reps="$$reps -replace=$$p=$$root/$$o"; drops="$$drops -dropreplace=$$p"; \
+		done; \
+		( cd $$m && $(GO) mod edit $$reps && s=0 && { GOWORK=off $(GO) mod tidy || s=$$?; } && \
+			$(GO) mod edit $$drops && exit $$s ); \
+	done
+
+# go-tidy, then fail when it changed any go.mod or go.sum.
+go-tidy-check: go-tidy
+	@files="$(addsuffix /go.mod,$(GO_MODULES)) $(addsuffix /go.sum,$(GO_MODULES))"; \
+	if [ -n "$$(git status --porcelain -- $$files)" ]; then \
+		git status --short -- $$files; git --no-pager diff -- $$files; \
+		echo "go.mod/go.sum are not tidy. Run 'make go-tidy' and commit the result."; \
+		exit 1; \
+	fi
+
+# Fail when go/go.work does not list exactly the modules under go/.
+go-work-check:
+	@expected=$$(for m in $(GO_ALL_MODULES); do echo "$$m"; done | sort); \
+	actual=$$(cd go && root=$$(cd .. && pwd) && $(GO) list -m -f '{{.Dir}}' | sed "s#^$$root/##" | sort); \
+	if [ "$$expected" != "$$actual" ]; then \
+		echo "go/go.work does not list every module under go/."; \
+		echo "go.mod files found:"; echo "$$expected"; \
+		echo "go.work modules:"; echo "$$actual"; \
+		exit 1; \
+	fi; \
+	echo "go/go.work lists all $$(echo "$$expected" | wc -l | tr -d ' ') modules."
+
+# Everything go-ci runs, for all modules.
+go-check: go-work-check go-fmt-check go-vet go-staticcheck go-test go-tidy-check
 
 # Catch-all rule to prevent "No rule to make target" errors for additional arguments
 %:
