@@ -165,13 +165,18 @@ func stripAudio(msgs []Message) []Message {
 
 // reverseRoles swaps user and assistant for the simulator, because models
 // are biased to answer as the assistant. Tool calls and results become
-// plain-text summaries on the user side.
+// plain-text summaries on the user side. A tool result without a ToolName
+// (as ToolMsg builds it) is named after the assistant call it answers.
 func reverseRoles(msgs []Message) []Message {
 	out := make([]Message, 0, len(msgs))
+	var names map[string]string
 	for _, m := range msgs {
 		switch {
 		case m.Role == RoleTool:
-			name := m.ToolName
+			if m.ToolName == "" && names == nil {
+				names = toolNamesByCallID(msgs)
+			}
+			name := resultToolName(m, names)
 			if name == "" {
 				name = "unknown tool"
 			}
