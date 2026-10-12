@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -607,5 +608,68 @@ func TestValueContextsShareTheRegistration(t *testing.T) {
 	write()
 	if n := testing.AllocsPerRun(50, write); n != 0 {
 		t.Fatalf("value contexts allocate %v times", n)
+	}
+}
+
+func TestPongIgnoresAnExpiredWriteDeadline(t *testing.T) {
+	c, p := clientUnderTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := c.Write(ctx, MessageText, []byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	p.recv()
+	<-ctx.Done() // the write deadline left on the connection is now past
+	p.frame(true, opPing, []byte("ping"))
+	p.frame(true, opText, []byte("after"))
+	if _, msg := readOK(t, c); string(msg) != "after" {
+		t.Fatalf("got %q", msg)
+	}
+	if h, b := p.recv(); h.op != opPong || string(b) != "ping" {
+		t.Fatalf("got opcode %x %q", h.op, b)
+	}
+}
+
+func TestCloseIsBoundedBehindAStuckWrite(t *testing.T) {
+	old := closeTimeout
+	closeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { closeTimeout = old })
+	c, _ := clientUnderTest(t) // the peer never reads
+	wrote := make(chan error, 1)
+	go func() { wrote <- c.Write(context.Background(), MessageBinary, make([]byte, 64<<20)) }()
+	time.Sleep(50 * time.Millisecond) // let the Write fill the socket buffers
+	start := time.Now()
+	_ = c.Close(StatusNormalClosure, "")
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("Close took %v behind a stuck Write", d)
+	}
+	select {
+	case err := <-wrote:
+		if err == nil {
+			t.Fatal("the stuck Write succeeded")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stuck Write was not failed")
+	}
+}
+
+func TestTimerStreamDeadlineDoesNotOutliveItsOperation(t *testing.T) {
+	a, b := tcpPair(t)
+	c := newConn(newTimerStream(a), bufio.NewReader(a), true, "")
+	server := newConn(b, bufio.NewReader(b), false, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := c.Write(ctx, MessageText, []byte("quick")); err != nil {
+		t.Fatal(err)
+	}
+	if _, msg, err := server.Read(context.Background(), nil); err != nil || string(msg) != "quick" {
+		t.Fatalf("server read %q, %v", msg, err)
+	}
+	time.Sleep(150 * time.Millisecond) // past the write's deadline, idle
+	if err := c.Write(context.Background(), MessageText, []byte("later")); err != nil {
+		t.Fatalf("write after the idle deadline: %v", err)
+	}
+	if _, msg, err := server.Read(context.Background(), nil); err != nil || string(msg) != "later" {
+		t.Fatalf("server read %q, %v", msg, err)
 	}
 }

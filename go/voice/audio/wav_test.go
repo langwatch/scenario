@@ -88,3 +88,16 @@ func TestParseWAVRejectsNonWAV(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestParseWAVRejectsZeroFormatFields(t *testing.T) {
+	for name, f := range map[string]Format{
+		"sample rate": {SampleRate: 0, Channels: 1, BitsPerSample: 16},
+		"channels":    {SampleRate: 24000, Channels: 0, BitsPerSample: 16},
+		"sample size": {SampleRate: 24000, Channels: 1, BitsPerSample: 0},
+	} {
+		b := append(AppendWAVHeader(nil, f, 4), 1, 0, 2, 0)
+		if _, err := ParseWAV(b); err == nil {
+			t.Errorf("zero %s: parsed", name)
+		}
+	}
+}

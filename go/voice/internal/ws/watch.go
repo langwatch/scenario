@@ -27,6 +27,10 @@ type watch struct {
 	// fire is w.onFire, bound once so registering it does not allocate a
 	// new method value each time.
 	fire func()
+	// disarm lifts the deadline after every operation. A timerStream needs
+	// it: its deadline closes the stream when it expires, also between
+	// operations, where a net.Conn deadline is harmless.
+	disarm bool
 
 	mu     sync.Mutex
 	done   <-chan struct{}
@@ -40,8 +44,8 @@ type watch struct {
 	applied time.Time
 }
 
-func (w *watch) init(set func(time.Time) error) {
-	w.set = set
+func (w *watch) init(set func(time.Time) error, disarm bool) {
+	w.set, w.disarm = set, disarm
 	w.fire = w.onFire
 }
 
@@ -85,13 +89,20 @@ func (w *watch) begin(ctx context.Context) (time.Time, error) {
 // end finishes the operation and reports whether a cancellation fired
 // during it. A cancellation that fired after the operation had in fact
 // completed leaves a past deadline on the connection, so the applied
-// deadline is restored.
+// deadline is restored. With disarm, the deadline is lifted instead, and
+// the next operation applies its own again.
 func (w *watch) end() bool {
 	w.mu.Lock()
 	fired := w.fired
 	w.active, w.fired = false, false
 	w.mu.Unlock()
-	if fired {
+	switch {
+	case w.disarm:
+		if !w.applied.IsZero() || fired {
+			w.applied = time.Time{}
+			_ = w.set(w.applied)
+		}
+	case fired:
 		_ = w.set(w.applied)
 	}
 	return fired

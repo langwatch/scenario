@@ -20,8 +20,12 @@ const (
 // GateOptions tune a [SpeechGate]. Zero values select the defaults.
 type GateOptions struct {
 	RMSThreshold float64
-	HangoverMs   float64
-	PrerollMs    float64
+	// HangoverMs overrides [DefaultGateHangoverMs]; a negative value turns
+	// the hangover off.
+	HangoverMs float64
+	// PrerollMs overrides [DefaultGatePrerollMs]; a negative value turns
+	// the pre-roll off.
+	PrerollMs float64
 }
 
 // SpeechGate admits inbound call audio only while the far end is speaking.
@@ -63,11 +67,17 @@ func NewSpeechGate(opts GateOptions) *SpeechGate {
 	if g.threshold == 0 {
 		g.threshold = DefaultGateRMSThreshold
 	}
-	if g.hangoverMs == 0 {
+	switch {
+	case g.hangoverMs == 0:
 		g.hangoverMs = DefaultGateHangoverMs
+	case g.hangoverMs < 0:
+		g.hangoverMs = 0
 	}
-	if g.prerollMs == 0 {
+	switch {
+	case g.prerollMs == 0:
 		g.prerollMs = DefaultGatePrerollMs
+	case g.prerollMs < 0:
+		g.prerollMs = 0
 	}
 	return g
 }

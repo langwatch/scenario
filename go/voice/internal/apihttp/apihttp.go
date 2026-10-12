@@ -11,8 +11,14 @@ import (
 	"strings"
 )
 
-// maxErrorBody caps how much of an error response is quoted.
-const maxErrorBody = 2048
+const (
+	// maxErrorBody caps how much of an error response is quoted.
+	maxErrorBody = 2048
+	// maxPrealloc caps the buffer sized up front from Content-Length, so a
+	// bogus header cannot demand a huge allocation; a longer body still
+	// reads, growing as it arrives.
+	maxPrealloc = 64 << 20
+)
 
 // StatusError is a non-2xx response from a provider API.
 type StatusError struct {
@@ -45,7 +51,7 @@ func Do(client *http.Client, req *http.Request, op string) ([]byte, error) {
 	}
 	// Size the buffer from Content-Length (plus bytes.MinRead, which
 	// ReadFrom keeps free) so a known-length body is read without regrowing.
-	buf := bytes.NewBuffer(make([]byte, 0, max(resp.ContentLength, 0)+bytes.MinRead))
+	buf := bytes.NewBuffer(make([]byte, 0, min(max(resp.ContentLength, 0), maxPrealloc)+bytes.MinRead))
 	if _, err := buf.ReadFrom(resp.Body); err != nil {
 		return nil, fmt.Errorf("%s: reading response: %w", op, err)
 	}

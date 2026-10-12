@@ -71,3 +71,41 @@ func TestPlaybackWithoutFFmpegWarns(t *testing.T) {
 func TestCloseNeverOpenedReturns(t *testing.T) {
 	NewPlaybackSink(nil).Close()
 }
+
+func TestPlaybackSendChunkNeverWaitsForAStalledPlayer(t *testing.T) {
+	// The player never reads stdin, as an ffmpeg wedged on its audio device.
+	p := sinkWith(t, nil, func() *exec.Cmd { return exec.Command("sleep", "30") })
+	p.closeTimeout = 200 * time.Millisecond
+	p.Open()
+	start := time.Now()
+	for range playbackQueueChunks + 100 { // past the pipe buffer and the queue
+		p.SendChunk(AudioChunk{Data: make([]byte, 4096)})
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("SendChunk blocked for %v", d)
+	}
+	start = time.Now()
+	p.Close()
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("Close waited %v for a wedged player", d)
+	}
+	if p.Active() {
+		t.Error("active after Close")
+	}
+}
+
+func TestPlaybackKeepsChunkOrder(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "played")
+	p := sinkWith(t, nil, func() *exec.Cmd { return exec.Command("sh", "-c", "cat > "+out) })
+	p.Open()
+	var want []byte
+	for i := range 200 {
+		b := bytes.Repeat([]byte{byte(i)}, 100)
+		want = append(want, b...)
+		p.SendChunk(AudioChunk{Data: b})
+	}
+	p.Close()
+	if b, _ := os.ReadFile(out); !bytes.Equal(b, want) {
+		t.Errorf("played %d bytes, want %d in order", len(b), len(want))
+	}
+}

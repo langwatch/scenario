@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/langwatch/scenario/go/voice/audio"
 )
@@ -167,5 +168,30 @@ func TestRealFFmpegRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(pcm, tone) {
 		t.Errorf("lossless round trip changed audio (%d vs %d bytes)", len(pcm), len(tone))
+	}
+}
+
+func TestCancelledRunReportsTheContext(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fake needs a POSIX shell")
+	}
+	bin := filepath.Join(t.TempDir(), "ffmpeg")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 10\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(PathEnv, bin)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := DecodeBytes(ctx, []byte("OggS....")); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestZeroRateWAVDoesNotReachTheResampler(t *testing.T) {
+	fakeFFmpeg(t)
+	b := append(audio.AppendWAVHeader(nil, audio.Format{Channels: 1, BitsPerSample: 16}, 4), 1, 0, 2, 0)
+	// Not decodable natively: handed to (the fake) ffmpeg instead of dividing by zero.
+	if pcm, err := DecodeBytes(context.Background(), b); err != nil || !bytes.Equal(pcm, []byte{1, 0, 2, 0}) {
+		t.Errorf("pcm %v, err %v", pcm, err)
 	}
 }

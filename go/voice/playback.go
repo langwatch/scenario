@@ -7,24 +7,41 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/langwatch/scenario/go/voice/audio"
 	"github.com/langwatch/scenario/go/voice/ffmpeg"
 )
 
+const (
+	// playbackQueueChunks bounds the audio waiting for the player. ffmpeg
+	// takes it at real time, so a full queue means the player has fallen
+	// far behind (or stalled); later chunks are dropped, not waited for.
+	playbackQueueChunks = 1024
+	// playbackCloseTimeout bounds how long Close waits for the player to
+	// finish the queued audio before killing it.
+	playbackCloseTimeout = 3 * time.Second
+)
+
 // PlaybackSink streams conversation audio to the local speakers through an
 // ffmpeg subprocess. It is best effort: without ffmpeg or an audio device
 // (headless CI) it warns once and drops the audio.
+//
+// SendChunk never blocks: chunks go to a queue a writer goroutine feeds to
+// ffmpeg's stdin, which ffmpeg drains only as fast as it plays.
 type PlaybackSink struct {
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	done   chan struct{}
-	active bool
-	warned bool
-	log    *slog.Logger
+	mu      sync.Mutex
+	cmd     *exec.Cmd
+	queue   chan []byte
+	done    chan struct{}
+	active  bool
+	warned  bool
+	dropped bool
+	log     *slog.Logger
 	// command builds the subprocess; tests replace it.
 	command func(bin string, args ...string) *exec.Cmd
+	// closeTimeout is playbackCloseTimeout; tests shorten it.
+	closeTimeout time.Duration
 }
 
 // NewPlaybackSink returns a closed sink; Open starts playback.
@@ -32,7 +49,7 @@ func NewPlaybackSink(log *slog.Logger) *PlaybackSink {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &PlaybackSink{log: log, command: exec.Command}
+	return &PlaybackSink{log: log, command: exec.Command, closeTimeout: playbackCloseTimeout}
 }
 
 func playbackOutputArgs() []string {
@@ -66,7 +83,9 @@ func (p *PlaybackSink) Open() {
 		return
 	}
 	done := make(chan struct{})
-	p.cmd, p.stdin, p.active, p.done = cmd, stdin, true, done
+	queue := make(chan []byte, playbackQueueChunks)
+	p.cmd, p.queue, p.active, p.done = cmd, queue, true, done
+	go p.feed(stdin, queue)
 	go func() {
 		defer close(done)
 		err := cmd.Wait()
@@ -94,28 +113,66 @@ func (p *PlaybackSink) Active() bool {
 	return p.active
 }
 
-// SendChunk queues a chunk for playback.
+// feed writes queued audio to the player until the queue is closed, then
+// closes stdin so ffmpeg finishes. After a failed write it discards the rest.
+func (p *PlaybackSink) feed(stdin io.WriteCloser, queue <-chan []byte) {
+	failed := false
+	for b := range queue {
+		if failed {
+			continue
+		}
+		if _, err := stdin.Write(b); err != nil {
+			failed = true
+			p.mu.Lock()
+			p.active = false
+			p.mu.Unlock()
+		}
+	}
+	_ = stdin.Close()
+}
+
+// SendChunk queues a chunk for playback without waiting for the player. A
+// chunk that finds the queue full is dropped.
 func (p *PlaybackSink) SendChunk(c AudioChunk) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if !p.active || p.stdin == nil {
+	if len(c.Data) == 0 {
 		return
 	}
-	if _, err := p.stdin.Write(c.Data); err != nil {
-		p.active = false
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.active || p.queue == nil {
+		return
+	}
+	select {
+	case p.queue <- append([]byte(nil), c.Data...):
+	default:
+		if !p.dropped {
+			p.dropped = true
+			p.log.Debug("[scenario] audioPlayback: player fell behind, dropping audio")
+		}
 	}
 }
 
-// Close stops playback after the queued audio.
+// Close stops playback after the queued audio, waiting at most a few
+// seconds for the player before killing it.
 func (p *PlaybackSink) Close() {
 	p.mu.Lock()
-	stdin, done := p.stdin, p.done
-	p.active, p.stdin, p.cmd, p.done = false, nil, nil, nil
+	cmd, queue, done := p.cmd, p.queue, p.done
+	p.active, p.queue, p.cmd, p.done = false, nil, nil, nil
 	p.mu.Unlock()
-	if stdin != nil {
-		_ = stdin.Close()
+	if queue != nil {
+		close(queue)
 	}
-	if done != nil {
+	if done == nil {
+		return
+	}
+	t := time.NewTimer(p.closeTimeout)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		// A wedged player: killing it also fails a write blocked on its
+		// stdin (Wait closes the pipe), so the feeder ends too.
+		_ = cmd.Process.Kill()
 		<-done
 	}
 }

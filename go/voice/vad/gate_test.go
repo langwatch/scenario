@@ -129,3 +129,16 @@ func BenchmarkGateFrame(b *testing.B) {
 		i++
 	}
 }
+
+func TestGateNegativeHangoverAndPrerollTurnThemOff(t *testing.T) {
+	g := NewSpeechGate(GateOptions{HangoverMs: -1, PrerollMs: -1})
+	for range 5 {
+		admitted(g, tone(100, noise))
+	}
+	if n := admitted(g, tone(100, speech)); n != 1 {
+		t.Fatalf("onset admitted %d chunks, want no pre-roll", n)
+	}
+	if n := admitted(g, tone(100, noise)); n != 0 || g.Speaking() {
+		t.Fatalf("quiet after speech admitted %d, speaking %v: want no hangover", n, g.Speaking())
+	}
+}

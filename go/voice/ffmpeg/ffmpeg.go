@@ -58,6 +58,10 @@ func run(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
+		// A cancelled context kills ffmpeg; report why, not the kill.
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, fmt.Errorf("ffmpeg: %w", cerr)
+		}
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
 			return nil, fmt.Errorf("ffmpeg failed: %s", strings.TrimSpace(stderr.String()))

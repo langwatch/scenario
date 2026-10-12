@@ -24,8 +24,6 @@ const (
 	// arrive, so a large announced length costs memory only as its payload
 	// is received.
 	readGrowStep = 1 << 20
-	// closeTimeout bounds each half of the close handshake.
-	closeTimeout = 5 * time.Second
 	// writeChunk is the largest write: bigger messages go out in pieces
 	// (masked through the write buffer on the client side), so the buffer
 	// never grows past it.
@@ -33,6 +31,10 @@ const (
 	// readBufferSize is the bufio.Reader size of a dialled connection.
 	readBufferSize = 8 << 10
 )
+
+// closeTimeout bounds each half of the close handshake, and every control
+// frame write. A variable so tests can shorten it.
+var closeTimeout = 5 * time.Second
 
 // Conn is a WebSocket connection. One goroutine may read while others
 // write: Read calls are serialized among themselves, as are Write calls.
@@ -71,8 +73,9 @@ type Conn struct {
 func newConn(s stream, br *bufio.Reader, client bool, proto string) *Conn {
 	c := &Conn{s: s, br: br, client: client, proto: proto, readDone: make(chan struct{})}
 	c.readLimit.Store(DefaultReadLimit)
-	c.rw.init(s.SetReadDeadline)
-	c.ww.init(s.SetWriteDeadline)
+	_, timers := s.(*timerStream)
+	c.rw.init(s.SetReadDeadline, timers)
+	c.ww.init(s.SetWriteDeadline, timers)
 	c.keysPos = len(c.keys)
 	return c
 }
@@ -221,7 +224,9 @@ func (c *Conn) readControl(h header) error {
 	}
 	switch h.op {
 	case opPing:
-		return c.writeControl(opPong, p)
+		// Bounded on its own: the write deadline left by the last Write may
+		// have expired already, or be none at all.
+		return c.writeControlTimeout(opPong, p, closeTimeout)
 	case opPong:
 		return nil
 	}
@@ -236,7 +241,7 @@ func (c *Conn) readControl(h header) error {
 	if echo {
 		// Echo the status code (RFC 6455 5.5.1); the reason stays ours to give.
 		var buf [2]byte
-		_ = c.writeControl(opClose, appendClose(buf[:0], ce.Code, ""))
+		_ = c.writeControlTimeout(opClose, appendClose(buf[:0], ce.Code, ""), closeTimeout)
 	}
 	// Our close is out and the peer's is in: the handshake is complete.
 	c.closeNow()
@@ -267,7 +272,7 @@ func (c *Conn) fail(err error) error {
 	c.stateMu.Unlock()
 	if send {
 		var buf [maxControlPayload]byte
-		_ = c.writeControlTimeout(opClose, appendClose(buf[:0], code, pe.messageOr()), closeTimeout)
+		_ = c.writeClosing(appendClose(buf[:0], code, pe.messageOr()))
 	}
 	c.closeNow()
 	return err
@@ -318,16 +323,6 @@ func (c *Conn) Write(ctx context.Context, typ MessageType, p []byte) error {
 	return err
 }
 
-// writeControl sends one control frame, serialized with Write.
-func (c *Conn) writeControl(op opcode, p []byte) error {
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-	if c.writeErr != nil {
-		return c.writeErr
-	}
-	return c.writeFrameLocked(op, p)
-}
-
 // writeControlTimeout sends one control frame with a write deadline of
 // timeout, then restores the deadline Write applied.
 func (c *Conn) writeControlTimeout(op opcode, p []byte, timeout time.Duration) error {
@@ -340,6 +335,16 @@ func (c *Conn) writeControlTimeout(op opcode, p []byte, timeout time.Duration) e
 	err := c.writeFrameLocked(op, p)
 	_ = c.s.SetWriteDeadline(c.ww.applied)
 	return err
+}
+
+// writeClosing sends a close frame on the way to closing the connection. A
+// Write stuck on a peer that stopped reading holds writeMu with no deadline
+// of its own; past closeTimeout the connection is closed under it, which
+// fails that Write and frees the lock, so closing never waits longer.
+func (c *Conn) writeClosing(p []byte) error {
+	t := time.AfterFunc(closeTimeout, c.closeNow)
+	defer t.Stop()
+	return c.writeControlTimeout(opClose, p, closeTimeout)
 }
 
 // writeFrameLocked writes p as one final frame. Holds writeMu.
@@ -417,7 +422,7 @@ func (c *Conn) Close(code StatusCode, reason string) error {
 	c.stateMu.Unlock()
 
 	var buf [maxControlPayload]byte
-	err := c.writeControlTimeout(opClose, appendClose(buf[:0], code, reason), closeTimeout)
+	err := c.writeClosing(appendClose(buf[:0], code, reason))
 	if err == nil {
 		c.awaitPeerClose()
 	}

@@ -25,7 +25,9 @@ func Tone(seconds float64, transcript string) voice.AudioChunk {
 
 // Turn is one scripted agent reply of a [Transport]: its chunks, delivered
 // one per ReceiveAudio (the first after Delay, the others after Gap), then
-// an empty chunk ending the turn.
+// an empty chunk ending the turn. A wait longer than the receive's timeout
+// fails that receive with [voice.ErrReceiveTimeout] and leaves the chunk
+// due at its scheduled time for a later receive.
 type Turn struct {
 	Delay  time.Duration
 	Gap    time.Duration
@@ -53,8 +55,10 @@ type Transport struct {
 	disconnects int
 	sent        []voice.AudioChunk
 	turn, chunk int
-	interrupts  int
-	dtmf        []string
+	// due is when the next chunk arrives; zero until a receive schedules it.
+	due        time.Time
+	interrupts int
+	dtmf       []string
 }
 
 // Name implements voice.Named.
@@ -122,22 +126,44 @@ func (t *Transport) ReceiveAudio(ctx context.Context, timeout time.Duration) (vo
 		t.mu.Unlock()
 		return voice.AudioChunk{}, nil
 	}
-	c := turn.Chunks[t.chunk]
-	first := t.chunk == 0
-	t.chunk++
-	t.mu.Unlock()
-	wait := turn.Gap
-	if first {
-		wait = turn.Delay
-	}
-	if wait > 0 {
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			return voice.AudioChunk{}, ctx.Err()
+	if t.due.IsZero() {
+		wait := turn.Gap
+		if t.chunk == 0 {
+			wait = turn.Delay
 		}
+		t.due = time.Now().Add(wait)
+	}
+	wait := time.Until(t.due)
+	if timeout > 0 && wait > timeout {
+		t.mu.Unlock()
+		if err := sleep(ctx, timeout); err != nil {
+			return voice.AudioChunk{}, err
+		}
+		return voice.AudioChunk{}, voice.ErrReceiveTimeout
+	}
+	c := turn.Chunks[t.chunk]
+	t.chunk++
+	t.due = time.Time{}
+	t.mu.Unlock()
+	if err := sleep(ctx, wait); err != nil {
+		return voice.AudioChunk{}, err
 	}
 	return c, nil
+}
+
+// sleep waits d or until ctx ends.
+func sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Interrupt implements voice.Interrupter.
