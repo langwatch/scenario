@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 )
 
 // alertLogger prints the console banners about event reporting: the
@@ -34,7 +33,7 @@ func newAlertLogger(batchRunID string, s *Settings) *alertLogger {
 	}
 }
 
-var separator = strings.Repeat("─", 60)
+const separator = "────────────────────────────────────────────────────────────"
 
 // claim creates the coordination file for kind and reports whether this
 // process is the first to do so.

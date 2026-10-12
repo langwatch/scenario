@@ -106,7 +106,7 @@ func (p *parser) literal(word string, v any) (any, error) {
 
 func (p *parser) object(depth int) (any, error) {
 	p.i++ // {
-	obj := Object{}
+	obj := make(Object, 0, 4)
 	p.skipSpace()
 	if p.i < len(p.s) && p.s[p.i] == '}' {
 		p.i++
@@ -162,7 +162,7 @@ func (o Object) set(key string, v any) Object {
 
 func (p *parser) array(depth int) (any, error) {
 	p.i++ // [
-	arr := []any{}
+	arr := make([]any, 0, 4)
 	p.skipSpace()
 	if p.i < len(p.s) && p.s[p.i] == ']' {
 		p.i++

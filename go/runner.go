@@ -120,16 +120,23 @@ func Run(ctx context.Context, cfg ScenarioConfig, opts ...RunOption) (*ScenarioR
 	if o.HTTPClient != nil {
 		reporter.client = o.HTTPClient
 	}
-	delivery := &eventDelivery{reporter: reporter, listener: o.OnEvent, alerts: alerts, setID: cfg.SetID, lw: lw}
-	bus := newEventBus(delivery.deliver)
+	var bus *eventBus
+	var publish func(Event)
+	if reporter.enabled() || o.OnEvent != nil {
+		delivery := &eventDelivery{reporter: reporter, listener: o.OnEvent, alerts: alerts, setID: cfg.SetID, lw: lw}
+		bus = newEventBus(delivery.deliver)
+		publish = bus.publish
+	}
 
-	ex := newExecutor(cfg, runID, batchID, bus.publish, granular)
+	ex := newExecutor(cfg, runID, batchID, publish, granular)
 	result, err := ex.execute(ctx)
 
 	if cfg.Verbose && result != nil && !result.Success {
 		printFailure(os.Stdout, cfg.Name, result)
 	}
-	bus.drain(eventBusDrainTimeout)
+	if bus != nil {
+		bus.drain(eventBusDrainTimeout)
+	}
 	tracing.flush(context.WithoutCancel(ctx))
 	DefaultSpanCollector().ClearThread(cfg.ThreadID)
 	if f := settings.RemoteTraceFetcher; f != nil {

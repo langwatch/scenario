@@ -11,7 +11,9 @@ import (
 	"slices"
 	"strconv"
 	"time"
+	"unsafe"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -79,7 +81,7 @@ func (r *renderer) render(spans []sdktrace.ReadOnlySpan, structureOnly bool) str
 	sorted := SortByStartTime(spans)
 	roots := buildHierarchy(sorted)
 
-	r.out.buf = make([]byte, 0, 256*len(spans))
+	r.out.buf = make([]byte, 0, estimateSize(spans, structureOnly))
 	b := r.out.start()
 	b = append(b, "Spans: "...)
 	b = strconv.AppendInt(b, int64(len(spans)), 10)
@@ -96,7 +98,32 @@ func (r *renderer) render(spans []sdktrace.ReadOnlySpan, structureOnly bool) str
 		}
 	}
 	r.renderErrors(spans)
-	return string(r.out.buf)
+	if len(r.out.buf) == 0 {
+		return ""
+	}
+	// The buffer is never touched again, so it can back the string.
+	return unsafe.String(&r.out.buf[0], len(r.out.buf))
+}
+
+// estimateSize guesses the digest size from the span names and attribute
+// values, so the output buffer rarely grows.
+func estimateSize(spans []sdktrace.ReadOnlySpan, structureOnly bool) int {
+	n := 64
+	for _, s := range spans {
+		n += 96 + len(s.Name())
+		if structureOnly {
+			continue
+		}
+		for _, kv := range s.Attributes() {
+			n += 16 + len(kv.Key)
+			if kv.Value.Type() == attribute.STRING {
+				n += len(kv.Value.AsString())
+			} else {
+				n += 16
+			}
+		}
+	}
+	return n
 }
 
 func (r *renderer) renderErrors(spans []sdktrace.ReadOnlySpan) {
@@ -174,14 +201,12 @@ func (r *renderer) renderFull(n *node, depth int, isLast bool) {
 }
 
 func (r *renderer) attrLine(indent, extra string, a cleanAttribute) {
-	value := r.dedup.formatValue(a.value)
 	b := r.out.start()
 	b = append(b, indent...)
 	b = append(b, extra...)
 	b = append(b, a.key...)
 	b = append(b, ": "...)
-	b = append(b, value...)
-	r.out.buf = b
+	r.out.buf = r.dedup.appendValue(b, a.value)
 }
 
 // treePrefix returns the box-drawing connector of a node at depth.

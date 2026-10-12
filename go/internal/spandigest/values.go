@@ -1,6 +1,7 @@
 package spandigest
 
 import (
+	"hash/maphash"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -112,25 +113,22 @@ func numberOf(v attribute.Value) float64 {
 }
 
 // deepTransform applies fn to v; when fn returns a replacement the branch
-// stops there, otherwise arrays and objects are rebuilt from their
-// transformed children. Mirrors the JS deep-transform helper.
+// stops there, otherwise it descends into arrays and objects. Mirrors the
+// JS deep-transform helper. It rewrites v in place, so v must be owned by
+// the caller (a fresh parse or a fresh attribute conversion).
 func deepTransform(v any, fn func(any) (any, bool)) any {
 	if r, replaced := fn(v); replaced {
 		return r
 	}
 	switch x := v.(type) {
 	case []any:
-		out := make([]any, len(x))
-		for i, e := range x {
-			out[i] = deepTransform(e, fn)
+		for i := range x {
+			x[i] = deepTransform(x[i], fn)
 		}
-		return out
 	case jsjson.Object:
-		out := make(jsjson.Object, len(x))
-		for i, m := range x {
-			out[i] = jsjson.Member{Key: m.Key, Value: deepTransform(m.Value, fn)}
+		for i := range x {
+			x[i].Value = deepTransform(x[i].Value, fn)
 		}
-		return out
 	}
 	return v
 }
@@ -300,9 +298,14 @@ func transformValue(v any) any {
 
 // deduplicator replaces repeated long strings with a marker. One instance
 // lives for one digest.
+//
+// Seen strings are keyed by a 64-bit hash of their normalized form, built in
+// a reused scratch buffer, so checking a string allocates nothing.
 type deduplicator struct {
 	threshold int
-	seen      map[string]struct{}
+	seen      map[uint64]struct{}
+	seed      maphash.Seed
+	scratch   []byte
 }
 
 const duplicateMarker = "[DUPLICATE - SEE ABOVE]"
@@ -311,10 +314,12 @@ func (d *deduplicator) process(s string) string {
 	if len(s) < d.threshold || jsstr.Len(s) < d.threshold {
 		return s
 	}
-	key := normalizeForDedup(s)
 	if d.seen == nil {
-		d.seen = make(map[string]struct{})
+		d.seen = make(map[uint64]struct{})
+		d.seed = maphash.MakeSeed()
 	}
+	d.scratch = appendNormalized(d.scratch[:0], s)
+	key := maphash.Bytes(d.seed, d.scratch)
 	if _, dup := d.seen[key]; dup {
 		return duplicateMarker
 	}
@@ -324,8 +329,9 @@ func (d *deduplicator) process(s string) string {
 
 // normalizeForDedup collapses whitespace (actual and JSON-escaped), trims and
 // lowercases, matching the JS deduplicator's comparison key.
-func normalizeForDedup(s string) string {
-	buf := make([]byte, 0, len(s))
+func normalizeForDedup(s string) string { return string(appendNormalized(nil, s)) }
+
+func appendNormalized(buf []byte, s string) []byte {
 	space := false
 	for i := 0; i < len(s); {
 		c := s[i]
@@ -363,20 +369,20 @@ func normalizeForDedup(s string) string {
 		space = false
 		buf = utf8.AppendRune(buf, unicode.ToLower(r))
 	}
-	return string(buf)
+	return buf
 }
 
-// formatValueDedup renders an attribute value like FormatValue but also
-// replaces long repeated strings by a duplicate marker.
-func (d *deduplicator) formatValue(v attribute.Value) string {
+// appendValue appends an attribute value rendered like FormatValue, with
+// long repeated strings replaced by a duplicate marker.
+func (d *deduplicator) appendValue(dst []byte, v attribute.Value) []byte {
 	if v.Type() == attribute.STRING {
-		return d.transformString(v.AsString())
+		return d.appendString(dst, v.AsString())
 	}
 	processed := d.transform(jsValue(v))
 	if s, ok := processed.(string); ok {
-		return s
+		return append(dst, s...)
 	}
-	return jsjson.Stringify(processed)
+	return jsjson.Append(dst, processed)
 }
 
 func (d *deduplicator) transform(v any) any {
@@ -390,6 +396,20 @@ func (d *deduplicator) transform(v any) any {
 		}
 		return d.transformString(s), true
 	})
+}
+
+// appendString appends the transformed string: re-encoded JSON, a media
+// marker, or the (possibly deduplicated) text.
+func (d *deduplicator) appendString(dst []byte, s string) []byte {
+	if jsjson.LooksLikeJSON(s) {
+		if parsed, err := jsjson.Parse(s); err == nil {
+			return jsjson.Append(dst, d.transform(parsed))
+		}
+	}
+	if truncated, ok := truncateMediaURL(s); ok {
+		return append(dst, truncated...)
+	}
+	return append(dst, d.process(s)...)
 }
 
 func (d *deduplicator) transformString(s string) string {

@@ -32,6 +32,9 @@ type eventEmitter struct {
 }
 
 func (e *eventEmitter) emitLocked(t EventType, build func(ts int64) []byte, snapshot bool) {
+	if e.publish == nil {
+		return // nobody consumes events: skip building them
+	}
 	ts := nowMillis()
 	if ts < e.lastTS {
 		ts = e.lastTS
@@ -60,6 +63,9 @@ func (e *eventEmitter) runFinished(status RunStatus, r *ScenarioResult) {
 }
 
 func (e *eventEmitter) snapshotLocked() {
+	if e.publish == nil {
+		return
+	}
 	rows := e.state.aguiRowsJSON()
 	e.emitLocked(EventMessageSnapshot, func(ts int64) []byte { return e.base.snapshotPayload(ts, rows) }, true)
 }
@@ -71,6 +77,9 @@ func (e *eventEmitter) messageAdded(m Message, index int, stream *MessageStream)
 	defer e.mu.Unlock()
 	if !e.granular {
 		e.snapshotLocked()
+		return
+	}
+	if e.publish == nil {
 		return
 	}
 	row := aguiRows(m)[0]
