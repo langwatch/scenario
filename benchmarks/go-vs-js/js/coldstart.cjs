@@ -39,10 +39,27 @@ async function main() {
     }
   }
 
+  // A scripted user line needs an agent with the user role (as in
+  // lib/setup.mjs and go/fake RunTrivial); it is never asked for a message,
+  // so its model is a bare LanguageModelV3 that is never called.
+  const neverCalled = async () => {
+    throw new Error("the cold start user simulator is never called");
+  };
+  const user = sdk.userSimulatorAgent({
+    model: {
+      specificationVersion: "v3",
+      provider: "fake",
+      modelId: "fake-model",
+      supportedUrls: {},
+      doGenerate: neverCalled,
+      doStream: neverCalled,
+    },
+  });
+
   const result = await sdk.run({
     name: "go-vs-js cold start",
     description: Description,
-    agents: [new EchoAgent()],
+    agents: [new EchoAgent(), user],
     script: [sdk.user(UserText), sdk.agent(), sdk.succeed("done")],
   });
   if (!result.success || result.messages.length !== 2) {

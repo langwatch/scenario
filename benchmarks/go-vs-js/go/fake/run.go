@@ -62,12 +62,16 @@ func RunFull(ctx context.Context, sinkURL string) (int, error) {
 }
 
 // RunTrivial runs the cold start scenario: one scripted user message, one
-// agent answer without a model, and success. No events are posted.
+// agent answer without a model, and success. No events are posted. A
+// scripted user line still needs an agent with the user role in the list
+// (on both SDKs), so a user simulator over the scripted model is there; it
+// is never asked for a message.
 func RunTrivial(ctx context.Context) error {
+	user := scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{ModelConfig: scenario.ModelConfig{LLM: NewLLM(), Model: ModelName}})
 	res, err := scenario.Run(ctx, scenario.ScenarioConfig{
 		Name:        "go-vs-js cold start",
 		Description: Description,
-		Agents:      []scenario.AgentAdapter{EchoAgent{}},
+		Agents:      []scenario.AgentAdapter{EchoAgent{}, user},
 		Script:      []scenario.ScriptStep{scenario.User(UserText), scenario.Agent(), scenario.Succeed("done")},
 	}, scenario.WithQuiet())
 	if err != nil {

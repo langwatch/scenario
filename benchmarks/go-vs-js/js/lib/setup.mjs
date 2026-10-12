@@ -69,13 +69,19 @@ export async function runFull(env, mode, sinkUrl) {
   return result.messages.length;
 }
 
-/** The cold start scenario: one user message, one fixed answer, success. */
+/**
+ * The cold start scenario: one user message, one fixed answer, success. A
+ * scripted user line still needs an agent with the user role (on both
+ * SDKs), so a user simulator over the scripted model is in the list; it is
+ * never asked for a message.
+ */
 export async function runTrivial(env) {
   const { sdk } = env;
+  const user = sdk.userSimulatorAgent({ model: new FakeBrain().languageModel() });
   const result = await sdk.run({
     name: "go-vs-js cold start",
     description: Description,
-    agents: [makeEchoAgent(sdk)],
+    agents: [makeEchoAgent(sdk), user],
     script: [sdk.user(UserText), sdk.agent(), sdk.succeed("done")],
   });
   if (!result.success || result.messages.length !== 2) {
