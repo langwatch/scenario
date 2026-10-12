@@ -15,7 +15,8 @@ for offline review, performance measurement, and debugging without modifying you
 ### Hooks
 
 Register `on_audio_chunk` / `onAudioChunk` and `on_voice_event` / `onVoiceEvent`
-callbacks on `scenario.run()`:
+callbacks on `scenario.run()` (in Go, `OnAudioChunk` and `OnVoiceEvent` on the
+`voice.Config` passed to `scenario.Run` with `voice.WithConfig`):
 
 :::code-group
 
@@ -59,15 +60,42 @@ const result = await scenario.run({
 });
 ```
 
+```go [go]
+import (
+	"fmt"
+
+	scenario "github.com/langwatch/scenario/go"
+	"github.com/langwatch/scenario/go/voice"
+)
+
+var audioChunks []voice.AudioChunk
+var voiceEvents []voice.VoiceEvent
+
+result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+	Name: "my_scenario",
+	// ...Agents, Script...
+}, voice.WithConfig(voice.Config{
+	OnAudioChunk: func(chunk voice.AudioChunk) {
+		audioChunks = append(audioChunks, chunk)
+	},
+	OnVoiceEvent: func(event voice.VoiceEvent) {
+		fmt.Printf("[voice_event] %s @ %.3fs\n", event.Type, event.Time)
+		voiceEvents = append(voiceEvents, event)
+	},
+}))
+```
+
 :::
 
 `onAudioChunk` fires for every raw PCM16 audio chunk that flows through the pipeline.
 `onVoiceEvent` fires for higher-level events (turn start, turn end, VAD detection, etc.)
-and includes a wall-clock timestamp at `event.time`.
+and includes a wall-clock timestamp at `event.time`. (In Go, `event.Time` is the
+position on the recorded audio, in seconds from the scenario start.)
 
 ### Saving the conversation audio
 
-After the run, call `result.audio.save(path)` to write the conversation audio to disk:
+After the run, call `result.audio.save(path)` to write the conversation audio to disk
+(in Go, `voice.ResultOf(result).Recording.Save(ctx, path, "")`):
 
 :::code-group
 
@@ -83,26 +111,37 @@ if (result.audio) {
 }
 ```
 
+```go [go]
+if vr := voice.ResultOf(result); vr != nil && vr.Recording != nil {
+	// WAV is written natively; .mp3/.ogg/.flac transcode via the system ffmpeg.
+	if _, err := vr.Recording.Save(ctx, "recordings/my_scenario.wav", ""); err != nil {
+		t.Fatal(err)
+	}
+}
+```
+
 :::
 
 <Callout type="info">
 `result.audio` is `None` / `undefined` when no audio turns were recorded (e.g. the
 adapter disconnected before any exchange). Always guard before reading it
-(`if result.audio is not None` / `if (result.audio)`).
+(`if result.audio is not None` / `if (result.audio)`). In Go, `voice.ResultOf`
+returns `nil` for a run with no voice agent; check it and its `Recording` before use.
 </Callout>
 
 ### Latency metrics
 
 `result.latency` exposes a `LatencyMetrics` object. Field names are `snake_case`
-in Python and `camelCase` in TypeScript:
+in Python and `camelCase` in TypeScript. In Go it is `voice.ResultOf(result).Latency`,
+with `*float64` fields that are `nil` when not measurable:
 
-| Python | TypeScript | Description |
-|---|---|---|
-| `time_to_first_byte` | `timeToFirstByte` | Wall-clock seconds from when the user turn ended to when the first byte of agent audio arrived. |
-| `avg_response_time` | `avgResponseTime` | Mean agent response time across all turns. |
-| `p50_response_time` | `p50ResponseTime` | Median agent response time across all turns. |
-| `p95_response_time` | `p95ResponseTime` | 95th-percentile agent response time across all turns. |
-| `interrupt_response_time` | `interruptResponseTime` | Time from interrupt signal to agent resume (populated only when `interrupt` was used). |
+| Python | TypeScript | Go | Description |
+|---|---|---|---|
+| `time_to_first_byte` | `timeToFirstByte` | `TimeToFirstByte` | Wall-clock seconds from when the user turn ended to when the first byte of agent audio arrived. |
+| `avg_response_time` | `avgResponseTime` | `AvgResponseTime` | Mean agent response time across all turns. |
+| `p50_response_time` | `p50ResponseTime` | `P50ResponseTime` | Median agent response time across all turns. |
+| `p95_response_time` | `p95ResponseTime` | `P95ResponseTime` | 95th-percentile agent response time across all turns. |
+| `interrupt_response_time` | `interruptResponseTime` | `InterruptResponseTime` | Time from interrupt signal to agent resume (populated only when `interrupt` was used). |
 
 :::code-group
 
@@ -123,10 +162,24 @@ if (result.latency) {
 }
 ```
 
+```go [go]
+if vr := voice.ResultOf(result); vr != nil && vr.Latency != nil {
+	show := func(label string, v *float64) {
+		if v != nil {
+			fmt.Printf("%s %.3fs\n", label, *v)
+		}
+	}
+	show("TTFB:", vr.Latency.TimeToFirstByte)
+	show("avg: ", vr.Latency.AvgResponseTime)
+	show("p50: ", vr.Latency.P50ResponseTime)
+	show("p95: ", vr.Latency.P95ResponseTime)
+}
+```
+
 :::
 
 <Callout type="warning">
-`result.latency` is `None` / `undefined` when no agent audio turns were recorded.
+`result.latency` is `None` / `undefined` (`nil` in Go) when no agent audio turns were recorded.
 Guard before reading its fields, especially in CI — a latency pipeline regression
 will silently report a missing value rather than fail otherwise.
 </Callout>

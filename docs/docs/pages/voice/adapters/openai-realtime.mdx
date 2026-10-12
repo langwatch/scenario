@@ -40,14 +40,30 @@ const adapter = scenario.openAIRealtimeAgent({
 });
 ```
 
+```go [go]
+import (
+	scenario "github.com/langwatch/scenario/go"
+	"github.com/langwatch/scenario/go/voice/adapters/openairealtime"
+)
+
+adapter := openairealtime.New(openairealtime.Options{
+	Model:        openairealtime.DefaultModel,
+	Voice:        "alloy",
+	Instructions: "You are a helpful assistant. Keep responses brief.",
+	Role:         scenario.AgentRoleAgent,
+	// Tools: []openairealtime.Tool{ /* passed straight to the Realtime session */ },
+})
+```
+
 :::
 
-`api_key` / `apiKey` is read from `OPENAI_API_KEY` by default; pass it explicitly
-to override. `tools` accepts function-calling schemas.
+`api_key` / `apiKey` / `APIKey` is read from `OPENAI_API_KEY` by default (Go
+checks `OPENAI_REALTIME_API_KEY` first); pass it explicitly to override. `tools`
+(`Tools` in Go) accepts function-calling schemas.
 
 To use the OpenAI Realtime model as a **voice user simulator** instead of the
 agent under test, set `role` to the user role
-(`role=AgentRole.USER` / `role: AgentRole.USER`).
+(`role=AgentRole.USER` / `role: AgentRole.USER` / `Role: scenario.AgentRoleUser`).
 
 ## Capabilities
 

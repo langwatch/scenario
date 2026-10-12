@@ -11,7 +11,7 @@ import { Callout } from "vocs/components";
 
 Generate a voice scenario for your agent and run it as part of your normal test suite. Takes about five minutes.
 
-**What you'll have at the end:** a pytest (or vitest) file using `scenario.run` that calls your voice agent over its real transport (ElevenLabs, OpenAI Realtime, Gemini Live, Vapi, LiveKit, Pipecat, or Twilio), drives a synthesized caller through a multi-turn conversation, and asserts the agent stays on-task, on-tone, and on-policy.
+**What you'll have at the end:** a pytest (or vitest, or `go test`) file using `scenario.run` (`scenario.Run` in Go) that calls your voice agent over its real transport (ElevenLabs, OpenAI Realtime, Gemini Live, Vapi, LiveKit, Pipecat, or Twilio), drives a synthesized caller through a multi-turn conversation, and asserts the agent stays on-task, on-tone, and on-policy.
 
 ## 1. Install Scenario
 
@@ -23,6 +23,12 @@ pip install langwatch-scenario
 
 ```bash [typescript]
 npm install @langwatch/scenario
+```
+
+```bash [go]
+go get github.com/langwatch/scenario/go
+go get github.com/langwatch/scenario/go/voice
+go get github.com/langwatch/scenario/go/providers/openai
 ```
 
 :::
@@ -190,13 +196,112 @@ describe("Voice agent — billing inquiry", () => {
 });
 ```
 
+```go [go]
+package voice_test
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/langwatch/scenario/go/voice"
+	"github.com/langwatch/scenario/go/voice/adapters/pipecat"
+	"github.com/langwatch/scenario/go/voice/effects"
+	"github.com/openai/openai-go/v3"
+)
+
+// Your Pipecat bot must be reachable at this URL when the test runs.
+// Spin it up in TestMain, point at staging, or `make bot` in another
+// terminal — the adapter only connects, it doesn't start the bot for you.
+func botWSURL() string {
+	if url := os.Getenv("PIPECAT_BOT_URL"); url != "" {
+		return url
+	}
+	return "ws://localhost:8765/stream"
+}
+
+// Go has a process-wide default model, like Python's
+// scenario.configure(default_model=...). Set it once in TestMain.
+func TestMain(m *testing.M) {
+	client := openai.NewClient() // reads OPENAI_API_KEY
+	scenario.Configure(scenario.WithDefaultModel(scenario.ModelConfig{
+		LLM:   scenarioopenai.NewProvider(&client),
+		Model: "gpt-5-mini",
+	}))
+	os.Exit(m.Run())
+}
+
+func TestVoiceAgentHandlesBillingQuestion(t *testing.T) {
+	// Voice scenarios are slow — TTS + transport + multi-turn.
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+	defer cancel()
+
+	// Connects to the user's deployed Pipecat WS bot. Swap for the
+	// matching adapter (elevenlabs, twilio, openairealtime, geminilive,
+	// composable) if your stack differs.
+	bot, err := pipecat.New(pipecat.Options{
+		URL:         botWSURL(),
+		AudioFormat: "mulaw",
+		SampleRate:  8000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+		Name: "billing inquiry",
+		Description: "Customer calls about a duplicate charge. The agent must " +
+			"acknowledge the frustration, verify identity, and queue a refund.",
+		Agents: []scenario.AgentAdapter{
+			voice.NewAgent(bot), // the Pipecat transport as a scenario agent
+			voice.NewUserSimulator(
+				scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{
+					Persona: "You were double-charged on your last invoice and you are " +
+						"frustrated. Speak naturally on the phone, 1-2 short sentences " +
+						"per turn.",
+				}),
+				voice.UserSimulatorOptions{
+					Voice: "elevenlabs/EXAVITQu4vr4xnSDxMaL",
+					AudioEffects: []effects.Effect{
+						effects.Must(effects.BackgroundNoise("cafe", 0.4)),
+						effects.PhoneQuality(),
+					},
+				},
+			),
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+				Criteria: []string{
+					"The agent acknowledged the frustration before pivoting to logistics",
+					"The agent verified identity before any account action",
+					"The agent moved toward resolving the double charge (refund, escalation, callback)",
+				},
+			}),
+		},
+		Script: []scenario.ScriptStep{
+			scenario.Agent(),
+			scenario.User(),
+			scenario.Proceed(scenario.Turns(5)),
+			scenario.Judge(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("scenario failed: %s", result.Reasoning)
+	}
+}
+```
+
 :::
 
 The skill knows the voice-specific bits a code-only assistant would miss: how to seed an ElevenLabs voice on the user simulator, when to layer audio effects (`background_noise`, `phone_quality`), how to script around server-VAD turn-taking on hosted ConvAI transports, and which adapter capabilities (`nativeVad`, `dtmf`, streaming transcripts) your scenario depends on. Critically, it picks the adapter whose **connection point matches what you've actually deployed** — pointing `PipecatAgentAdapter` at a URL your bot doesn't serve, or leaving placeholder instructions on `OpenAIRealtimeAgentAdapter`, would mean testing nothing useful.
 
 ## 4. Run it
 
-Run your usual test command, or ask your coding assistant to run it and watch it for you. Voice scenarios are slower than text — TTS + transport latency + multi-turn means each run can take 30–120 seconds — so give your test runner a generous per-test timeout.
+Run your usual test command, or ask your coding assistant to run it and watch it for you. Voice scenarios are slower than text — TTS + transport latency + multi-turn means each run can take 30–120 seconds — so give your test runner a generous per-test timeout (in Go, pass `-timeout` to `go test` and bound the run with a context).
 
 While it runs, you get a live transcript of both sides of the call and the judge's per-turn verdict. When it finishes you have a `recordings/<scenario>/full.wav` you can listen back to, plus the criteria pass/fail breakdown.
 

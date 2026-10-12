@@ -40,12 +40,31 @@ const adapter = scenario.elevenLabsAgent({
 });
 ```
 
+```go [go]
+import (
+	"os"
+
+	"github.com/langwatch/scenario/go/voice/adapters/elevenlabs"
+)
+
+adapter, err := elevenlabs.NewAgent(elevenlabs.Options{
+	AgentID: os.Getenv("ELEVENLABS_AGENT_ID"),
+	APIKey:  os.Getenv("ELEVENLABS_API_KEY"),
+	// Personalise this call without touching the deployed agent:
+	DynamicVariables: map[string]any{"tenant_id": "acme", "seat_tier": 2, "is_vip": true},
+	Overrides:        map[string]any{"agent": map[string]any{"language": "es"}},
+})
+if err != nil {
+	t.Fatal(err)
+}
+```
+
 :::
 
-### Routing through a LangWatch AI Gateway (TypeScript)
+### Routing through a LangWatch AI Gateway (TypeScript and Go)
 
-`apiKey` is optional. Unset, the adapter reads `ELEVENLABS_CONVAI_API_KEY`, then
-`ELEVENLABS_API_KEY`. `baseUrl` is optional too and falls back to
+`apiKey` (`APIKey` in Go) is optional. Unset, the adapter reads `ELEVENLABS_CONVAI_API_KEY`, then
+`ELEVENLABS_API_KEY`. `baseUrl` (`BaseURL` in Go) is optional too and falls back to
 `ELEVENLABS_BASE_URL`.
 
 Set both to a gateway and the signed-URL handshake goes there instead of to
@@ -78,12 +97,12 @@ All per-session options are transmitted in the WebSocket
 applies each one **only if the agent allowlists it** server-side (Agent →
 Security → Overrides in the dashboard); anything not opted in is ignored.
 
-| Python | TypeScript | Description |
-|---|---|---|
-| `dynamic_variables` | `dynamicVariables` | Per-call values that fill the **deployed** prompt's `{{template}}` placeholders. Text, numeric, and boolean values pass through with their JSON type intact. This is how production integrations personalise an agent per call. Omitted entirely when unset. |
-| `overrides` | `overrides` | Any `conversation_config_override` the narrow knobs below do not cover, e.g. `{"agent": {"language": "es"}}` or `{"tts": {"stability": 0.3}}`. Deep-merged, so your `agent.language` and the adapter's `agent.prompt` both survive. |
-| `system_prompt_override` | `systemPromptOverride` | Replaces the agent's system prompt for this session only. **See the warning below before using this on a hosted agent.** |
-| `first_message_override` | `firstMessageOverride` | Overrides the agent's opening message for this session. |
+| Python | TypeScript | Go | Description |
+|---|---|---|---|
+| `dynamic_variables` | `dynamicVariables` | `DynamicVariables` | Per-call values that fill the **deployed** prompt's `{{template}}` placeholders. Text, numeric, and boolean values pass through with their JSON type intact. This is how production integrations personalise an agent per call. Omitted entirely when unset. |
+| `overrides` | `overrides` | `Overrides` | Any `conversation_config_override` the narrow knobs below do not cover, e.g. `{"agent": {"language": "es"}}` or `{"tts": {"stability": 0.3}}`. Deep-merged, so your `agent.language` and the adapter's `agent.prompt` both survive. |
+| `system_prompt_override` | `systemPromptOverride` | `SystemPromptOverride` | Replaces the agent's system prompt for this session only. **See the warning below before using this on a hosted agent.** |
+| `first_message_override` | `firstMessageOverride` | `FirstMessageOverride` | Overrides the agent's opening message for this session. |
 
 <Callout type="warning">
 **`system_prompt_override` drops your agent's tools.** ElevenLabs replaces the
@@ -115,6 +134,9 @@ adapter = scenario.ElevenLabsAgentAdapter(
 )
 ```
 
+In Go, set `TurnCommitMode: elevenlabs.CommitText` in `elevenlabs.Options`
+(`elevenlabs.CommitAudio` is the default, `elevenlabs.CommitSilence` the third mode).
+
 ## Turn boundaries
 
 ElevenLabs delivers agent audio in bursts. A delivery gap longer than
@@ -141,6 +163,9 @@ adapter = scenario.ElevenLabsAgentAdapter(agent_id=..., api_key=...)
 adapter.response_tail_silence = 1.2
 ```
 
+In Go, the field sits on the agent `elevenlabs.NewAgent` returns:
+`adapter.ResponseTailSilence = 1200 * time.Millisecond`.
+
 ### Agents that call tools
 
 Once the agent has spoken, only its audio keeps the turn open. Pings and other
@@ -163,8 +188,8 @@ WebSocket. When that happens the adapter records it and any remaining scripted
 turn concludes the conversation and falls through to the judge, rather than
 failing a run in which the agent behaved exactly as designed.
 
-Read `adapter.agent_hung_up` (Python) / `adapter.agentHungUp` (TypeScript) to
-assert on who ended the call.
+Read `adapter.agent_hung_up` (Python) / `adapter.agentHungUp` (TypeScript) /
+`adapter.ConvAI().AgentHungUp()` (Go) to assert on who ended the call.
 
 ## Capabilities
 
@@ -206,12 +231,30 @@ const agent = new voice.ElevenLabsVoiceAgent({
 });
 ```
 
+```go [go]
+import (
+	"os"
+
+	"github.com/langwatch/scenario/go/voice/adapters/composable"
+)
+
+agent, err := composable.NewElevenLabsAgent(composable.ElevenLabsOptions{
+	APIKey: os.Getenv("ELEVENLABS_API_KEY"),
+})
+if err != nil {
+	t.Fatal(err)
+}
+```
+
 :::
 
 Optional args: `voice`, `stt` (custom `STTProvider`), `system_prompt` /
 `systemPrompt`, and `llm`. The `llm` default differs by SDK — Python takes a
 model string (default `"openai/gpt-5.4-mini"`); TypeScript takes an AI-SDK
-`LanguageModel` (e.g. `llm: anthropic("claude-sonnet-4-6")`).
+`LanguageModel` (e.g. `llm: anthropic("claude-sonnet-4-6")`). Go takes the
+`ElevenLabsOptions` fields `Voice`, `STT`, `SystemPrompt`, `LLM` (a
+`scenario.LLM`) and `Model`; with no `LLM` it uses the default model set with
+`scenario.Configure(scenario.WithDefaultModel(...))`.
 
 <Callout type="tip">
   For a fully composable stack with provider-defined STT + LLM + TTS, see the

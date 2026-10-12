@@ -20,6 +20,7 @@ pip install 'langwatch-scenario[report]'
 # 2. Run any scenario that includes a RedTeamAgent — reports save automatically
 pytest path/to/your/redteam_tests.py
 # (TypeScript:  pnpm test:scenarios )
+# (Go:  go test ./... )
 
 # 3. Open the dashboard on the latest batch
 scenario redteam-report
@@ -183,6 +184,38 @@ saveRedTeamReport({
   testName: "my-run",
   scenarioConfig: { name: "my-run", description: "...", agents: [...] },
 });
+```
+
+```go
+import (
+	scenario "github.com/langwatch/scenario/go"
+	"github.com/langwatch/scenario/go/redteam"
+)
+
+// In Go, scenario.Run already saves the report of any run that includes a
+// red-team agent. Call SaveReport yourself to save it again, e.g. elsewhere.
+redTeam, err := redteam.NewGOATAgent(redteam.GOATConfig{
+	Config: redteam.Config{Target: "...", ModelConfig: model},
+})
+if err != nil {
+	return err
+}
+cfg := scenario.ScenarioConfig{
+	Name:        "my-run",
+	Description: "...",
+	Agents:      []scenario.AgentAdapter{myAgent, redTeam, judge},
+}
+result, err := scenario.Run(ctx, cfg)
+if err != nil {
+	return err
+}
+path, err := redteam.SaveReport(redteam.ReportOptions{
+	Result:   result,
+	Agent:    redTeam,
+	TestName: "my-run",
+	Config:   cfg,
+	OutDir:   "", // empty uses the batch directory (SCENARIO_REDTEAM_REPORT_DIR)
+})
 ```
 
 ## Running headless (WSL / SSH / CI)

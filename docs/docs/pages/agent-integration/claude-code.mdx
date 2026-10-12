@@ -17,10 +17,11 @@ and subagents end-to-end.
 > may relocate this page once a canonical non-voice adapter section is
 > established.
 
-:::info TypeScript only
+:::info TypeScript and Go
 
-The Claude Code adapter is TypeScript-only today. Python parity is tracked as a
-follow-up.
+The Claude Code adapter is available in TypeScript and in Go (package
+`github.com/langwatch/scenario/go/agents/claudecode`). Python parity is tracked
+as a follow-up.
 
 :::
 
@@ -52,11 +53,47 @@ const result = await scenario.run({
 });
 ```
 
+```go [go]
+import (
+	"path/filepath"
+	"time"
+
+	scenario "github.com/langwatch/scenario/go"
+	"github.com/langwatch/scenario/go/agents/claudecode"
+)
+
+skillPath, _ := filepath.Abs("../skills/my-skill/SKILL.md")
+agent, err := claudecode.New(claudecode.Config{
+	WorkingDirectory: "/tmp/my-project",
+	Model:            "claude-sonnet-4-5",
+	SkillPath:        skillPath,
+	SkipPermissions:  true, // only in sandboxed / CI environments
+	Timeout:          60 * time.Second,
+})
+if err != nil {
+	t.Fatal(err)
+}
+
+result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+	Name:        "My skill scenario",
+	Description: "The user asks the agent to do something with my-skill.", // required in Go
+	Agents: []scenario.AgentAdapter{
+		agent,
+		scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+		scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+			Criteria: []string{"Agent completed the task correctly"},
+		}),
+	},
+	Script: []scenario.ScriptStep{scenario.User("Do something"), scenario.Agent(), scenario.Judge()},
+})
+```
+
 :::
 
 `claudeCodeAgent(config)` is the recommended factory. It wraps
 `new ClaudeCodeAgentAdapter(config)` and additionally injects the skill (if
-`skillPath` is set) before the adapter is returned.
+`skillPath` is set) before the adapter is returned. In Go, `claudecode.New(cfg)`
+does both: it validates the config and injects the skill when `SkillPath` is set.
 
 ## Configuration
 
@@ -76,6 +113,13 @@ const result = await scenario.run({
 | `maxToolResultChars` | `number` | `8000` | How many characters of one tool result reach the conversation. The rest is replaced by a line saying how many characters were dropped. |
 | `maxToolInputChars` | `number` | `30000` | How many characters of one string inside a tool call input reach the conversation. Nested strings are capped too. |
 
+In Go, these are the fields of `claudecode.Config`: `WorkingDirectory`, `Model`,
+`Timeout` (a `time.Duration`, default `claudecode.DefaultTimeout`, 120s),
+`SkipPermissions`, `ReplayOnLostSession`, `SkillPath`, `Logger` (`*slog.Logger`,
+nil is silent), `ExtraArgs`, `ClaudeBin`, `Env` (`map[string]string`; list
+variables to remove in `UnsetEnv`), `Output` (`claudecode.OutputText` or
+`claudecode.OutputMessages`), `MaxToolResultChars` and `MaxToolInputChars`.
+
 ## Skill testing
 
 The adapter's distinguishing feature is first-class skill testing:
@@ -90,43 +134,81 @@ conventions.
 
 **Skills installed some other way**: when your harness copies skills into
 `.skills/` itself (several skills, a rendered `SKILL.md`, a fixture project),
-call `pointClaudeMdAtSkills(workingDirectory)` after the copy to get the same
+call `pointClaudeMdAtSkills(workingDirectory)` (Go:
+`claudecode.PointClaudeMdAtSkills`) after the copy to get the same
 `CLAUDE.md` instruction for every skill it finds there.
 
-```typescript
+:::code-group
+
+```typescript [typescript]
 import { pointClaudeMdAtSkills } from "@langwatch/scenario";
 
 installMySkills(workingDirectory); // writes .skills/<name>/SKILL.md
 pointClaudeMdAtSkills(workingDirectory);
 ```
 
+```go [go]
+installMySkills(workingDirectory) // writes .skills/<name>/SKILL.md
+if err := claudecode.PointClaudeMdAtSkills(workingDirectory); err != nil {
+	t.Fatal(err)
+}
+```
+
+:::
+
 **Asserting the skill was read** — after the scenario run, call
 `assertSkillWasRead(state, skillName)` to verify that the skill file actually
 appeared in the conversation. It throws (naming the skill) if no read evidence
 is found, catching cases where the agent hallucinated instructions rather than
-reading the skill.
+reading the skill. In Go, `claudecode.AssertSkillWasRead(messages, skillName)`
+takes the run's messages and returns an error instead of throwing.
 
-```typescript
+:::code-group
+
+```typescript [typescript]
 import { assertSkillWasRead } from "@langwatch/scenario";
 
 // inside your test, after scenario.run():
 assertSkillWasRead(result, "my-skill");
 ```
 
+```go [go]
+// inside your test, after scenario.Run:
+if err := claudecode.AssertSkillWasRead(result.Messages, "my-skill"); err != nil {
+	t.Fatal(err)
+}
+```
+
+:::
+
 `skillName` is the parent directory name of the `SKILL.md` — i.e. the segment
 in `.skills/<skillName>/SKILL.md`.
 
 **Reading what the agent ran**: with `output: "messages"` (below), the
 shell commands the agent ran are `tool-call` parts naming the `Bash` tool.
-`bashCommands(state)` lists them, and only them: a command quoted in the skill
-text or in the agent's own explanation is not a command that ran.
+`bashCommands(state)` (Go: `claudecode.BashCommands(messages)`) lists them, and
+only them: a command quoted in the skill text or in the agent's own explanation
+is not a command that ran.
 
-```typescript
+:::code-group
+
+```typescript [typescript]
 import { bashCommands } from "@langwatch/scenario";
 
 const commands = bashCommands(result);
 expect(commands.some((c) => c.startsWith("langwatch prompts sync"))).toBe(true);
 ```
+
+```go [go]
+commands := claudecode.BashCommands(result.Messages)
+if !slices.ContainsFunc(commands, func(c string) bool {
+	return strings.HasPrefix(c, "langwatch prompts sync")
+}) {
+	t.Fatalf("the agent never ran langwatch prompts sync: %q", commands)
+}
+```
+
+:::
 
 ## Structured output
 
@@ -138,13 +220,25 @@ called, and a `tool` message with a `tool-result` part per result. The judge
 and the user simulator then read the calls structurally, and the LangWatch run
 view renders them as tool calls rather than as prose.
 
-```typescript
+:::code-group
+
+```typescript [typescript]
 claudeCodeAgent({
   workingDirectory,
   output: "messages",
   maxToolResultChars: 4000,
 });
 ```
+
+```go [go]
+claudecode.New(claudecode.Config{
+	WorkingDirectory:   workingDirectory,
+	Output:             claudecode.OutputMessages,
+	MaxToolResultChars: 4000,
+})
+```
+
+:::
 
 Both renderings cap what a tool result and a tool call input contribute to the
 conversation (`maxToolResultChars`, `maxToolInputChars`). The judge reads the
@@ -158,16 +252,21 @@ either rendering, and a block the conversation has no part for (an image, a
 document) leaves a line naming it instead of disappearing.
 
 `toModelMessages(rawMessages, limits?)` and `parseStreamJson(stdout)` are
-exported for a harness that reads a stream-json transcript on its own.
+exported for a harness that reads a stream-json transcript on its own. In Go,
+`claudecode.ParseStreamJSON(r, limits, logger)` returns a `*claudecode.Transcript`
+with both renderings (`Text` and `Messages`); there is no separate
+`toModelMessages`.
 
 ## Environment
 
 The CLI inherits this process's environment. `env` applies on top of it, and
-a key set to `undefined` is removed, which is how a test keeps a provider key
+a key set to `undefined` is removed (Go: listed in `UnsetEnv`), which is how a test keeps a provider key
 for its judge while hiding it from the agent, or keeps the batch id of the
 harness out of the scenario runs the agent writes itself:
 
-```typescript
+:::code-group
+
+```typescript [typescript]
 claudeCodeAgent({
   workingDirectory,
   env: {
@@ -177,6 +276,18 @@ claudeCodeAgent({
   },
 });
 ```
+
+```go [go]
+claudecode.New(claudecode.Config{
+	WorkingDirectory: workingDirectory,
+	Env: map[string]string{
+		"PATH": localBin + ":" + os.Getenv("PATH"),
+	},
+	UnsetEnv: []string{"OPENAI_API_KEY", "SCENARIO_BATCH_RUN_ID"},
+})
+```
+
+:::
 
 `FORCE_COLOR=0` is always set last, so the transcript carries no escape codes.
 
@@ -210,9 +321,12 @@ killed by a signal — auth failures, rate limits, an unknown `model`, and
 similar unrecoverable errors all surface this way. That's what you get
 calling `call()` directly; through `scenario.run(...)` — the common path —
 the executor wraps every adapter error in a plain `Error`, so catch that and
-read the original off `.cause`:
+read the original off `.cause`. In Go, `call` fails with a `*claudecode.CLIError`
+and `scenario.Run` returns an error that wraps it, so use `errors.As`:
 
-```typescript
+:::code-group
+
+```typescript [typescript]
 import { ClaudeCodeCliError, LostSessionError } from "@langwatch/scenario";
 
 try {
@@ -229,12 +343,32 @@ try {
 }
 ```
 
+```go [go]
+_, err := scenario.Run(ctx, scenario.ScenarioConfig{ /* ... */ })
+// scenario.Run wraps adapter errors; errors.As finds the original
+var lost *claudecode.LostSessionError
+var cliErr *claudecode.CLIError
+if errors.As(err, &lost) {
+	// the --resume session vanished; SessionID / ThreadID name the dead session
+	log.Println("lost session", lost.SessionID, lost.ThreadID)
+} else if errors.As(err, &cliErr) {
+	log.Println(cliErr.ExitCode, cliErr.Signal, cliErr.Stderr)
+}
+```
+
+:::
+
 `exitCode` (`number | null`) and `signal` (`NodeJS.Signals | null`) mirror
 Node's `child_process` exit info; `stderr` (`string`) is the CLI's captured
 output. `subtype` (`string | undefined`) is the CLI's machine-readable failure
 class off its terminal `result` envelope (e.g. `"error_during_execution"`), and
 `errors` (`string[] | undefined`) is the structured `errors[]` array the CLI
-fielded on that envelope.
+fielded on that envelope. In Go, `CLIError` has `ExitCode` (`-1` when a signal
+killed the CLI), `Signal` (`"SIGKILL"`, or `""`), `Stderr`, `Subtype` and
+`Errors`; `LostSessionError` has `SessionID`, `ThreadID` and `Cause`, and
+`errors.As` still finds the `*CLIError` through it. Timeouts match
+`errors.Is(err, claudecode.ErrTimeout)` and a missing binary matches
+`claudecode.ErrCLINotFound`.
 
 A vanished `--resume` session rejects with **`LostSessionError`**, a
 `ClaudeCodeCliError` subclass that additionally exposes the dead `sessionId` and
