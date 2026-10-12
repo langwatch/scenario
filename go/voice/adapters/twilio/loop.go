@@ -81,11 +81,21 @@ const (
 func (a *Adapter) mediaStreamLoop(ctx context.Context, conn mediastream.Conn) (err error) {
 	s := &streamSession{a: a, conn: conn, buffered: make([]byte, 0, 2*mediastream.BatchBytes)}
 	defer func() {
+		// Audio still batched when the socket closed or failed without a
+		// stop frame is the caller's last words: queue it before the end of
+		// the call. A socket that is not the current call's transport
+		// queues nothing.
+		a.mu.Lock()
+		owns := s.ownsLocked()
+		a.mu.Unlock()
+		if owns {
+			s.flush()
+		}
 		// The end-of-call chunk wakes a consumer blocked in ReceiveAudio;
 		// the ended flag serves every later call. A socket that never became
 		// the current call's transport ends nothing.
 		a.mu.Lock()
-		owns := s.ownsLocked()
+		owns = s.ownsLocked()
 		if owns {
 			// The session that owned the duration cap is over.
 			a.cancelMaxDurationLocked()

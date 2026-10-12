@@ -7,6 +7,7 @@ package twilio
 // disagreement cannot be expressed.
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -223,6 +224,22 @@ func TestStopFlushesBufferedMulaw(t *testing.T) {
 	chunk, err := a.ReceiveAudio(context.Background(), 500*time.Millisecond)
 	if err != nil || len(chunk.Data) == 0 {
 		t.Fatalf("chunk %d bytes, %v", len(chunk.Data), err)
+	}
+}
+
+// A socket that closes or fails without a stop frame still delivers the
+// audio batched under the 100 ms threshold, ahead of the end of the call.
+func TestCloseWithoutStopFlushesBufferedMulaw(t *testing.T) {
+	for _, end := range []item{{eof: true}, {err: errors.New("connection reset")}} {
+		a := connected(t, makeAdapter(t, newSpyREST(), withoutGate()))
+		payload := bytes.Repeat([]byte{0xff}, 400) // 50 ms: under the 100 ms batch
+		c := newConn(`{"event":"start","start":{"streamSid":"MZeof","callSid":"CAeof"}}`, mediaFrame("MZeof", payload))
+		c.queue = append(c.queue, end)
+		_ = await(t, drive(t, a, c, false))
+		chunk, err := a.ReceiveAudio(context.Background(), 500*time.Millisecond)
+		if err != nil || len(chunk.Data) == 0 {
+			t.Fatalf("%+v: chunk %d bytes, %v", end, len(chunk.Data), err)
+		}
 	}
 }
 
