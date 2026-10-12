@@ -228,7 +228,18 @@ const microTable = (rows) =>
       return [label, ns(g?.ns), bytes(g?.b), num(g?.allocs, 0), ns(j?.ns_per_op?.median), bytes(j?.heap_bytes_per_op), ratio(g?.ns, j?.ns_per_op?.median), note];
     })
   );
-md.push("## 3. Micro benchmarks", "", "Median of 5 runs of about 1 s each on both sides.", "", microTable(microRows), "");
+// run.sh exports the -count and -benchtime it gave go test.
+const benchCount = Number(process.env.BENCH_COUNT ?? 5);
+const benchBatchMs = Number(process.env.BENCH_BATCH_MS ?? 1000);
+const batchText = benchBatchMs >= 1000 ? `${num(benchBatchMs / 1000, 2)} s` : `${num(benchBatchMs, 0)} ms`;
+md.push(
+  "## 3. Micro benchmarks",
+  "",
+  `Median of ${benchCount} runs of about ${batchText} each on both sides.`,
+  "",
+  microTable(microRows),
+  ""
+);
 md.push(
   "## 4. Voice audio paths",
   "",
