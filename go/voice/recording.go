@@ -65,6 +65,4 @@ type LatencyMetrics struct {
 type VoiceRecording struct {
 	Segments []AudioSegment
 	Timeline []VoiceEvent
-	// Duration is the largest segment end time, in seconds.
-	Duration float64
 }
