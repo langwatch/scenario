@@ -49,6 +49,18 @@ script: [
 maxTurns: 6,
 ```
 
+```go [go]
+Script: []scenario.ScriptStep{
+	scenario.Agent(), // agent's opening greeting (turn 1)
+	scenario.User("Hello, I have a question about my account."),
+	scenario.Agent(), // agent's reply to turn 1
+	scenario.User("What information do you need from me to look it up?"),
+	scenario.Agent(), // agent's reply to turn 2 — must reference turn 1 context
+	scenario.Judge(),
+},
+MaxTurns: 6,
+```
+
 :::
 
 ### Asserting continuity
@@ -77,6 +89,17 @@ scenario.judgeAgent({
     // Continuity: the second reply must make sense in context of turn 1.
     "The agent's second reply addresses the user's follow-up question coherently",
   ],
+})
+```
+
+```go [go]
+scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+	Criteria: []string{
+		"The agent greeted the user naturally",
+		"The agent offered help in a friendly tone",
+		// Continuity: the second reply must make sense in context of turn 1.
+		"The agent's second reply addresses the user's follow-up question coherently",
+	},
 })
 ```
 

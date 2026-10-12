@@ -39,15 +39,27 @@ const adapter = scenario.geminiLiveAgent({
 });
 ```
 
+```go [go]
+import "github.com/langwatch/scenario/go/voice/adapters/geminilive"
+
+adapter := geminilive.New(geminilive.Options{
+	Model:             geminilive.DefaultModel, // "gemini-2.5-flash-native-audio-latest"
+	Voice:             "Algieba",
+	SystemInstruction: "You are a helpful assistant.",
+	// APIKey falls back to GEMINI_API_KEY / GOOGLE_API_KEY
+})
+```
+
 :::
 
-If `api_key` / `apiKey` is not passed, it falls back to `GEMINI_API_KEY` (and, in
-TypeScript, `GOOGLE_API_KEY`) in the environment.
+If `api_key` / `apiKey` / `APIKey` is not passed, it falls back to `GEMINI_API_KEY` (and, in
+TypeScript and Go, `GOOGLE_API_KEY`) in the environment.
 
 <Callout type="info">
   In TypeScript, the Gemini Live adapter uses `@google/genai`, declared as an
   **optional peer dependency** — install it yourself
-  (`pnpm install @google/genai`) if you import this adapter.
+  (`pnpm install @google/genai`) if you import this adapter. The Go adapter
+  speaks the Live WebSocket protocol itself and needs no extra dependency.
 </Callout>
 
 ## Capabilities
@@ -58,7 +70,8 @@ TypeScript, `GOOGLE_API_KEY`) in the environment.
 
 <Callout type="info">
   The **TypeScript** `geminiLiveAgent` declares `interruption: true` (it cuts
-  its in-flight audio on the next activity-start marker). The Python capability
+  its in-flight audio on the next activity-start marker), and so does the **Go**
+  `geminilive` adapter. The Python capability
   matrix currently lists Gemini interruption as deferred — see the
   [capability matrix](/voice/capability-matrix) for the per-SDK values.
 </Callout>

@@ -17,7 +17,7 @@ It takes two pieces: forward the trace context to your agent, and enable fetchin
 
 ## 1. Forward the trace context
 
-Every scenario turn opens one trace and stamps its id on the turn's messages. `AgentInput` exposes that turn's W3C trace context as ready-to-send headers (`traceparent`, plus `tracestate` when set). Spread them onto the outgoing request in your adapter:
+Every scenario turn opens one trace and stamps its id on the turn's messages. `AgentInput` exposes that turn's W3C trace context as ready-to-send headers (`traceparent`, plus `tracestate` when set; Go: `input.PropagationHeaders`). Spread them onto the outgoing request in your adapter:
 
 :::code-group
 
@@ -53,6 +53,36 @@ const remoteAgentAdapter: AgentAdapter = {
 };
 ```
 
+```go [go]
+remoteAgentAdapter := scenario.AgentFunc(func(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
+	body, err := json.Marshal(map[string]any{"messages": input.Messages})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://your-agent.com/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Forward the turn's trace context to the remote agent
+	for k, v := range input.PropagationHeaders {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Response string `json:"response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return scenario.TextReturn(out.Response), nil
+})
+```
+
 :::
 
 On the server side, your agent adopts the incoming context so the spans it creates land in the same trace. With standard OpenTelemetry HTTP instrumentation this adoption is automatic and needs zero code. Without it, extract the context and start your root span under it:
@@ -75,6 +105,14 @@ const extracted = propagation.extract(context.active(), req.headers);
 await context.with(extracted, async () => {
   // your agent logic, spans created here join the scenario's trace
 });
+```
+
+```go [go]
+import "go.opentelemetry.io/otel/propagation"
+
+// otelhttp.NewHandler does this for you.
+ctx := propagation.TraceContext{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+// your agent logic, spans started from ctx join the scenario's trace
 ```
 
 :::
@@ -116,6 +154,27 @@ export default defineConfig({
 });
 ```
 
+```go [go]
+fetchRemoteTraces := true
+result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+	Name:        "order status",
+	Description: "A customer asks where their order is",
+	Agents: []scenario.AgentAdapter{
+		remoteAgentAdapter,
+		scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+		scenario.NewJudgeAgent(scenario.JudgeAgentConfig{Criteria: []string{ /* ... */ }}),
+	},
+	FetchRemoteTraces: &fetchRemoteTraces,
+	TraceWaitTimeout:  45 * time.Second, // default 30s
+})
+
+// or as a process-wide default:
+scenario.Configure(
+	scenario.WithFetchRemoteTraces(true),
+	scenario.WithTraceWait(45*time.Second, 0), // timeout, extension (0 keeps the default)
+)
+```
+
 :::
 
 At judgment time, the judge collects every distinct trace id stamped on the conversation's messages (one per turn, not only the last), fetches each from `GET {LANGWATCH_ENDPOINT}/api/trace/{id}`, filters out scenario infrastructure spans, deduplicates against locally collected spans, and feeds the rest into its trace digest.
@@ -127,10 +186,10 @@ At judgment time, the judge collects every distinct trace id stamped on the conv
 Trace ingestion takes a moment, and the fetch schedule is built so conversations never slow down for it:
 
 - **Conversation turns never fetch.** While the conversation runs, the judge only decides whether to continue or move to the verdict, from the transcript and local spans. Remote traces are not fetched mid-conversation and never delay a turn.
-- **Every verdict settle-waits first.** When the judge moves to its verdict (a `make_verdict` decision, the last turn, or an explicit judge step), it polls each pending trace every second until the trace is complete, meaning it holds at least one span from your agent and every fetched span's parent span has arrived. A failed poll retries until the deadline instead of failing the trace. All traces are polled in parallel under the single shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget.
-- **A complete trace then has to hold still.** A leaf span, a tool call with no children, leaves no unresolved parent behind when it is late, so a trace can look complete one poll before its last span arrives. The judge keeps polling until the set of fetched spans is unchanged for a quiet period, 2 seconds by default in the JavaScript SDK (`traceQuietPeriodMs`, also settable project-wide). This costs about 2 seconds per verdict; set it to `0` to settle on the first complete poll. If the wait budget runs out while the quiet period is still running, the trace settles cleanly anyway, with no error span.
+- **Every verdict settle-waits first.** When the judge moves to its verdict (a `make_verdict` decision, the last turn, or an explicit judge step), it polls each pending trace every second until the trace is complete, meaning it holds at least one span from your agent and every fetched span's parent span has arrived. A failed poll retries until the deadline instead of failing the trace. All traces are polled in parallel under the single shared `trace_wait_timeout` / `traceWaitTimeoutMs` / `TraceWaitTimeout` (Go) budget.
+- **A complete trace then has to hold still.** A leaf span, a tool call with no children, leaves no unresolved parent behind when it is late, so a trace can look complete one poll before its last span arrives. The judge keeps polling until the set of fetched spans is unchanged for a quiet period, 2 seconds by default in the JavaScript SDK (`traceQuietPeriodMs`, also settable project-wide) and in the Go SDK (`TraceQuietPeriod`, or project-wide with `scenario.WithTraceQuietPeriod`). This costs about 2 seconds per verdict; set it to `0` to settle on the first complete poll. If the wait budget runs out while the quiet period is still running, the trace settles cleanly anyway, with no error span.
 - **A timeout never hides what did arrive.** When the budget runs out on an incomplete trace, the judge still sees every span that was fetched, plus a synthetic error span that marks the trace as possibly incomplete. Criteria the visible spans prove can still pass; criteria that need the missing spans go inconclusive.
-- **The judge can wait once more.** When the traces are still incomplete at the verdict, the judge gets a one-shot `wait_for_traces` tool. It calls the tool only when the missing spans are essential for the verdict; the wait re-arms the failed traces and settle-waits one extra period, set by `trace_wait_extension` / `traceWaitExtensionMs` (default: the wait budget itself). After that wait the tool is withdrawn and the judge must deliver its verdict on the evidence at hand.
+- **The judge can wait once more.** When the traces are still incomplete at the verdict, the judge gets a one-shot `wait_for_traces` tool. It calls the tool only when the missing spans are essential for the verdict; the wait re-arms the failed traces and settle-waits one extra period, set by `trace_wait_extension` / `traceWaitExtensionMs` / `TraceWaitExtension` (Go) (default: the wait budget itself). After that wait the tool is withdrawn and the judge must deliver its verdict on the evidence at hand.
 - **An inconclusive verdict continues the conversation, unless the evidence is dead.** A voluntary verdict that comes back inconclusive sends the conversation onward for more turns. When no trace of the run ever settled, the inconclusive verdict is terminal instead: more turns cannot produce the missing evidence, and another settle-wait would only repeat the same timeout.
 
 ---
@@ -352,6 +411,166 @@ describe("Judging on remote traces", () => {
     expect(result.success).toBe(true);
   });
 });
+```
+
+```go [go]
+package remote_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	langwatch "github.com/langwatch/langwatch/sdks/go"
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/openai/openai-go/v3"
+	"go.opentelemetry.io/otel/propagation"
+)
+
+var orderTool = scenario.ToolDefinition{
+	Name:        "lookup_order_status",
+	Description: "Look up the current status of an order by its id",
+	Parameters: map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{"orderId": map[string]any{"type": "string"}},
+		"required":             []string{"orderId"},
+		"additionalProperties": false,
+	},
+	Strict: true,
+}
+
+// lookupOrderStatus runs the tool inside a tool span.
+func lookupOrderStatus(ctx context.Context, call scenario.ToolCall) string {
+	_, span := langwatch.Tracer("order-service").Start(ctx, call.Name)
+	defer span.End()
+	span.SetType(langwatch.SpanTypeTool).SetInputText(call.Arguments)
+
+	var args struct {
+		OrderID string `json:"orderId"`
+	}
+	_ = json.Unmarshal([]byte(call.Arguments), &args)
+	out, _ := json.Marshal(map[string]string{"orderId": args.OrderID, "status": "shipped", "carrier": "DHL"})
+	span.SetOutputJSON(json.RawMessage(out))
+	return string(out)
+}
+
+// answer runs the order support agent: up to three model steps with the
+// tool calls in between, and the final text as the answer.
+func answer(ctx context.Context, llm scenario.LLM, history []scenario.Message) (string, error) {
+	msgs := append([]scenario.Message{
+		scenario.SystemMsg("You are an order support assistant. Use the lookup_order_status tool to check orders before answering."),
+	}, history...)
+	var last string
+	for range 3 {
+		res, err := llm.Inference(ctx, scenario.InferenceParams{
+			Model:    "gpt-5-mini",
+			Messages: msgs,
+			Tools:    []scenario.ToolDefinition{orderTool},
+		})
+		if err != nil {
+			return "", err
+		}
+		last = res.Message.Content
+		if len(res.Message.ToolCalls) == 0 {
+			break
+		}
+		msgs = append(msgs, res.Message)
+		for _, call := range res.Message.ToolCalls {
+			msgs = append(msgs, scenario.ToolMsg(call.ID, lookupOrderStatus(ctx, call)))
+		}
+	}
+	return last, nil
+}
+
+func TestJudgingOnRemoteTraces(t *testing.T) {
+	client := openai.NewClient() // reads OPENAI_API_KEY
+	llm := scenarioopenai.NewProvider(&client)
+	model := scenario.ModelConfig{LLM: llm, Model: "gpt-5-mini"}
+
+	// The "remote" agent: an HTTP endpoint that adopts the incoming trace
+	// context and answers with final text only.
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /chat", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []scenario.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Adopt the propagated trace context: every span started from ctx
+		// joins the scenario turn's trace.
+		ctx := propagation.TraceContext{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+		text, err := answer(ctx, llm, req.Messages)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"response": text})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	remoteAgentAdapter := scenario.AgentFunc(func(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
+		body, err := json.Marshal(map[string]any{"messages": input.Messages})
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/chat", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range input.PropagationHeaders {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Response string `json:"response"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return nil, err
+		}
+		return scenario.TextReturn(out.Response), nil
+	})
+
+	fetchRemoteTraces := true
+	result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
+		Name:        "Remote agent trace judging",
+		Description: "A customer asks where order ORD-1042 is. The agent must check the order system before answering.",
+		Agents: []scenario.AgentAdapter{
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{ModelConfig: model}),
+			remoteAgentAdapter,
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{ModelConfig: model}),
+		},
+		Script: []scenario.ScriptStep{
+			scenario.User("Where is my order ORD-1042?"),
+			scenario.Agent(),
+			scenario.Judge(scenario.WithCriteria(
+				"The agent tells the user the current status of their order",
+				"The agent looked the order up in the order system (a lookup_order_status tool span exists)",
+			)),
+		},
+		FetchRemoteTraces: &fetchRemoteTraces,
+		TraceWaitTimeout:  30 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("scenario failed: %s", result.Reasoning)
+	}
+}
 ```
 
 :::

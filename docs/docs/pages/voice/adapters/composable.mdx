@@ -36,11 +36,35 @@ const agent = scenario.composableAgent({
 });
 ```
 
+```go [go]
+import (
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/langwatch/scenario/go/voice/adapters/composable"
+	"github.com/langwatch/scenario/go/voice/stt"
+	"github.com/openai/openai-go/v3"
+)
+
+client := openai.NewClient()
+agent, err := composable.NewAgent(composable.Options{
+	STT:          stt.NewOpenAI(stt.OpenAIOptions{}),  // any stt.Provider (e.g. stt.NewElevenLabs)
+	LLM:          scenarioopenai.NewProvider(&client), // a scenario.LLM
+	Model:        "gpt-4.1-mini",
+	Voice:        "openai/nova", // "<provider>/<voiceId>"
+	SystemPrompt: "You are a helpful assistant.",
+})
+if err != nil {
+	t.Fatal(err)
+}
+```
+
 :::
 
 `stt` accepts any `STTProvider` implementation (`voice.OpenAISTTProvider`,
-`voice.ElevenLabsSTTProvider`, or your own). Note `llm` differs by SDK: Python
-takes a model string; TypeScript takes an AI-SDK `LanguageModel`.
+`voice.ElevenLabsSTTProvider`, or your own; in Go, any `stt.Provider` such as
+`stt.NewOpenAI` or `stt.NewElevenLabs`). Note `llm` differs by SDK: Python
+takes a model string; TypeScript takes an AI-SDK `LanguageModel`; Go takes a
+`scenario.LLM` plus a `Model` string, and falls back to the default model set
+with `scenario.Configure(scenario.WithDefaultModel(...))` when both are unset.
 
 ## Capabilities
 
@@ -54,4 +78,4 @@ VAD: Composable has no native VAD; the SDK falls back to `webrtcvad`. See
 ## Worked examples
 
 - See the [ElevenLabs composable variant](/voice/adapters/elevenlabs#composable-variant--elevenlabsvoiceagent) for a working pattern in both SDKs.
-- **TypeScript:** [`composable-stt-swap.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/composable-stt-swap.test.ts) — swaps the judge's STT provider per run via `run(cfg, { voice: { stt } })`.
+- **TypeScript:** [`composable-stt-swap.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/composable-stt-swap.test.ts) — swaps the judge's STT provider per run via `run(cfg, { voice: { stt } })`. In Go, pass `voice.WithConfig(voice.Config{STT: provider})` to `scenario.Run`.

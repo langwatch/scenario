@@ -1,13 +1,3 @@
-// Package geminilive is the Gemini Live native-audio voice adapter. STT, the
-// model and TTS all run at Google; audio flows both ways as raw PCM16 over
-// the Live API's WebSocket (BidiGenerateContent).
-//
-// Sample rates: canonical 24 kHz internally; Gemini ingests 16 kHz (user
-// audio is resampled at the wire) and emits 24 kHz.
-//
-// Automatic activity detection is off: each SendAudio is one complete user
-// turn wrapped in activityStart / activityEnd, so the model replies the
-// moment the turn closes.
 package geminilive
 
 import (

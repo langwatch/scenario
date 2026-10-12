@@ -7,7 +7,7 @@ import { Callout } from "vocs/components";
 
 # Custom Observability [Control which spans Scenario exports]
 
-By default, Scenario lazily initializes OpenTelemetry tracing on the first `run()` call and auto-instruments your process. This works well when running scenarios in isolation (e.g., via `vitest` or `pytest`), but can cause problems when scenarios run inside a production server.
+By default, Scenario lazily initializes OpenTelemetry tracing on the first `run()` call and auto-instruments your process. This works well when running scenarios in isolation (e.g., via `vitest`, `pytest` or `go test`), but can cause problems when scenarios run inside a production server.
 
 ## Why This Matters
 
@@ -23,7 +23,7 @@ The observability config gives you control over:
 
 ## Scenario-Only Spans
 
-The simplest filter. Use `scenario_only` (Python) or `scenarioOnly` (TypeScript) to export only spans created by Scenario, discarding everything else.
+The simplest filter. Use `scenario_only` (Python), `scenarioOnly` (TypeScript) or `scenario.ScenarioOnly()` (Go) to export only spans created by Scenario, discarding everything else.
 
 This is the right choice when you want clean scenario traces without any server noise.
 
@@ -57,15 +57,40 @@ export default defineConfig({
 });
 ```
 
+```go [go]
+// main_test.go
+import (
+	"context"
+	"log"
+	"os"
+	"testing"
+
+	langwatch "github.com/langwatch/langwatch/sdks/go"
+	scenario "github.com/langwatch/scenario/go"
+)
+
+func TestMain(m *testing.M) {
+	// The Go SDK registers no auto-instrumentation, so there is nothing to disable.
+	if err := scenario.SetupScenarioTracing(scenario.TracingOptions{
+		Filters: []langwatch.Filter{scenario.ScenarioOnly()},
+	}); err != nil {
+		log.Fatal(err)
+	}
+	code := m.Run()
+	scenario.ShutdownTracing(context.Background())
+	os.Exit(code)
+}
+```
+
 :::
 
-Disabling auto-instrumentation (`"instrumentors": []` in Python, `instrumentations: []` in TypeScript) prevents Scenario from registering any OpenTelemetry instrumentations (HTTP, fetch, etc.), so only the spans Scenario itself creates are recorded.
+Disabling auto-instrumentation (`"instrumentors": []` in Python, `instrumentations: []` in TypeScript) prevents Scenario from registering any OpenTelemetry instrumentations (HTTP, fetch, etc.), so only the spans Scenario itself creates are recorded. The Go SDK never registers instrumentations: only spans from code you instrument yourself (for example with `otelhttp`) are recorded.
 
 ---
 
 ## Scenario + Custom-Tagged Spans
 
-Sometimes you want to see more than just scenario spans -- for example, database queries or custom service calls that your agent makes. The `with_custom_scopes()` (Python) or `withCustomScopes()` (TypeScript) filter includes Scenario spans plus any additional instrumentation scopes you specify.
+Sometimes you want to see more than just scenario spans -- for example, database queries or custom service calls that your agent makes. The `with_custom_scopes()` (Python), `withCustomScopes()` (TypeScript) or `scenario.WithCustomScopes()` (Go) filter includes Scenario spans plus any additional instrumentation scopes you specify.
 
 ### Step 1: Configure the filter
 
@@ -97,6 +122,20 @@ export default defineConfig({
     instrumentations: [], // disable auto-instrumentation
   },
 });
+```
+
+```go [go]
+// main_test.go
+func TestMain(m *testing.M) {
+	if err := scenario.SetupScenarioTracing(scenario.TracingOptions{
+		Filters: []langwatch.Filter{scenario.WithCustomScopes("my-app/database", "my-app/agent")},
+	}); err != nil {
+		log.Fatal(err)
+	}
+	code := m.Run()
+	scenario.ShutdownTracing(context.Background())
+	os.Exit(code)
+}
 ```
 
 :::
@@ -135,6 +174,18 @@ async function queryDatabase(sql: string) {
 }
 ```
 
+```go [go]
+import "go.opentelemetry.io/otel"
+
+var tracer = otel.Tracer("my-app/database")
+
+func queryDatabase(ctx context.Context, sql string) (Result, error) {
+	ctx, span := tracer.Start(ctx, "db.query")
+	defer span.End()
+	return db.Execute(ctx, sql)
+}
+```
+
 :::
 
 Only spans from Scenario, `my-app/database`, and `my-app/agent` will be exported. Everything else (HTTP middleware, framework internals, etc.) is filtered out.
@@ -143,7 +194,7 @@ Only spans from Scenario, `my-app/database`, and `my-app/agent` will be exported
 
 ## Explicit Initialization
 
-By default, tracing initializes lazily on the first `run()` call. If you need tracing active before that -- for example, to capture spans during test setup or agent warm-up -- you can call `setup_scenario_tracing()` explicitly for immediate initialization.
+By default, tracing initializes lazily on the first `run()` call. If you need tracing active before that -- for example, to capture spans during test setup or agent warm-up -- you can call `setup_scenario_tracing()` (Go: `scenario.SetupScenarioTracing()`) explicitly for immediate initialization.
 
 :::code-group
 
@@ -165,9 +216,19 @@ setupScenarioTracing({
 });
 ```
 
+```go [go]
+import scenario "github.com/langwatch/scenario/go"
+
+// Initialize tracing immediately, before any Run call.
+// The Go SDK has no auto-instrumentation to disable.
+if err := scenario.SetupScenarioTracing(scenario.TracingOptions{}); err != nil {
+	log.Fatal(err)
+}
+```
+
 :::
 
-These accept the same options as the observability config. Once called, subsequent `run()` calls skip their own initialization.
+These accept the same options as the observability config. Once called, subsequent `run()` calls skip their own initialization. In Go, `SetupScenarioTracing` runs once per process; later calls do nothing. Call `scenario.FlushTracing(ctx)` to export finished spans now, and `scenario.ShutdownTracing(ctx)` once when the process exits.
 
 <Callout type="info">
   If you configure observability via both `scenario.configure()` / `scenario.config.js` and the explicit setup call, the explicit call wins -- `run()` will not re-initialize tracing.
@@ -177,7 +238,7 @@ These accept the same options as the observability config. Once called, subseque
 
 ## Pre-Existing OpenTelemetry Provider
 
-If your application already initializes OpenTelemetry -- for example, via `@vercel/otel`, Datadog, or your own `TracerProvider` -- Scenario detects this automatically and adds its span processors to the existing provider. No configuration needed.
+If your application already initializes OpenTelemetry -- for example, via `@vercel/otel`, Datadog, or your own `TracerProvider` -- Scenario detects this automatically and adds its span processors to the existing provider. No configuration needed. In Go, this applies when the global provider (`otel.SetTracerProvider`) is an SDK `*sdktrace.TracerProvider` set before the first run or `SetupScenarioTracing` call; Scenario then only flushes it and never shuts it down.
 
 ```
 Your app initializes OTel (e.g., @vercel/otel)
@@ -229,6 +290,20 @@ The `observability` key in `scenario.config.js` accepts a subset of `SetupObserv
 | `instrumentations` | `Instrumentation[]` | OpenTelemetry instrumentations to register. Set to `[]` to disable auto-instrumentation. |
 | `spanProcessors` | `SpanProcessor[]` | Additional span processors. The internal `judgeSpanCollector` is always added automatically. |
 | `langwatch` | `{ apiKey, endpoint }` | Override LangWatch connection settings. Falls back to environment variables if not set. |
+
+### Go
+
+Options are passed to `scenario.SetupScenarioTracing(scenario.TracingOptions{...})`, usually in `TestMain`:
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `Filters` | `[]langwatch.Filter` | Restrict which spans the LangWatch exporter sends. Use `scenario.ScenarioOnly()` or `scenario.WithCustomScopes(...)`. |
+| `SpanProcessors` | `[]sdktrace.SpanProcessor` | Additional span processors. The internal span collector the judge reads (`scenario.DefaultSpanCollector()`) is always added. |
+| `TraceExporter` | `sdktrace.SpanExporter` | An extra exporter, batched. |
+| `DisableLangWatchExporter` | `bool` | Skip the LangWatch exporter. Without an API key it is skipped anyway; the judge still sees spans. |
+| `LangWatch` | `scenario.LangWatchConfig{Endpoint, APIKey, ProjectID}` | Override LangWatch connection settings. Falls back to `LANGWATCH_ENDPOINT`, `LANGWATCH_API_KEY` and `LANGWATCH_PROJECT_ID`. |
+
+There is no instrumentations option: the Go SDK does not auto-instrument.
 
 ---
 

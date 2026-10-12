@@ -53,6 +53,46 @@ const result = await scenario.run({
 expect(result.success).toBe(true);
 ```
 
+```go [go]
+package myagent_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/openai/openai-go/v3"
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+)
+
+var yourAgent = scenario.AgentFunc(func(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
+	// Your agent logic here
+	return scenario.TextReturn("Hello!"), nil
+})
+
+func TestDescriptiveTestName(t *testing.T) {
+	client := openai.NewClient()
+	model := scenario.ModelConfig{LLM: scenarioopenai.NewProvider(&client), Model: "gpt-4.1-mini"}
+
+	result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
+		Name:        "descriptive test name",
+		Description: "detailed scenario context",
+		Agents: []scenario.AgentAdapter{
+			yourAgent,
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{ModelConfig: model}),
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{ModelConfig: model, Criteria: []string{"success criteria"}}),
+		},
+		Script: []scenario.ScriptStep{}, // Optional
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("scenario failed: %s", result.Reasoning)
+	}
+}
+```
+
 :::
 
 ### Name and Description
@@ -90,7 +130,7 @@ Write descriptions from the user's perspective. Include:
 - **Personality**: How might they communicate?
   :::
 
-The `setId` is included in all events emitted during scenario execution, making it easy to filter and analyze related test results in monitoring systems.
+The `setId` (`SetID` in Go) is included in all events emitted during scenario execution, making it easy to filter and analyze related test results in monitoring systems.
 
 ### Grouping Your Sets and Batches
 
@@ -124,6 +164,24 @@ const result = await scenario.run({
 });
 
 expect(result.success).toBe(true);
+```
+
+```go [go]
+result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
+	Name:        "my first scenario",
+	Description: "A simple test to see if the agent responds.",
+	SetID:       "my-test-suite", // Group this scenario into a set
+	Agents: []scenario.AgentAdapter{
+		myAgent,
+		scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+	},
+})
+if err != nil {
+	t.Fatal(err)
+}
+if !result.Success {
+	t.Fatalf("scenario failed: %s", result.Reasoning)
+}
 ```
 
 :::
@@ -167,6 +225,37 @@ const myAgent: AgentAdapter = {
     return response;
   },
 };
+```
+
+```go [go]
+import (
+	"context"
+
+	scenario "github.com/langwatch/scenario/go"
+)
+
+type MyAgent struct{}
+
+func (MyAgent) Role() scenario.AgentRole { return scenario.AgentRoleAgent }
+
+func (MyAgent) Call(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
+	// Get the user's message
+	var lastUserMessage string
+	for _, m := range input.Messages {
+		if m.Role == scenario.RoleUser {
+			lastUserMessage = m.Text()
+		}
+	}
+
+	// Call your existing agent
+	response, err := myExistingAgent.Process(ctx, lastUserMessage)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the response (TextReturn, MessageReturn or MessagesReturn)
+	return scenario.TextReturn(response), nil
+}
 ```
 
 :::
@@ -271,6 +360,74 @@ describe("Customer Service Billing", () => {
 });
 ```
 
+```go [go]
+package billing_test
+
+import (
+	"context"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	scenario "github.com/langwatch/scenario/go"
+)
+
+var customerServiceAgent = scenario.AgentFunc(func(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
+	// Call your existing agent with context
+	reply, err := customerServiceBot.Process(ctx, input.Messages, map[string]string{"department": "billing"})
+	if err != nil {
+		return nil, err
+	}
+	return scenario.TextReturn(reply), nil
+})
+
+// Customer Service Billing: should resolve a billing dispute with professionalism and clarity
+func TestCustomerServiceBilling(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // 30 second test timeout
+	defer cancel()
+
+	result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+		Name: "billing dispute resolution",
+		Description: `
+        Customer received a bill that seems higher than expected.
+        They're not angry but are confused and want an explanation.
+        They have their account information ready and are generally
+        cooperative but need clear explanations.
+      `,
+		Agents: []scenario.AgentAdapter{
+			customerServiceAgent,
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+				Criteria: []string{
+					"Agent asks for account information to look up the bill",
+					"Agent reviews the bill details with the customer",
+					"Agent explains any charges that seem unusual or high",
+					"Agent offers options if there was an error",
+					"Agent maintains a professional and helpful tone",
+					"Agent ensures customer understands before ending",
+				},
+			}),
+		},
+		MaxTurns: 8, // Reasonable limit for this type of interaction
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("scenario failed: %s", result.Reasoning)
+	}
+	if len(result.Messages) < 4 { // Should have substantial conversation
+		t.Errorf("expected at least 4 messages, got %d", len(result.Messages))
+	}
+	if !slices.ContainsFunc(result.Messages, func(m scenario.Message) bool {
+		return strings.Contains(strings.ToLower(m.Text()), "account")
+	}) { // Should discuss account
+		t.Error("expected the conversation to discuss the account")
+	}
+}
+```
+
 :::
 
 ## Writing Tips
@@ -305,6 +462,18 @@ description: `
 `
 ```
 
+```go [go]
+// Good: Clear user intent
+Description: "User wants to change their password but forgot their current one",
+
+// Better: Add context and constraints
+Description: `
+    User is locked out of their account after multiple failed login attempts.
+    They need to change their password but don't remember the current one.
+    They have access to their email but not their phone for 2FA.
+`,
+```
+
 :::
 
 ### 2. Include Personality and Context
@@ -329,6 +498,14 @@ description: `
 `
 ```
 
+```go [go]
+Description: `
+    User is a small business owner who is stressed about tax deadline.
+    They need help categorizing expenses but aren't familiar with
+    accounting terms. They appreciate patient explanations and examples.
+`,
+```
+
 :::
 
 ### 3. Test Edge Cases
@@ -351,6 +528,14 @@ description: `
     and asks about product B, then asks to compare both products.
     They're indecisive and might change requirements multiple times.
 `
+```
+
+```go [go]
+Description: `
+    User initially asks about product A but then changes their mind
+    and asks about product B, then asks to compare both products.
+    They're indecisive and might change requirements multiple times.
+`,
 ```
 
 :::
@@ -383,6 +568,18 @@ description: `
     direct flight, departure after 2 PM, willing to be flexible on dates
     for better prices. They're traveling for business and need receipts.
 `
+```
+
+```go [go]
+// Basic scenario
+Description: "User wants to book a flight to Paris",
+
+// More complex
+Description: `
+    User wants to book a flight to Paris but has specific requirements:
+    direct flight, departure after 2 PM, willing to be flexible on dates
+    for better prices. They're traveling for business and need receipts.
+`,
 ```
 
 :::
@@ -425,6 +622,22 @@ agents: [
 ]
 ```
 
+```go [go]
+Description: `
+    User needs technical support but doesn't know technical details.
+`,
+Agents: []scenario.AgentAdapter{
+	customerServiceAgent,
+	scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+	scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+		Criteria: []string{
+			"Agent should ask for the user's account number or email",
+			"Agent should ask what model is their router",
+		},
+	}),
+},
+```
+
 :::
 
 ### Clarification and Confirmation
@@ -459,6 +672,21 @@ agents: [
         ]
     })
 ]
+```
+
+```go [go]
+Description: `
+    User asks to "cancel my thing" without specifying what they want to cancel.
+`,
+Agents: []scenario.AgentAdapter{
+	customerServiceAgent,
+	scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+	scenario.NewJudgeAgent(scenario.JudgeAgentConfig{
+		Criteria: []string{
+			"Agent should ask clarifying questions to identify the correct item and confirm before taking action.",
+		},
+	}),
+},
 ```
 
 :::
@@ -496,6 +724,20 @@ script: [
     scenario.user("what!? no I don't want to upgrade, I want to cancel"),
     scenario.proceed()
 ]
+```
+
+```go [go]
+Description: `
+    Agent initially misunderstands user's request and offers wrong
+    solution. User corrects them. Agent should acknowledge the
+    mistake and provide the right help.
+`,
+Script: []scenario.ScriptStep{
+	scenario.User("change my subscription"),
+	scenario.Agent("Sure, I'm going to upgrade you to the Pro plan... done!"),
+	scenario.User("what!? no I don't want to upgrade, I want to cancel"),
+	scenario.Proceed(),
+},
 ```
 
 :::

@@ -5,7 +5,7 @@ description: Learn how to integrate Scenario with popular test runners for seaml
 
 # Test Runner Integration
 
-Scenario supports seamless integration with popular test runners in both JavaScript/TypeScript and Python. Please refer to the section for your language below.
+Scenario supports seamless integration with popular test runners in JavaScript/TypeScript, Python and Go. Please refer to the section for your language below.
 
 ## JavaScript / TypeScript
 
@@ -68,6 +68,54 @@ pytest
 
 See the [Scenario Python README](https://github.com/langwatch/scenario#python) for more advanced usage and options.
 
+## Go
+
+### go test
+
+Scenario tests in Go are plain `go test` tests. The `scenariotest` package ties each run to its test: the chat log and the verdict go to the test log, and a failed verdict fails the test. `scenariotest.Main` prints a summary of every scenario the test binary ran.
+
+Add a `TestMain` once per package, then run each scenario with `scenariotest.Run`:
+
+```go
+package myagent_test
+
+import (
+	"os"
+	"testing"
+
+	scenario "github.com/langwatch/scenario/go"
+	"github.com/langwatch/scenario/go/scenariotest"
+)
+
+func TestMain(m *testing.M) { os.Exit(scenariotest.Main(m)) }
+
+func TestMyAgent(t *testing.T) {
+	t.Parallel()
+	// Define your agent and scenario here.
+	// A failed verdict fails t; the result is returned for extra checks.
+	scenariotest.Run(t, scenario.ScenarioConfig{
+		Name:        "my scenario",
+		Description: "Test scenario",
+		Agents: []scenario.AgentAdapter{
+			myAgent,
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{}),
+		},
+	})
+}
+```
+
+- `go test` discovers and runs your scenario tests:
+
+```bash
+go test -v ./...
+```
+
+- Runs are independent, so `t.Parallel()` runs scenarios side by side.
+- All runs of one `go test` call share a batch run id, so LangWatch groups them.
+- `go test` stops a test binary after 10 minutes by default. Raise it for long suites with `-timeout`, for example `go test -timeout 30m ./...`.
+- You can also call `scenario.Run(ctx, cfg)` directly and check `result.Success` yourself; `scenariotest` is optional.
+
 ---
 
 ## Running Tests
@@ -75,6 +123,7 @@ See the [Scenario Python README](https://github.com/langwatch/scenario#python) f
 ```bash
 pnpm test     # JavaScript/TypeScript
 uv run pytest # Python
+go test ./... # Go
 ```
 
 You can set environment variables (like `SCENARIO_BATCH_RUN_ID`) to group test runs in CI:
@@ -83,4 +132,6 @@ You can set environment variables (like `SCENARIO_BATCH_RUN_ID`) to group test r
 SCENARIO_BATCH_RUN_ID=my-ci-run-123 pnpm test
 # or
 uv run pytest
+# or
+SCENARIO_BATCH_RUN_ID=my-ci-run-123 go test ./...
 ```

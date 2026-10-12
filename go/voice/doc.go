@@ -38,6 +38,13 @@
 //   - vad: SDK-side voice-activity detection and the phone-line speech gate
 //   - effects: post-TTS audio degradation (noise, phone line, packet loss, ...)
 //   - stt, tts: speech-to-text and text-to-speech providers ("provider/model")
-//   - ffmpeg: decoding non-WAV audio files through an external ffmpeg
+//   - ffmpeg: decoding and encoding non-WAV audio through an external ffmpeg
+//   - broker: minting realtime sessions at OpenAI or a LangWatch AI Gateway
+//   - tunnel: exposing a local port on a public HTTPS URL (telephony)
 //   - voicetest: in-memory fakes for offline voice tests
+//   - adapters/...: the OpenAI Realtime, Gemini Live, ElevenLabs,
+//     composable, Pipecat and Twilio transports
+//
+// Runnable examples, one per scenario shape, live in the separate module
+// github.com/langwatch/scenario/go/voice/examples.
 package voice

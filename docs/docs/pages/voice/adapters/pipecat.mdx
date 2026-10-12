@@ -35,17 +35,37 @@ const adapter = scenario.pipecatAgent({
 });
 ```
 
+```go [go]
+import (
+	"github.com/langwatch/scenario/go/voice"
+	"github.com/langwatch/scenario/go/voice/adapters/pipecat"
+)
+
+transport, err := pipecat.New(pipecat.Options{
+	URL:         "ws://localhost:8765/stream",
+	AudioFormat: "mulaw", // or "pcm16"
+	SampleRate:  8000,    // match your bot's config
+})
+if err != nil {
+	t.Fatal(err)
+}
+adapter := voice.NewAgent(transport) // wrap the transport as a scenario agent
+```
+
 :::
 
 Other arguments: `signalingUrl` / `signaling_url` (for `transport: "webrtc"`),
 `transport` (`"websocket"` default or `"webrtc"`), `streamSid` / `stream_sid`,
-`callSid` / `call_sid`.
+`callSid` / `call_sid`. In Go these are the `pipecat.Options` fields
+`SignalingURL`, `Transport`, `StreamSID` and `CallSID`.
 
 <Callout type="warning">
   **TypeScript: WebRTC mode is pending.**
   `scenario.pipecatAgent({ transport: "webrtc", signalingUrl })` constructs fine
   but raises `voice.PendingTransportError` at `connect()` until the SmallWebRTC
-  transport lands. WebSocket mode (above) is fully shipped.
+  transport lands. WebSocket mode (above) is fully shipped. The Go adapter is
+  the same: `Transport: pipecat.TransportWebRTC` fails at `Connect` with a
+  `voice.PendingTransportError`.
 </Callout>
 
 ## Capabilities

@@ -12,7 +12,7 @@ import { Button } from "vocs/components";
 
 ## Installation
 
-Install the Scenario SDK and a test runner (pytest or vitest):
+Install the Scenario SDK and a test runner (pytest or vitest; Go uses the built-in `go test`):
 
 :::code-group
 
@@ -22,6 +22,11 @@ uv add langwatch-scenario pytest
 
 ```bash [typescript]
 pnpm install @langwatch/scenario vitest
+```
+
+```bash [go]
+go get github.com/langwatch/scenario/go
+go get github.com/langwatch/scenario/go/providers/openai
 ```
 
 :::
@@ -188,6 +193,112 @@ describe("Vegetarian Recipe Agent", () => {
 </div>
 </div>
 
+<div data-title="go">
+
+Go has no config file. Set the default model for simulations once, in `TestMain`:
+
+<div style={{ border: "1px solid #e0e0e0", borderRadius: "5px", margin: "10px 0" }}>
+```go
+// main_test.go
+package recipe_test
+
+import (
+	"os"
+	"testing"
+
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/openai/openai-go/v3"
+)
+
+func TestMain(m *testing.M) {
+	client := openai.NewClient() // reads OPENAI_API_KEY
+	scenario.Configure(scenario.WithDefaultModel(scenario.ModelConfig{
+		LLM:   scenarioopenai.NewProvider(&client),
+		Model: "gpt-4.1-mini",
+	}))
+	os.Exit(m.Run())
+}
+```
+</div>
+
+Then, create your first test:
+
+<div style={{ border: "1px solid #e0e0e0", borderRadius: "5px", margin: "10px 0" }}>
+```go
+// vegetarian_recipe_test.go
+package recipe_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/openai/openai-go/v3"
+)
+
+// 1. Create your agent adapter
+var vegetarianRecipeAgent = scenario.AgentFunc(func(ctx context.Context, input scenario.AgentInput) (*scenario.AgentReturn, error) {
+	client := openai.NewClient()
+	messages := append(
+		[]openai.ChatCompletionMessageParamUnion{openai.SystemMessage("You are a vegetarian recipe agent.")},
+		scenarioopenai.ToOpenAIMessages(input.Messages)...,
+	)
+	response, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model:    "gpt-4.1-mini",
+		Messages: messages,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return scenario.TextReturn(response.Choices[0].Message.Content), nil
+})
+
+func TestVegetarianRecipeAgent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // 30 second test timeout
+	defer cancel()
+
+	// 2. Run the scenario
+	result, err := scenario.Run(ctx, scenario.ScenarioConfig{
+		Name:        "dinner recipe request",
+		Description: "It's saturday evening, the user is very hungry and tired, but have no money to order out, so they are looking for a recipe.",
+		Agents: []scenario.AgentAdapter{
+			vegetarianRecipeAgent,
+			scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+			scenario.NewJudgeAgent(scenario.JudgeAgentConfig{}),
+		},
+		Script: []scenario.ScriptStep{
+			scenario.User("quick recipe for dinner"),
+			scenario.Agent(),
+			scenario.Judge(scenario.WithCriteria(
+				"Agent either asks a relevant follow-up question or starts providing a recipe",
+			)),
+			scenario.User(),
+			scenario.Agent(),
+			scenario.Judge(scenario.WithCriteria(
+				"Agent should not ask more than two follow-up questions",
+				"Agent should generate a recipe",
+				"Recipe should include a list of ingredients",
+				"Recipe should include step-by-step cooking instructions",
+				"Recipe should be vegetarian and not include any sort of meat",
+			)),
+		},
+	})
+
+	// 3. Assert the result
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("scenario failed: %s", result.Reasoning)
+	}
+}
+```
+</div>
+</div>
+
 ::::
 
 ### 2. Set Up Your Environment
@@ -207,6 +318,10 @@ uv run pytest -s test_my_agent.py
 
 ```bash [typescript]
 npx vitest run vegetarian-recipe.test.ts
+```
+
+```bash [go]
+go test -run TestVegetarianRecipeAgent -v ./...
 ```
 
 :::

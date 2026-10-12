@@ -34,16 +34,25 @@ scenario.user("Wait — I meant account support"),  // interrupt mid-reply
 scenario.agent(),                    // let the agent finish the recovery turn
 ```
 
+```go [go]
+scenario.User("Tell me about my billing"),
+voice.AgentNonBlocking(),                        // start agent reply in background (non-blocking)
+voice.Sleep(2 * time.Second),                    // let it talk for ~2s
+scenario.User("Wait — I meant account support"), // interrupt mid-reply
+scenario.Agent(),                                // let the agent finish the recovery turn
+```
+
 :::
 
 `agent(wait=False)` / `agent({ wait: false })` starts the adapter's reply in the
 background without blocking the script. The following steps run while the agent
 keeps speaking; the next `user()` turn fires the interrupt and sends the
 replacement user audio. (In TypeScript, `scenario.voiceAgent({ wait: false })` is
-an exported alias of the same step.)
+an exported alias of the same step. In Go, `voice.AgentNonBlocking()` is
+`voice.VoiceAgent(voice.VoiceAgentOptions{NoWait: true})`.)
 
 <Callout type="tip">
-In TypeScript, `scenario.sleep(2)` before the `user()` call is optional padding,
+In TypeScript, `scenario.sleep(2)` (`voice.Sleep(2 * time.Second)` in Go) before the `user()` call is optional padding,
 not a synchronization primitive. The executor automatically waits for the agent to
 start speaking before firing the barge-in — the `user()` call itself is what
 triggers the interrupt, not the sleep.
@@ -66,6 +75,13 @@ scenario.interrupt({ after: 2, content: "Sorry — what are your business hours?
 scenario.agent(),
 ```
 
+```go [go]
+scenario.User("Tell me about every product feature you offer"),
+// Time-based: let the agent speak ~2s, then interrupt.
+voice.Interrupt(voice.After(2*time.Second), voice.WithContent("Sorry — what are your business hours?")),
+scenario.Agent(),
+```
+
 :::
 
 `scenario.interrupt(...)` is shorthand for the unrolled form above. Prefer it when
@@ -78,8 +94,17 @@ scenario.interrupt({ afterWords: 5, content: "No, that's not it" });     // word
 scenario.interrupt({ content: "Hold on—" });                            // first-chunk barge-in
 ```
 
+In **Go**, `voice.Interrupt` takes the same three modes as options:
+
+```go
+voice.Interrupt(voice.After(2*time.Second), voice.WithContent("Wait, that's wrong!")) // time-based
+voice.Interrupt(voice.AfterWords(5), voice.WithContent("No, that's not it"))          // word-count (needs streaming transcripts)
+voice.Interrupt(voice.WithContent("Hold on—"))                                        // first-chunk barge-in
+```
+
 `afterWords` requires an adapter with streaming transcripts; otherwise it raises
-`voice.UnsupportedCapabilityError` suggesting `interrupt({ content })` instead.
+`voice.UnsupportedCapabilityError` suggesting `interrupt({ content })` instead
+(Go returns a `*voice.UnsupportedCapabilityError`).
 
 <Callout type="info">
 Both forms call into the same executor path. The sugar is purely syntactic — there is no
@@ -124,6 +149,16 @@ scenario.UserSimulatorAgent(
 )
 ```
 
+```go [go]
+voice.NewUserSimulator(
+	scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+	voice.UserSimulatorOptions{
+		Voice:                "openai/nova",
+		InterruptProbability: 0.5, // interrupt ~50% of agent turns
+	},
+)
+```
+
 :::
 
 Then let the conversation run with a plain `proceed()`; barge-ins fire
@@ -149,6 +184,15 @@ script=[
 ]
 ```
 
+```go [go]
+Script: []scenario.ScriptStep{
+	scenario.Agent(), // capture the opening greeting
+	scenario.User("I need help with my account"),
+	scenario.Proceed(scenario.Turns(5)), // barge-ins fire per InterruptProbability
+	scenario.Judge(),
+},
+```
+
 :::
 
 `interruptProbability` controls how often a turn is interrupted. The
@@ -156,7 +200,10 @@ interruption's timing (a short delay after the agent starts speaking) and its
 phrasing (a canned interjection) use built-in defaults; they are not
 separately configurable from the public API. `InterruptionConfig` remains
 exported under the `voice` namespace for inspection, but it is constructed
-internally.
+internally. Go goes one step further: `voice.Config.Interruption` (passed with
+`voice.WithConfig`) takes a `voice.InterruptionConfig`, built with
+`voice.NewInterruptionConfig(probability)`, whose delay range and phrases you can
+set; it overrides the simulator's `InterruptProbability` for that run.
 
 ## Worked example
 

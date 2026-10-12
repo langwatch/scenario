@@ -53,6 +53,29 @@ const result = await scenario.run({
 expect(result.success).toBe(true);
 ```
 
+```go [go]
+result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
+	Name:        "scripted interaction",
+	Description: "Test specific conversation patterns",
+	Agents: []scenario.AgentAdapter{
+		myAgent,
+		scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+		scenario.NewJudgeAgent(scenario.JudgeAgentConfig{}),
+	},
+	Script: []scenario.ScriptStep{
+		scenario.User("Hello, I need help"),
+		scenario.Agent(),
+		scenario.Judge(scenario.WithCriteria("Agent responds helpfully")),
+	},
+})
+if err != nil {
+	t.Fatal(err)
+}
+if !result.Success {
+	t.Fatalf("scenario failed: %s", result.Reasoning)
+}
+```
+
 :::
 
 ### Commands List
@@ -66,6 +89,8 @@ expect(result.success).toBe(true);
 | [`scenario.proceed()`](#scenarioproceed)                  | Let the conversation flow automatically for a specified number of turns |
 | [`scenario.succeed()`](#scenariosucceed-and-scenariofail) | End the scenario with a specific result                                 |
 | [`scenario.fail()`](#scenariosucceed-and-scenariofail)    | End the scenario with a specific result                                 |
+
+In Go, the commands are `scenario.User()`, `scenario.Agent()`, `scenario.MessageStep()`, `scenario.Judge()`, `scenario.Proceed()`, `scenario.Succeed()` and `scenario.Fail()`.
 
 ## Script Commands
 
@@ -112,6 +137,25 @@ const script = [
     ],
   }),
 ];
+```
+
+```go [go]
+script := []scenario.ScriptStep{
+	// Specific user message
+	scenario.User("I want to cancel my subscription"),
+
+	// Let user simulator generate message based on scenario
+	scenario.User(),
+
+	// Structured message with additional content
+	scenario.MessageStep(scenario.Message{
+		Role: scenario.RoleUser,
+		Parts: []scenario.Part{
+			scenario.TextPart("I want to cancel my subscription"),
+			scenario.ImageURLPart("https://example.com/image.png"),
+		},
+	}),
+}
 ```
 
 :::
@@ -164,6 +208,23 @@ const script = [
     ],
   }),
 ];
+```
+
+```go [go]
+script := []scenario.ScriptStep{
+	scenario.User("Help me with billing"),
+	scenario.Agent(),
+	scenario.Agent("I'll help you with billing. Can you provide your account number?"),
+	scenario.MessageStep(scenario.Message{
+		Role:    scenario.RoleAssistant,
+		Content: "I'll help you with billing. Can you provide your account number?",
+		ToolCalls: []scenario.ToolCall{{
+			ID:        "lookup_account",
+			Name:      "lookup_account",
+			Arguments: `{"account_number": "123456"}`,
+		}},
+	}),
+}
 ```
 
 :::
@@ -274,6 +335,42 @@ const script = [
 ];
 ```
 
+```go [go]
+script := []scenario.ScriptStep{
+	// User message
+	scenario.MessageStep(scenario.UserMsg("Hello, I need help")),
+
+	// Assistant message
+	scenario.MessageStep(scenario.AssistantMsg("I'd be happy to help!")),
+
+	// Assistant message with tool call
+	scenario.MessageStep(scenario.Message{
+		Role:    scenario.RoleAssistant,
+		Content: "Let me look that up for you",
+		ToolCalls: []scenario.ToolCall{{
+			ID:        "call_123",
+			Name:      "search_database",
+			Arguments: `{"query": "user question"}`,
+		}},
+	}),
+
+	// Tool response
+	scenario.MessageStep(scenario.ToolMsg("call_123", `{"results": ["result1", "result2"]}`)),
+
+	// System message
+	scenario.MessageStep(scenario.SystemMsg("The user is now in a hurry and needs quick responses")),
+
+	// Multimodal user message
+	scenario.MessageStep(scenario.Message{
+		Role: scenario.RoleUser,
+		Parts: []scenario.Part{
+			scenario.TextPart("What's in this image?"),
+			scenario.ImageURLPart("data:image/..."),
+		},
+	}),
+}
+```
+
 :::
 
 :::tip
@@ -328,6 +425,25 @@ const script = [
     ],
   }),
 ];
+```
+
+```go [go]
+script := []scenario.ScriptStep{
+	scenario.User("I need help"),
+	scenario.Agent(),
+
+	// Checkpoint: if criteria pass, continue; if any fail, stop immediately
+	scenario.Judge(scenario.WithCriteria("Agent should ask clarifying questions")),
+
+	scenario.User(),
+	scenario.Agent(),
+
+	// Final evaluation with remaining criteria
+	scenario.Judge(scenario.WithCriteria(
+		"Agent provides a helpful response",
+		"Agent does not make things up",
+	)),
+}
 ```
 
 :::
@@ -432,28 +548,74 @@ const script = [
 ];
 ```
 
+```go [go]
+func checkToolUsage(ctx context.Context, ex *scenario.Executor) error {
+	state := ex.State()
+	// Verify agent called the required tool
+	if !state.HasToolCall("get_weather") {
+		return &scenario.AssertionError{Message: "Agent should have called weather tool"}
+	}
+
+	// Get the arguments of the last call
+	last, _ := state.ToolCalls("get_weather").Last()
+	args, _ := last.Input.(map[string]any)
+	if location, _ := args["location"].(string); location == "" {
+		return &scenario.AssertionError{Message: "Weather tool should include location"}
+	}
+	return nil
+}
+
+func verifyResponseQuality(ctx context.Context, ex *scenario.Executor) error {
+	lastMessage, err := ex.State().LastMessage()
+	if err != nil {
+		return err
+	}
+	content := lastMessage.Text()
+
+	if len(content) <= 10 {
+		return &scenario.AssertionError{Message: "Response should be substantial"}
+	}
+	if strings.Contains(strings.ToLower(content), "sorry") {
+		return &scenario.AssertionError{Message: "Agent shouldn't apologize unnecessarily"}
+	}
+	return nil
+}
+
+script := []scenario.ScriptStep{
+	scenario.User("What's the weather in Paris?"),
+	scenario.Agent(),
+	scenario.StepFunc(checkToolUsage),
+	scenario.StepFunc(verifyResponseQuality),
+	scenario.Succeed(),
+}
+```
+
 :::
+
+In Go, a custom step is a `scenario.StepFunc`. Return a `*scenario.AssertionError` (or `scenario.Assert(cond, msg)`) to fail the scenario with that message. Any other error ends the run as an error.
 
 ### Reading the Run State
 
 A custom step receives the scenario state. Besides the messages, the state exposes the scenario definition and the trace of the run so far, the same accessors an [evaluator mapping](/advanced/evaluators) reads:
 
-| Python | TypeScript | Reads |
-| --- | --- | --- |
-| `state.messages` | `state.messages` | The conversation so far |
-| `state.last_message()`, `state.last_user_message()` | `state.lastMessage()`, `state.lastUserMessage()`, `state.lastAgentMessage()` | One message |
-| `state.first_user_message()`, `state.last_agent_message()` | `state.firstUserMessage()` | The text of one message |
-| `state.transcript()` | `state.transcript()` | One `role: content` line per message |
-| `state.has_tool_call(name)` | `state.hasToolCall(name)` | Whether the tool was called |
-| `state.tool_calls(name)` | `state.toolCalls(name)` | Every call of the tool so far, from the messages and the spans, in start order |
-| `state.fields`, `state.field(name)` | `state.fields`, `state.field(name)` | The values passed as `fields` to `run` |
-| `state.criteria` | `state.criteria` | The judge criteria |
-| `state.contexts` | `state.contexts` | Every chunk the agent retrieved, from the rag spans |
-| `state.spans` | `state.spans` | Every span of every trace of the run collected so far, in start order |
-| `state.traces` | `state.traces` | One entry per trace id on the messages: `id`, `spans`, `tool_calls(name)` |
-| `state.turns` | `state.turns` | One entry per turn: `index`, `messages`, `trace`, `tool_calls(name)` |
+| Python | TypeScript | Go | Reads |
+| --- | --- | --- | --- |
+| `state.messages` | `state.messages` | `state.Messages()` | The conversation so far |
+| `state.last_message()`, `state.last_user_message()` | `state.lastMessage()`, `state.lastUserMessage()`, `state.lastAgentMessage()` | `state.LastMessage()`, `state.LastUserMessage()`, `state.LastAgentMessage()` | One message |
+| `state.first_user_message()`, `state.last_agent_message()` | `state.firstUserMessage()` | `state.FirstUserMessage()` | The text of one message |
+| `state.transcript()` | `state.transcript()` | `state.Transcript()` | One `role: content` line per message |
+| `state.has_tool_call(name)` | `state.hasToolCall(name)` | `state.HasToolCall(name)` | Whether the tool was called |
+| `state.tool_calls(name)` | `state.toolCalls(name)` | `state.ToolCalls(name)` | Every call of the tool so far, from the messages and the spans, in start order |
+| `state.fields`, `state.field(name)` | `state.fields`, `state.field(name)` | `state.Fields()`, `state.Field(name)` | The values passed as `fields` to `run` |
+| `state.criteria` | `state.criteria` | `state.Criteria()` | The judge criteria |
+| `state.contexts` | `state.contexts` | `state.Contexts()` | Every chunk the agent retrieved, from the rag spans |
+| `state.spans` | `state.spans` | `state.Spans()` | Every span of every trace of the run collected so far, in start order |
+| `state.traces` | `state.traces` | `state.Traces()` | One entry per trace id on the messages: `id`, `spans`, `tool_calls(name)` |
+| `state.turns` | `state.turns` | `state.Turns()` | One entry per turn: `index`, `messages`, `trace`, `tool_calls(name)` |
 
-`tool_calls(name)` is a collection: `first` and `last` pick one call, `inputs` and `outputs` list the arguments and results of every call, and it iterates, indexes and counts. A call has `name`, `input`, `output`, `turn` and `source` (`message` or `span`). In Python, `first` and `last` of a tool that was never called are an empty, falsy call whose `input` and `output` are `None`; in TypeScript they are `undefined`. `last_tool_call(name)` keeps working and reads the messages only.
+In Go, a custom step reads the state with `ex.State()`, and the message getters return the message and an error when there is none.
+
+`tool_calls(name)` is a collection: `first` and `last` pick one call, `inputs` and `outputs` list the arguments and results of every call, and it iterates, indexes and counts. A call has `name`, `input`, `output`, `turn` and `source` (`message` or `span`). In Python, `first` and `last` of a tool that was never called are an empty, falsy call whose `input` and `output` are `None`; in TypeScript they are `undefined`; in Go, `First()` and `Last()` return `false` as their second value. `last_tool_call(name)` keeps working and reads the messages only.
 
 The whole run is the default scope; `turns[i]` and `traces[i]` narrow it. `state.spans` reads what the span collector holds at that moment and never fetches remote traces.
 
@@ -477,6 +639,32 @@ function checkSql(state: scenario.ScenarioExecutionStateLike) {
   if (state.field("golden_sql") === undefined) throw new Error("Expected the golden_sql field");
   const lastTurn = state.turns.at(-1);
   if (lastTurn?.toolCalls("run_sql").first?.output === undefined) throw new Error("Expected a run_sql result");
+}
+```
+
+```go [go]
+func checkSQL(ctx context.Context, ex *scenario.Executor) error {
+	state := ex.State()
+	calls := state.ToolCalls("run_sql")
+	if len(calls) != 1 {
+		return &scenario.AssertionError{Message: "Expected one run_sql call"}
+	}
+	last, _ := calls.Last()
+	input, _ := last.Input.(map[string]any)
+	if sql, _ := input["sql"].(string); !strings.HasPrefix(sql, "SELECT") {
+		return &scenario.AssertionError{Message: "Expected a SELECT query"}
+	}
+	if _, ok := state.Field("golden_sql"); !ok {
+		return &scenario.AssertionError{Message: "Expected the golden_sql field"}
+	}
+	turns := state.Turns()
+	if len(turns) == 0 {
+		return &scenario.AssertionError{Message: "Expected a run_sql result"}
+	}
+	if first, ok := turns[len(turns)-1].ToolCalls("run_sql").First(); !ok || first.Output == nil {
+		return &scenario.AssertionError{Message: "Expected a run_sql result"}
+	}
+	return nil
 }
 ```
 
@@ -529,6 +717,40 @@ const script = [
   externalEval,
   scenario.proceed(),
 ];
+```
+
+```go [go]
+// Go steps are plain blocking functions: call the service directly and pass ctx along.
+func externalEval(ctx context.Context, ex *scenario.Executor) error {
+	state := ex.State()
+	// Run external evaluation service
+	lastResponse, err := state.LastMessage()
+	if err != nil {
+		return err
+	}
+	lastUserMessage, err := state.LastUserMessage()
+	if err != nil {
+		return err
+	}
+
+	// Call external service
+	evalResult, err := externalEvaluator.Evaluate(ctx, lastUserMessage.Text(), lastResponse.Text())
+	if err != nil {
+		return err
+	}
+
+	if evalResult.Score <= 0.8 {
+		return &scenario.AssertionError{Message: fmt.Sprintf("Quality score too low: %v", evalResult.Score)}
+	}
+	return nil
+}
+
+script := []scenario.ScriptStep{
+	scenario.User("Complex query"),
+	scenario.Agent(),
+	scenario.StepFunc(externalEval),
+	scenario.Proceed(),
+}
 ```
 
 :::
@@ -603,6 +825,35 @@ const script = [
 ];
 ```
 
+```go [go]
+func conditionalCheck(ctx context.Context, ex *scenario.Executor) error {
+	// Branch logic based on agent response
+	lastMessage, err := ex.State().LastMessage()
+	if err != nil {
+		return err
+	}
+	content := strings.ToLower(lastMessage.Text())
+
+	if strings.Contains(content, "i don't know") {
+		// Ending the scenario here stops the script
+		ex.Fail(ctx, "Agent should not give up so easily")
+	} else if strings.Contains(content, "let me help") {
+		// Continue the conversation
+	} else {
+		// Force a specific follow-up
+		ex.AddMessage(scenario.UserMsg("Can you be more specific?"))
+	}
+	return nil
+}
+
+script := []scenario.ScriptStep{
+	scenario.User("I have a problem"),
+	scenario.Agent(),
+	scenario.StepFunc(conditionalCheck),
+	scenario.Proceed(),
+}
+```
+
 :::
 
 ## Starting from Existing History
@@ -670,6 +921,32 @@ const result = await scenario.run({
 });
 ```
 
+```go [go]
+script := []scenario.ScriptStep{
+	// Set up previous conversation context
+	scenario.MessageStep(scenario.UserMsg("I'd like to book a flight")),
+	scenario.MessageStep(scenario.AssistantMsg("I'd be happy to help. Where would you like to go?")),
+	scenario.MessageStep(scenario.UserMsg("I want to go to Paris")),
+	scenario.MessageStep(scenario.AssistantMsg("Great! When would you like to travel?")),
+
+	// Continue with new interaction
+	scenario.User("Actually, can you also help me find hotels?"),
+	scenario.Agent(),
+	scenario.Judge(scenario.WithCriteria("Agent handles additional requests smoothly")),
+}
+
+result, err := scenario.Run(context.Background(), scenario.ScenarioConfig{
+	Name:        "mid-conversation booking",
+	Description: "User is in the middle of booking a flight and now wants to add hotels",
+	Agents: []scenario.AgentAdapter{
+		travelAgent,
+		scenario.NewUserSimulatorAgent(scenario.UserSimulatorAgentConfig{}),
+		scenario.NewJudgeAgent(scenario.JudgeAgentConfig{}),
+	},
+	Script: script,
+})
+```
+
 :::
 
 ### Load from External Sources
@@ -707,6 +984,27 @@ const script = [
   scenario.agent(),
   scenario.judge(),
 ];
+```
+
+```go [go]
+func loadRealConversation(ctx context.Context, ex *scenario.Executor) error {
+	// Load conversation from logs or database
+	conversationData, err := loadConversationFromDB(ctx, "conversation_123")
+	if err != nil {
+		return err
+	}
+	for _, message := range conversationData {
+		ex.AddMessage(message)
+	}
+	return nil
+}
+
+script := []scenario.ScriptStep{
+	scenario.StepFunc(loadRealConversation), // Load real conversation
+	scenario.User("One more question..."),    // Continue from there
+	scenario.Agent(),
+	scenario.Judge(),
+}
 ```
 
 :::
@@ -782,7 +1080,48 @@ const script = [
 ];
 ```
 
+```go [go]
+func logTurnProgress(ctx context.Context, state *scenario.ExecutionState) error {
+	// Log progress at the start of each turn
+	fmt.Printf("Turn %d: %d messages\n", state.CurrentTurn(), len(state.Messages()))
+	// Check for concerning patterns
+	if lastMsg, err := state.LastMessage(); err == nil && strings.Contains(strings.ToLower(lastMsg.Text()), "error") {
+		log.Println("Warning: error detected in conversation")
+	}
+	return nil
+}
+
+func safetyCheck(ctx context.Context, state *scenario.ExecutionState) error {
+	lastMsg, err := state.LastMessage()
+	if err != nil {
+		return err
+	}
+	if lastMsg.Role == scenario.RoleAssistant {
+		content := strings.ToLower(lastMsg.Text())
+		if slices.ContainsFunc([]string{"harmful", "dangerous", "illegal"}, func(word string) bool {
+			return strings.Contains(content, word)
+		}) {
+			return &scenario.AssertionError{Message: "Safety violation detected"}
+		}
+	}
+	return nil
+}
+
+script := []scenario.ScriptStep{
+	scenario.User("Start conversation"),
+	scenario.Agent(),
+	scenario.Proceed(
+		scenario.Turns(5),
+		scenario.OnTurn(logTurnProgress), // Called at the start of each new turn
+		scenario.OnStep(safetyCheck),     // Called after each agent interaction
+	),
+	scenario.Judge(),
+}
+```
+
 :::
+
+In Go, the `OnTurn` and `OnStep` callbacks receive the state directly. `state.CurrentTurn()` is 0 during the first turn, as in TypeScript.
 
 ### Dynamic Script Modification
 
@@ -854,6 +1193,33 @@ const script = [
   scenario.agent(), // See how agent handles error
   scenario.judge(),
 ];
+```
+
+```go [go]
+func dynamicScriptLogic(ctx context.Context, ex *scenario.Executor) error {
+	state := ex.State()
+	lastMsg, err := state.LastMessage()
+	if err != nil {
+		return err
+	}
+	// If any message has a ToolCallID, inject a tool error
+	if slices.ContainsFunc(state.Messages(), func(m scenario.Message) bool { return m.ToolCallID != "" }) {
+		ex.AddMessage(scenario.ToolMsg("test_call_123", `{"error": "Service unavailable"}`))
+	}
+	// Continue based on agent's response to the error
+	if strings.Contains(strings.ToLower(lastMsg.Text()), "apologize") {
+		ex.AddMessage(scenario.UserMsg("Is there another way to help me?"))
+	}
+	return nil
+}
+
+script := []scenario.ScriptStep{
+	scenario.User("I need current data"),
+	scenario.Agent(),
+	scenario.StepFunc(dynamicScriptLogic), // Inject tool error
+	scenario.Agent(),                      // See how agent handles error
+	scenario.Judge(),
+}
 ```
 
 :::
@@ -931,6 +1297,42 @@ const script = [
 ];
 ```
 
+```go [go]
+script := []scenario.ScriptStep{
+	// Start with specific setup
+	scenario.User("I need help with a complex issue"),
+	scenario.Agent(),
+
+	// Verify initial response
+	scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+		last, err := ex.State().LastMessage()
+		if err != nil {
+			return err
+		}
+		return scenario.Assert(strings.Contains(strings.ToLower(last.Text()), "help"), "Agent did not offer help")
+	}),
+
+	// Let conversation flow naturally for a while
+	scenario.Proceed(scenario.Turns(3)),
+
+	// Inject a complication
+	scenario.User("Actually, I need to change my original request"),
+	scenario.Agent(),
+
+	// Verify adaptation
+	scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+		last, err := ex.State().LastMessage()
+		if err != nil {
+			return err
+		}
+		return scenario.Assert(len(last.Text()) > 50, "Agent did not provide a substantial adaptation")
+	}),
+
+	// Let judge decide final outcome
+	scenario.Judge(),
+}
+```
+
 :::
 
 ### Best Practices
@@ -981,6 +1383,25 @@ const scriptWithValidation = [
 ];
 ```
 
+```go [go]
+// Start with basic flow
+script := []scenario.ScriptStep{scenario.User("Hello"), scenario.Agent(), scenario.Succeed()}
+
+// Then add validation
+scriptWithValidation := []scenario.ScriptStep{
+	scenario.User("Hello"),
+	scenario.Agent(),
+	scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+		last, err := ex.State().LastMessage()
+		if err != nil {
+			return err
+		}
+		return scenario.Assert(strings.Contains(strings.ToLower(last.Text()), "hello"), "Agent did not greet properly")
+	}),
+	scenario.Succeed(),
+}
+```
+
 :::
 
 #### 2. Use Descriptive Function Names
@@ -1019,6 +1440,29 @@ function verifyAgentAsksForClarification(state: scenario.ScenarioState) {
   ) {
     throw new Error("Agent should ask clarifying questions");
   }
+}
+```
+
+```go [go]
+func ensureNoPIILeaked(ctx context.Context, ex *scenario.Executor) error {
+	last, err := ex.State().LastMessage()
+	if err != nil {
+		return err
+	}
+	return scenario.Assert(!strings.Contains(last.Text(), "George"),
+		"Agent should not mention the user's real name in responses")
+}
+
+func verifyAgentAsksForClarification(ctx context.Context, ex *scenario.Executor) error {
+	last, err := ex.State().LastMessage()
+	if err != nil {
+		return err
+	}
+	content := strings.ToLower(last.Text())
+	asks := slices.ContainsFunc([]string{"what", "which", "how", "when", "where"}, func(word string) bool {
+		return strings.Contains(content, word)
+	})
+	return scenario.Assert(asks, "Agent should ask clarifying questions")
 }
 ```
 
@@ -1076,6 +1520,33 @@ const betterScript = [
   scenario.proceed(2), // Allow natural conversation
   scenario.judge(),
 ];
+```
+
+```go [go]
+// Over-scripted - too rigid
+rigidScript := []scenario.ScriptStep{
+	scenario.User("Exact message 1"),
+	scenario.Agent("Exact response 1"),
+	scenario.User("Exact message 2"),
+	scenario.Agent(),
+	ensureExactResponse2,
+	scenario.Succeed(),
+}
+
+// Better - mix of control and automation
+betterScript := []scenario.ScriptStep{
+	scenario.User("I need help with billing"),
+	scenario.Agent(), // Let agent respond naturally
+	scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+		last, err := ex.State().LastMessage()
+		if err != nil {
+			return err
+		}
+		return scenario.Assert(strings.Contains(strings.ToLower(last.Text()), "account"), "Agent did not mention account")
+	}),
+	scenario.Proceed(scenario.Turns(2)), // Allow natural conversation
+	scenario.Judge(),
+}
 ```
 
 :::
@@ -1158,6 +1629,44 @@ const script = [
 ];
 ```
 
+```go [go]
+// client is an openai.Client from github.com/openai/openai-go/v3
+func llmEvaluator(ctx context.Context, ex *scenario.Executor) error {
+	// Use LLM to evaluate response quality
+	msgs := ex.State().Messages()
+	var lines []string
+	for _, msg := range msgs[max(0, len(msgs)-4):] { // Last 4 messages
+		lines = append(lines, fmt.Sprintf("%s: %s", msg.Role, msg.Text()))
+	}
+	conversation := strings.Join(lines, "\n")
+
+	evaluationPrompt := fmt.Sprintf(`
+    Evaluate this customer service conversation:
+    %s
+
+    Is the agent response professional and helpful? Respond with just "yes" or "no".
+  `, conversation)
+
+	response, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model:    "gpt-4o-mini",
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage(evaluationPrompt)},
+	})
+	if err != nil {
+		return err
+	}
+
+	result := strings.ToLower(strings.TrimSpace(response.Choices[0].Message.Content))
+	return scenario.Assert(result == "yes", "LLM evaluation failed: "+result)
+}
+
+script := []scenario.ScriptStep{
+	scenario.User("I'm frustrated with my service"),
+	scenario.Agent(),
+	scenario.StepFunc(llmEvaluator), // External LLM evaluation
+	scenario.Proceed(),
+}
+```
+
 :::
 
 #### Database Validation
@@ -1203,6 +1712,27 @@ const script = [
   verifyDatabaseUpdate, // Verify actual system changes
   scenario.succeed("Contact information updated successfully"),
 ];
+```
+
+```go [go]
+func verifyDatabaseUpdate(ctx context.Context, ex *scenario.Executor) error {
+	// Extract customer ID from conversation
+	messagesText, _ := json.Marshal(ex.State().Messages())
+	_ = messagesText
+	// This would be actual database check
+	customerUpdated, err := checkCustomerRecordUpdated(ctx, "extracted_from_conversation")
+	if err != nil {
+		return err
+	}
+	return scenario.Assert(customerUpdated, "Agent should have updated customer record")
+}
+
+script := []scenario.ScriptStep{
+	scenario.User("Please update my contact information"),
+	scenario.Agent(),
+	scenario.StepFunc(verifyDatabaseUpdate), // Verify actual system changes
+	scenario.Succeed("Contact information updated successfully"),
+}
 ```
 
 :::

@@ -1,18 +1,3 @@
-// Package openairealtime is the OpenAI Realtime voice adapter: the model
-// itself is the agent under test or, with the user role, the voice user
-// simulator. It speaks the GA Realtime wire protocol over a WebSocket.
-//
-// Wire protocol:
-//   - endpoint wss://api.openai.com/v1/realtime?model=<model>, bearer auth;
-//   - on connect, session.update with session.type "realtime", PCM16 24 kHz
-//     in and out, the voice, and turn detection off (the adapter commits
-//     each user turn and requests the response itself);
-//   - user audio goes out as input_audio_buffer.append (base64 PCM16);
-//   - agent audio comes back as response.output_audio.delta.
-//
-// The socket's credential is minted through package broker when an endpoint
-// resolves (OPENAI_BASE_URL / OPENAI_API_KEY), so a LangWatch AI Gateway
-// budgets and bills the session; otherwise the vendor is dialed directly.
 package openairealtime
 
 import (

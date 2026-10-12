@@ -9,26 +9,28 @@ import { Callout } from "vocs/components";
 
 Scenario supports flexible configuration via several different methods. Not all methods are available in all implementations. The table below shows which methods are available in your implementation:
 
-| Method                                           | JavaScript | Python |
-| ------------------------------------------------ | ---------- | ------ |
-| Environment Variables                            | ✅         | ✅     |
-| Configuration File (`scenario.config.js`/`.mjs`) | ✅         | ❌     |
-| Global Configuration (`scenario.configure()`)    | ❌         | ✅     |
+| Method                                           | JavaScript | Python | Go  |
+| ------------------------------------------------ | ---------- | ------ | --- |
+| Environment Variables                            | ✅         | ✅     | ✅  |
+| Configuration File (`scenario.config.js`/`.mjs`) | ✅         | ❌     | ❌  |
+| Global Configuration (`scenario.configure()`)    | ❌         | ✅     | ✅ (`scenario.Configure()`) |
 
 ## Environment Variables
 
 You can control Scenario's behavior with environment variables. Set these in your shell, CI environment, or a `.env` file.
 
-| Variable                                  | Type   | Default                    | Description                                                          | JavaScript | Python |
-| ----------------------------------------- | ------ | -------------------------- | -------------------------------------------------------------------- | ---------- | ------ |
-| `LANGWATCH_API_KEY`                       | string | —                          | API key for LangWatch reporting.                                     | ✅         | ✅     |
-| `LANGWATCH_ENDPOINT`                      | string | `https://app.langwatch.ai` | Endpoint for LangWatch reporting.                                    | ✅         | ✅     |
-| `SCENARIO_DISABLE_SIMULATION_REPORT_INFO` | string | `false`                    | If set (to any value), disables simulation report info **messages**. | ✅         | ❌     |
-| `LOG_LEVEL`                               | enum   | `info`                     | Log level: `error`, `warn`, `info`, `debug`.                         | ✅         | ❌     |
-| `SCENARIO_BATCH_RUN_ID`                   | string | `batch_<random_id>`        | Unique ID for a batch of scenario runs (useful for CI).              | ✅         | ❌     |
-| `SCENARIO_HEADLESS`                       | bool   | `false`                    | Disables opening the browser window when scenario starts.            | ✅         | ✅     |
-| `SCENARIO_BROWSER`                        | enum   | `auto`                     | Controls if a browser should open when a scenario runs: `auto` reuses an already-open simulations tab and opens one only if none is open, `never` never opens one, `always` opens a new tab every run. | ✅         | ✅     |
-| `SCENARIO_BROWSER_REOPEN_SECONDS`         | int    | `300`                      | Seconds before a scenario set may open a second tab, used as a fallback whenever the SDK can't confirm whether a tab is already open. | ✅         | ✅     |
+| Variable                                  | Type   | Default                    | Description                                                          | JavaScript | Python | Go  |
+| ----------------------------------------- | ------ | -------------------------- | -------------------------------------------------------------------- | ---------- | ------ | --- |
+| `LANGWATCH_API_KEY`                       | string | —                          | API key for LangWatch reporting.                                     | ✅         | ✅     | ✅  |
+| `LANGWATCH_ENDPOINT`                      | string | `https://app.langwatch.ai` | Endpoint for LangWatch reporting.                                    | ✅         | ✅     | ✅  |
+| `SCENARIO_DISABLE_SIMULATION_REPORT_INFO` | string | `false`                    | If set (to any value), disables simulation report info **messages**. | ✅         | ❌     | ✅  |
+| `LOG_LEVEL`                               | enum   | `info`                     | Log level: `error`, `warn`, `info`, `debug`.                         | ✅         | ❌     | ✅  |
+| `SCENARIO_BATCH_RUN_ID`                   | string | `batch_<random_id>`        | Unique ID for a batch of scenario runs (useful for CI).              | ✅         | ❌     | ✅  |
+| `SCENARIO_HEADLESS`                       | bool   | `false`                    | Disables opening the browser window when scenario starts.            | ✅         | ✅     | ✅  |
+| `SCENARIO_BROWSER`                        | enum   | `auto`                     | Controls if a browser should open when a scenario runs: `auto` reuses an already-open simulations tab and opens one only if none is open, `never` never opens one, `always` opens a new tab every run. | ✅         | ✅     | ✅  |
+| `LANGWATCH_PROJECT_ID`                    | string | —                          | Project to report to; required with a personal access token (`pat-lw-…`). | ✅         | ✅     | ✅  |
+| `SCENARIO_SEND_GRANULAR_EVENTS`           | bool   | `false`                    | Streams message events as they happen instead of one snapshot per message. | ❌         | ❌     | ✅  |
+| `SCENARIO_BROWSER_REOPEN_SECONDS`         | int    | `300`                      | Seconds before a scenario set may open a second tab, used as a fallback whenever the SDK can't confirm whether a tab is already open. | ✅         | ✅     | ✅  |
 
 ---
 
@@ -142,12 +144,73 @@ See the [ScenarioConfig class reference](https://github.com/langwatch/scenario/b
 
 ---
 
+## Go: Global Configuration with `scenario.Configure()`
+
+<Callout type="note">
+  Go has no config file. Call `scenario.Configure()` once, usually in
+  `TestMain`, before any scenario runs.
+</Callout>
+
+`scenario.Configure()` sets process-wide defaults. It takes options, so you only set what you need:
+
+```go
+package myagent_test
+
+import (
+	"os"
+	"testing"
+	"time"
+
+	scenario "github.com/langwatch/scenario/go"
+	scenarioopenai "github.com/langwatch/scenario/go/providers/openai"
+	"github.com/openai/openai-go/v3"
+)
+
+func TestMain(m *testing.M) {
+	client := openai.NewClient() // reads OPENAI_API_KEY
+	temperature := 0.1
+	maxTokens := int64(1000)
+
+	scenario.Configure(
+		// Set a default model provider for all agents
+		scenario.WithDefaultModel(scenario.ModelConfig{
+			LLM:         scenarioopenai.NewProvider(&client),
+			Model:       "gpt-4.1-mini",
+			Temperature: &temperature, // Optional, nil keeps the provider default
+			MaxTokens:   &maxTokens,   // Optional
+		}),
+		scenario.WithHeadless(false),
+		// Judge on remote traces (see /advanced/remote-traces)
+		scenario.WithFetchRemoteTraces(false),               // Optional, defaults to false
+		scenario.WithTraceWait(30*time.Second, 30*time.Second), // Optional: timeout and extension
+		scenario.WithTraceQuietPeriod(2*time.Second),        // Optional, defaults to 2s
+	)
+	os.Exit(m.Run())
+}
+```
+
+**Supported options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `WithDefaultModel(scenario.ModelConfig{...})` | Default model for the user simulator and judge agents |
+| `WithHeadless(bool)` | Stops the SDK from opening the browser. Defaults to `SCENARIO_HEADLESS` being set |
+| `WithFetchRemoteTraces(bool)` | Judge fetches the agent's remote traces from LangWatch before the verdict ([details](/advanced/remote-traces)) |
+| `WithTraceWait(timeout, extension)` | How long the judge waits for remote traces, and its one extra wait |
+| `WithTraceQuietPeriod(d)` | How long a remote trace must stay unchanged to count as complete |
+| `WithEvaluatorRunner(r)` | Runs the LangWatch evaluators a scenario declares ([details](/advanced/evaluators)) |
+| `WithGranularEvents(bool)` | Streams message events as they happen. Defaults to `SCENARIO_SEND_GRANULAR_EVENTS` |
+
+Max turns, min turns and verbose output are set per scenario in Go, on `scenario.ScenarioConfig` (`MaxTurns`, `MinTurns`, `Verbose`). Each agent can also override the default model with its own `ModelConfig`.
+
+---
+
 ## Precedence
 
-- Values in `scenario.config.js`/`.mjs` (JavaScript) or `scenario.configure()` (Python) take precedence over environment variables.
+- Values in `scenario.config.js`/`.mjs` (JavaScript), `scenario.configure()` (Python) or `scenario.Configure()` (Go) take precedence over environment variables.
 - Environment variables take precedence over built-in defaults.
 
-## Logging (JavaScript only)
+## Logging (JavaScript and Go)
 
 Scenario uses a log level system to control output. By default, logs are silent unless you set a log level.
 
@@ -155,3 +218,4 @@ Scenario uses a log level system to control output. By default, logs are silent 
 - Example: `LOG_LEVEL=debug` for verbose output.
 - Example: `LOG_LEVEL=error` to only see errors.
 - If not set, the default is `info`, but info logs are mostly related to scenario results.
+- In Go, `SCENARIO_LOG_LEVEL` is read first, then `LOG_LEVEL`. The Go default is `warn`, and `off` silences the logs. `scenario.SetLogger()` replaces the logger with your own `*slog.Logger`.

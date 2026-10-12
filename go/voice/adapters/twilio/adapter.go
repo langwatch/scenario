@@ -1,26 +1,3 @@
-// Package twilio is the real-phone voice transport over Twilio Media
-// Streams, a port of the JavaScript SDK's TwilioAgentAdapter.
-//
-// The adapter speaks the Media Streams protocol (µ-law 8 kHz JSON frames
-// over a WebSocket) and plugs into the voice runtime as a [voice.Transport]
-// (wrap it with voice.NewAgent). It runs in one of two modes:
-//
-//   - SDK-owned (convenience) mode, [New]: Connect starts a local webhook and
-//     media-stream server and exposes it on PublicBaseURL (or a tunnel).
-//     PlaceCall originates an outbound call over Twilio REST; WaitForCall
-//     answers an inbound one. A-leg calls (the stream on our own leg, any
-//     external number) are guarded by a per-call stream nonce, a destination
-//     allowlist, an edge-readiness probe and a call-duration cap.
-//   - Embedded mode, [NewStream]: the adapter runs over a media-stream
-//     WebSocket an embedder already accepted (a server-side runner with its
-//     own listener). There is no SDK-owned server, no tunnel and no REST
-//     dialing. [AcceptConn] completes the WebSocket handshake on a raw
-//     net.Conn first, for embedders that hand over a hijacked or
-//     process-transferred connection.
-//
-// Inbound audio passes an energy gate ([vad.SpeechGate]) before it is
-// queued: a phone line delivers a frame every 20 ms, silence included, and
-// the gate is what lets the runtime's tail-silence turn end fire.
 package twilio
 
 import (

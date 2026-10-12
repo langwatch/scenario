@@ -1,12 +1,3 @@
-// Package composable is a local STT -> LLM -> TTS voice agent: user audio
-// is transcribed, the running conversation goes to a text LLM, and the
-// reply is synthesized. Each of the three seams can be swapped without
-// touching the other two, which keeps prompts, model choice and tool calls
-// under the caller's control.
-//
-// [NewElevenLabs] is the ElevenLabs-flavoured preset (ElevenLabs STT and
-// TTS around any LLM). It is not the hosted ElevenLabs agent: that is
-// package elevenlabs.
 package composable
 
 import (
