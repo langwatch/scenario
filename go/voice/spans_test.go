@@ -207,3 +207,63 @@ func TestBackfillFailureLeavesTranscriptUnset(t *testing.T) {
 		}
 	}
 }
+
+func TestBackfillSpansNestAndLabelSpeakers(t *testing.T) {
+	spans.Reset()
+	tr := &voicetest.Transport{Turns: []voicetest.Turn{reply(0.1, "")}}
+	sim := voice.NewUserSimulator(textUser{}, voice.UserSimulatorOptions{Voice: "fake/v", Synthesize: func(ctx context.Context, text, v string) (voice.AudioChunk, error) {
+		c, _ := voicetest.Synthesize(ctx, text, v)
+		c.Transcript = ""
+		return c, nil
+	}})
+	// Both segments lack transcripts once the user turn's text is dropped.
+	runScenario(t, []scenario.AgentAdapter{fastAgent(tr), sim, &voicetest.Judge{}}, []scenario.ScriptStep{
+		scenario.StepFunc(func(ctx context.Context, ex *scenario.Executor) error {
+			return ex.UserMessage(ctx, voice.AudioMessage(voicetest.Tone(0.05, ""), scenario.RoleUser))
+		}),
+		scenario.Agent(), scenario.Succeed(),
+	}, voice.Config{STT: &voicetest.STT{Text: ""}})
+	batch := spansNamed(voice.SpanSTTBackfill)
+	if len(batch) != 1 {
+		t.Fatalf("%d backfill spans", len(batch))
+	}
+	if v, _ := spanAttr(batch[0], "voice.stt.segment_count"); v != "2" {
+		t.Errorf("segment_count %q", v)
+	}
+	speakers := map[string]bool{}
+	for _, s := range spansNamed(voice.SpanSTTTranscribe) {
+		if s.Parent.SpanID() != batch[0].SpanContext.SpanID() {
+			t.Error("transcribe span not under the batch")
+		}
+		v, _ := spanAttr(s, "voice.stt.speaker")
+		speakers[v] = true
+		if _, ok := spanAttr(s, "voice.stt.transcript_chars"); ok || s.Status.Code == codes.Error {
+			t.Error("an empty transcript must be OK without transcript_chars")
+		}
+	}
+	if !speakers["user"] || !speakers["agent"] {
+		t.Errorf("speakers %v", speakers)
+	}
+}
+
+func TestBackfillFailureMarksTheSpanError(t *testing.T) {
+	spans.Reset()
+	tr := &voicetest.Transport{Turns: []voicetest.Turn{reply(0.1, "")}}
+	runScenario(t, basicAgents(tr), []scenario.ScriptStep{scenario.User(), scenario.Agent(), scenario.Succeed()},
+		voice.Config{STT: &voicetest.STT{Err: errors.New("raw body sk-123")}})
+	ts := spansNamed(voice.SpanSTTTranscribe)
+	if len(ts) != 1 || ts[0].Status.Code != codes.Error || strings.Contains(ts[0].Status.Description, "sk-123") {
+		t.Errorf("transcribe spans %+v", ts)
+	}
+}
+
+func TestNoBackfillSpansWhenEverySegmentHasATranscript(t *testing.T) {
+	spans.Reset()
+	tr := &voicetest.Transport{Turns: []voicetest.Turn{reply(0.1, "said")}}
+	runScenario(t, []scenario.AgentAdapter{fastAgent(tr), &voicetest.User{}, &voicetest.Judge{}}, []scenario.ScriptStep{
+		scenario.User("x"), scenario.Agent(), scenario.Succeed(),
+	}, voice.Config{})
+	if len(spansNamed(voice.SpanSTTBackfill)) != 0 {
+		t.Error("back-fill ran with every transcript present")
+	}
+}

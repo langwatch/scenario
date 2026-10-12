@@ -230,10 +230,10 @@ func (a *Agent) drain(ctx context.Context, s *Session, onFirst func()) (AudioChu
 	}
 	warnSoftCap()
 
-	merged := first
-	var buf []byte
-	var transcripts []string
-	count := 1
+	// Chunks are collected by reference and copied once, at their exact
+	// total size, when the turn ends.
+	var rest []AudioChunk
+	total := len(first.Data)
 	reason := "hard_ceiling"
 	for accumulated < ceiling {
 		next, err := a.transport.ReceiveAudio(ctx, a.ResponseTailSilence)
@@ -245,17 +245,11 @@ func (a *Agent) drain(ctx context.Context, s *Session, onFirst func()) (AudioChu
 			reason = "terminal_chunk"
 			break
 		}
-		if buf == nil {
-			buf = append(make([]byte, 0, 2*(len(first.Data)+len(next.Data))), first.Data...)
-			if first.Transcript != "" {
-				transcripts = append(transcripts, first.Transcript)
-			}
+		if rest == nil {
+			rest = make([]AudioChunk, 0, 64)
 		}
-		buf = append(buf, next.Data...)
-		if next.Transcript != "" {
-			transcripts = append(transcripts, next.Transcript)
-		}
-		count++
+		rest = append(rest, next)
+		total += len(next.Data)
 		accumulated += next.Seconds()
 		warnSoftCap()
 	}
@@ -263,15 +257,36 @@ func (a *Agent) drain(ctx context.Context, s *Session, onFirst func()) (AudioChu
 		warnf(s, "agent turn hit the absolute audio ceiling; terminating the drain (the transport never signalled end-of-stream)",
 			"ceiling_s", ceiling, "response_max_duration_s", maxDur)
 	}
-	if buf != nil {
-		merged = AudioChunk{Data: buf, Transcript: strings.Join(transcripts, " ")}
+	merged := first
+	if len(rest) > 0 {
+		merged = mergeChunks(first, rest, total)
 	}
+	count := 1 + len(rest)
 	SetSpanAttributes(span,
 		attribute.String("voice.audio.terminated_reason", reason),
 		attribute.Int("voice.audio.chunk_count", count),
 		attribute.Int("voice.audio.bytes", len(merged.Data)))
 	EndSpan(span, nil)
 	return merged, nil
+}
+
+// mergeChunks concatenates a turn's audio into one buffer of its exact size
+// and joins the chunk transcripts with spaces.
+func mergeChunks(first AudioChunk, rest []AudioChunk, total int) AudioChunk {
+	data := make([]byte, 0, total)
+	data = append(data, first.Data...)
+	var b strings.Builder
+	b.WriteString(first.Transcript)
+	for _, c := range rest {
+		data = append(data, c.Data...)
+		if c.Transcript != "" {
+			if b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(c.Transcript)
+		}
+	}
+	return AudioChunk{Data: data, Transcript: b.String()}
 }
 
 func warnf(s *Session, msg string, args ...any) {
