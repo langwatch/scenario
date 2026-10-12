@@ -160,3 +160,96 @@ func TestQueueChangesDuringAgentCallKeepUndeliveredMessages(t *testing.T) {
 		})
 	}
 }
+
+// AgentNonBlocking routes the turn and takes the agent's input before it
+// returns: a barge-in the script sends next is neither part of the input
+// nor shares the agent's turn.
+func TestAgentNonBlockingRoutesBeforeReturning(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	var seen []string
+	agent := AgentFunc(func(_ context.Context, in AgentInput) (*AgentReturn, error) {
+		for _, m := range in.Messages {
+			seen = append(seen, m.Content)
+		}
+		<-release
+		return TextReturn("reply"), nil
+	})
+	sim, _ := userSim("x")
+	var turns []int
+	cfg := baseConfig(agent, sim)
+	cfg.Script = []ScriptStep{
+		User("first"),
+		StepFunc(func(ctx context.Context, ex *Executor) error {
+			ex.AgentNonBlocking(ctx)
+			turns = append(turns, ex.state.CurrentTurn())
+			return nil
+		}),
+		User("barge"),
+		StepFunc(func(ctx context.Context, ex *Executor) error {
+			turns = append(turns, ex.state.CurrentTurn())
+			close(release)
+			return ex.PendingAgentTurn().Wait()
+		}),
+		Succeed(),
+	}
+	res, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seen, []string{"first"}) {
+		t.Fatalf("agent input %v, want [first]", seen)
+	}
+	if !slices.Equal(turns, []int{0, 1}) {
+		t.Fatalf("turns %v, want the barge-in on the next turn [0 1]", turns)
+	}
+	if len(res.Messages) != 3 || res.Messages[2].Content != "reply" {
+		t.Fatalf("%+v", res.Messages)
+	}
+}
+
+// verdictJudge is a judge returning a passing verdict: on inline criteria
+// it meets them, else it meets "final".
+type verdictJudge struct{}
+
+func (verdictJudge) Role() AgentRole { return AgentRoleJudge }
+func (verdictJudge) Call(_ context.Context, in AgentInput) (*AgentReturn, error) {
+	met := []string{"final"}
+	if in.JudgmentRequest != nil && in.JudgmentRequest.Criteria != nil {
+		met = in.JudgmentRequest.Criteria
+	}
+	return VerdictReturn(JudgeResult{Success: true, Reasoning: "ok", MetCriteria: met}), nil
+}
+
+// A non-blocking turn ending after the final verdict does not merge the
+// checkpoint criteria into the result a second time.
+func TestNonBlockingTurnDoesNotMergeCheckpointsAgain(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	agent := AgentFunc(func(context.Context, AgentInput) (*AgentReturn, error) {
+		<-release
+		return TextReturn("late"), nil
+	})
+	sim, _ := userSim("x")
+	cfg := baseConfig(agent, sim, verdictJudge{})
+	cfg.Script = []ScriptStep{
+		User("hi"),
+		Judge(WithCriteria("cp")),
+		StepFunc(func(ctx context.Context, ex *Executor) error {
+			ex.AgentNonBlocking(ctx)
+			_, err := ex.Judge(ctx, JudgmentRequest{})
+			close(release)
+			if err != nil {
+				return err
+			}
+			return ex.PendingAgentTurn().Wait()
+		}),
+	}
+	res, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.MetCriteria, []string{"cp", "final"}) {
+		t.Fatalf("met criteria %v, want [cp final]", res.MetCriteria)
+	}
+}

@@ -481,3 +481,33 @@ type silentJudge struct{}
 func (silentJudge) Role() AgentRole                                        { return AgentRoleJudge }
 func (silentJudge) Criteria() []string                                     { return []string{"criterion a"} }
 func (silentJudge) Call(context.Context, AgentInput) (*AgentReturn, error) { return nil, nil }
+
+type ctxEvaluatorRunner struct{ err error }
+
+func (r *ctxEvaluatorRunner) RunEvaluators(ctx context.Context, _ *Executor, _ []ScenarioEvaluator, _ *ScenarioResult) error {
+	r.err = ctx.Err()
+	return nil
+}
+
+// Evaluators run on a verdict reached as the run was cancelled, like the
+// finalizers, instead of getting a dead context.
+func TestEvaluatorsRunAfterCancellation(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runner := &ctxEvaluatorRunner{}
+	cfg := baseConfig(&echoAgent{text: "ok"})
+	cfg.EvaluatorRunner = runner
+	cfg.Evaluators = []ScenarioEvaluator{{Evaluator: "evaluators/x"}}
+	cfg.Script = []ScriptStep{StepFunc(func(ctx context.Context, ex *Executor) error {
+		cancel()
+		ex.Succeed(ctx, "")
+		return nil
+	})}
+	if _, err := Run(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if runner.err != nil {
+		t.Fatalf("evaluators got a cancelled context: %v", runner.err)
+	}
+}

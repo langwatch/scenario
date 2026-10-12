@@ -303,6 +303,7 @@ func TestJudgeLargeTraceDiscoveryAndExhaustion(t *testing.T) {
 type fakeFetcher struct {
 	settled bool
 	calls   []string
+	cleared []string
 }
 
 func (f *fakeFetcher) SettleWait(context.Context, TraceSettleTarget) bool {
@@ -317,7 +318,7 @@ func (f *fakeFetcher) NoneSettled(string, []string) bool { return !f.settled }
 func (f *fakeFetcher) RecordMissingTraceIDs(string, *SpanCollector) {
 	f.calls = append(f.calls, "missing")
 }
-func (f *fakeFetcher) ClearThread(string) {}
+func (f *fakeFetcher) ClearThread(threadID string) { f.cleared = append(f.cleared, threadID) }
 
 func TestJudgeWaitForTracesOnce(t *testing.T) {
 	criteria := []string{"Agent saved the record"}
@@ -410,5 +411,28 @@ func TestJudgeTranscriptTruncatesMedia(t *testing.T) {
 		`tool: [{"type":"tool-result","toolCallId":"c","toolName":"f","output":{"type":"text","value":"sunny"}}]`
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A judge's own collector and fetcher are cleared when the run ends, like
+// the default ones.
+func TestJudgeOwnCollectorAndFetcherClearedAfterRun(t *testing.T) {
+	t.Parallel()
+	const thread = "judge-own-thread"
+	c := NewSpanCollector()
+	c.Add(NewSyntheticErrorSpan([16]byte{9}, thread, "kept"))
+	fetcher := &fakeFetcher{}
+	j := NewJudgeAgent(JudgeAgentConfig{ModelConfig: ModelConfig{LLM: &fakeLLM{}}, SpanCollector: c, TraceFetcher: fetcher})
+	cfg := baseConfig(&echoAgent{text: "ok"}, j)
+	cfg.ThreadID = thread
+	cfg.Script = []ScriptStep{Succeed()}
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(c.SpansForThread(thread)); n != 0 {
+		t.Fatalf("judge collector keeps %d spans of the thread", n)
+	}
+	if !slices.Equal(fetcher.cleared, []string{thread}) {
+		t.Fatalf("judge fetcher cleared %v", fetcher.cleared)
 	}
 }

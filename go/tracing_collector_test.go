@@ -59,6 +59,33 @@ func TestCollectorBoundsUnthreadedProcessTraces(t *testing.T) {
 	}
 }
 
+// Parallel runs under one caller span share its trace: one run ending
+// forgets only its own spans, and the last one the trace.
+func TestCollectorClearThreadKeepsSharedTraceOfOtherThread(t *testing.T) {
+	t.Parallel()
+	c := NewSpanCollector()
+	tr := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(c)).Tracer("test")
+	ctx, caller := tr.Start(context.Background(), "caller")
+	_, a := tr.Start(ctx, "run a", traceAttr("thread-a"))
+	_, b := tr.Start(ctx, "run b", traceAttr("thread-b"))
+	a.End()
+	b.End()
+	caller.End()
+	sa, sb := a.SpanContext(), b.SpanContext()
+
+	c.ClearThread("thread-a")
+	if c.IsProcessSpan(sa.TraceID(), sa.SpanID()) {
+		t.Fatal("ClearThread must forget the cleared thread's spans")
+	}
+	if !c.IsProcessSpan(sb.TraceID(), sb.SpanID()) {
+		t.Fatal("ClearThread of one run must keep another run's spans in the shared trace")
+	}
+	c.ClearThread("thread-b")
+	if n := processTraceCount(c); n != 0 {
+		t.Fatalf("the last thread's ClearThread must release the shared trace, %d left", n)
+	}
+}
+
 // A trace with a live span is never evicted, however many others end.
 func TestCollectorKeepsTracesWithLiveSpans(t *testing.T) {
 	t.Parallel()
