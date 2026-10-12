@@ -389,6 +389,12 @@ func (t *Transport) readLoop(ctx context.Context, conn *websocket.Conn, done cha
 			t.sessionEnded(err)
 			return
 		}
+		t.mu.Lock()
+		stopping := t.stopping
+		t.mu.Unlock()
+		if stopping {
+			continue // the SDK ignores messages once the session is ending
+		}
 		t.handleMessage(ctx, conn, &rs)
 	}
 }
