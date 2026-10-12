@@ -63,7 +63,10 @@ func TestJudgeTwoPhaseContinueThenVerdict(t *testing.T) {
 }
 
 func TestJudgeContentMatchesJSLayout(t *testing.T) {
-	got := buildJudgeContent("user: \"hi\"", "No spans recorded.", additionalContextSection("ctx"))
+	got, large := judgeContent(nil, nil, 100, "user: \"hi\"", additionalContextSection("ctx"))
+	if large {
+		t.Fatal("no spans is never a large trace")
+	}
 	want := "\n    <transcript>\n    user: \"hi\"\n    </transcript>\n    <opentelemetry_traces>\n    No spans recorded.\n    </opentelemetry_traces>\n    <additional_context>\n    ctx\n    </additional_context>\n    "
 	if got != want {
 		t.Fatalf("got %q", got)

@@ -47,38 +47,56 @@ func BenchmarkEventEncodeSnapshot20(b *testing.B) {
 	}
 }
 
-// BenchmarkScenarioRun10Turns runs a full scenario with a fake LLM: user
-// simulator, echo agent and a judge that continues nine times and then
-// decides, like the baseline benchmark of the previous implementation.
+// benchRun10Turns runs a full scenario with a fake LLM: user simulator, echo
+// agent and a judge that continues nine times and then decides, like the
+// baseline benchmark of the previous implementation.
+func benchRun10Turns(b *testing.B, verdict string, criteria []string) {
+	judgeCalls := 0
+	llm := &fakeLLM{answer: func(_ int, p InferenceParams) (*InferenceResult, error) {
+		if len(p.Tools) == 0 {
+			return textAnswer("hello there agent"), nil
+		}
+		judgeCalls++
+		switch {
+		case hasTool(p, "finish_test"):
+			return toolAnswer("finish_test", verdict), nil
+		case judgeCalls >= 10:
+			return toolAnswer("make_verdict", "{}"), nil
+		}
+		return toolAnswer("continue_test", "{}"), nil
+	}}
+	res, err := Run(context.Background(), ScenarioConfig{
+		Name: "bench", Description: "bench", MaxTurns: 20,
+		Agents: []AgentAdapter{
+			&echoAgent{text: "echo reply from the agent under test"},
+			NewUserSimulatorAgent(UserSimulatorAgentConfig{ModelConfig: ModelConfig{LLM: llm, Model: "m"}}),
+			NewJudgeAgent(JudgeAgentConfig{ModelConfig: ModelConfig{LLM: llm, Model: "m"}, Criteria: criteria}),
+		},
+	})
+	if err != nil || !res.Success {
+		b.Fatalf("bad run %v %+v", err, res)
+	}
+}
+
+// BenchmarkScenarioRun10Turns runs one full 10-turn scenario per iteration.
 func BenchmarkScenarioRun10Turns(b *testing.B) {
 	criteria := []string{"agent responds"}
 	verdict := finishArgs(criteria, "passed")
 	b.ReportAllocs()
 	for b.Loop() {
-		judgeCalls := 0
-		llm := &fakeLLM{answer: func(_ int, p InferenceParams) (*InferenceResult, error) {
-			if len(p.Tools) == 0 {
-				return textAnswer("hello there agent"), nil
-			}
-			judgeCalls++
-			switch {
-			case hasTool(p, "finish_test"):
-				return toolAnswer("finish_test", verdict), nil
-			case judgeCalls >= 10:
-				return toolAnswer("make_verdict", "{}"), nil
-			}
-			return toolAnswer("continue_test", "{}"), nil
-		}}
-		res, err := Run(context.Background(), ScenarioConfig{
-			Name: "bench", Description: "bench", MaxTurns: 20,
-			Agents: []AgentAdapter{
-				&echoAgent{text: "echo reply from the agent under test"},
-				NewUserSimulatorAgent(UserSimulatorAgentConfig{ModelConfig: ModelConfig{LLM: llm, Model: "m"}}),
-				NewJudgeAgent(JudgeAgentConfig{ModelConfig: ModelConfig{LLM: llm, Model: "m"}, Criteria: criteria}),
-			},
-		})
-		if err != nil || !res.Success {
-			b.Fatalf("bad run %v %+v", err, res)
-		}
+		benchRun10Turns(b, verdict, criteria)
 	}
+}
+
+// BenchmarkScenarioRun10TurnsParallel runs many full scenarios at once, to
+// surface contention on shared state (span collector, event bus, ids).
+func BenchmarkScenarioRun10TurnsParallel(b *testing.B) {
+	criteria := []string{"agent responds"}
+	verdict := finishArgs(criteria, "passed")
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			benchRun10Turns(b, verdict, criteria)
+		}
+	})
 }
