@@ -288,6 +288,8 @@ func (ex *Executor) startExtensions(ctx context.Context) error {
 }
 
 func (ex *Executor) stopExtensions(ctx context.Context) {
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	for _, s := range ex.hooks.stoppers {
 		s.Stop(ctx, ex)
 	}

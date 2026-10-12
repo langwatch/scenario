@@ -119,11 +119,28 @@ func (ex *Executor) finalize(ctx context.Context, r *ScenarioResult) {
 	if done {
 		return
 	}
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	for _, f := range ex.hooks.finalizers {
 		if err := f.FinalizeResult(ctx, ex, r); err != nil {
 			logger().Warn("result finalizer failed", "error", err.Error())
 		}
 	}
+}
+
+// cleanupTimeout bounds the finalizers and RunStopper hooks of a cancelled
+// run.
+const cleanupTimeout = 30 * time.Second
+
+// cleanupContext is the context of the end-of-run hooks: ctx itself, or,
+// once the run was cancelled, a context detached from the cancellation
+// with a bounded budget, so the hooks can still disconnect sessions, hang
+// up calls and save recordings.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 }
 
 // isFinished reports whether RUN_FINISHED was emitted.
