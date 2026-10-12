@@ -44,7 +44,7 @@
         { "type": "docs", "section": "Documentation", "hidden": false },
         { "type": "refactor", "section": "Code Refactoring", "hidden": false }
       ],
-      "extra-files": ["go.work", "examples/go.mod", "version.go"],
+      "extra-files": ["go.work", "examples/go.mod", "voice/examples/go.mod", "version.go"],
       "exclude-paths": ["go/voice", "go/providers", "go/examples"]
     },
     "go/voice": {
@@ -55,7 +55,7 @@
       "include-v-in-tag": true,
       "prerelease": false,
       "extra-files": ["go.mod"],
-      "exclude-paths": ["go/voice/tunnel/ngrok"],
+      "exclude-paths": ["go/voice/tunnel/ngrok", "go/voice/examples"],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },

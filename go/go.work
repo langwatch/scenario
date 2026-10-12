@@ -27,6 +27,7 @@ use (
 	./providers/gemini
 	./providers/openai
 	./voice
+	./voice/examples
 	./voice/tunnel/ngrok
 )
 
