@@ -94,7 +94,9 @@ func (f *chunkForwarder) forward(chunk openai.ChatCompletionChunk) {
 		if choice.Index != 0 {
 			continue
 		}
-		f.stream.TextDelta(choice.Delta.Content)
+		if choice.Delta.Content != "" {
+			f.stream.TextDelta(choice.Delta.Content)
+		}
 		for _, tc := range choice.Delta.ToolCalls {
 			id, seen := f.ids[tc.Index]
 			if !seen {
