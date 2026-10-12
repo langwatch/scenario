@@ -254,12 +254,12 @@ jobs:
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json files --jq '.files[].path' > /tmp/pr_files.txt
 
           if ! gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr_diff.txt 2>/tmp/pr_diff_err.txt; then
-            # GitHub PR-diff API returns HTTP 406 when the diff exceeds 20k lines.
-            # Treat as oversized — downstream "Fail fast for oversized diffs" handles
+            # GitHub PR-diff API returns HTTP 406 when the diff exceeds 20k lines
+            # or 300 files. Treat as oversized — downstream "Fail fast for oversized diffs" handles
             # this by setting qualifies=false and exiting cleanly.
-            if grep -q "diff exceeded the maximum number of lines" /tmp/pr_diff_err.txt; then
+            if grep -qE "diff exceeded the maximum number of (lines|files)" /tmp/pr_diff_err.txt; then
               ERR_MSG=$(head -c 500 /tmp/pr_diff_err.txt 2>/dev/null || echo "(no stderr captured)")
-              echo "Diff exceeds GitHub API 20k-line limit; treating as oversized."
+              echo "Diff exceeds GitHub API size limit; treating as oversized."
               echo "oversized=true" >> "$GITHUB_OUTPUT"
               # Use a heredoc so multi-line stderr doesn't corrupt GITHUB_OUTPUT format.
               {
