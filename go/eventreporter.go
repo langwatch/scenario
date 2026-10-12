@@ -33,6 +33,11 @@ type eventReporter struct {
 	retryBase time.Duration
 }
 
+// ResolveLangWatch fills the empty fields of c from LANGWATCH_ENDPOINT,
+// LANGWATCH_API_KEY and LANGWATCH_PROJECT_ID; the endpoint defaults to
+// DefaultLangWatchEndpoint.
+func ResolveLangWatch(c LangWatchConfig) LangWatchConfig { return resolveLangWatch(c) }
+
 // resolveLangWatch fills empty fields from the environment.
 func resolveLangWatch(cfgs ...LangWatchConfig) LangWatchConfig {
 	var out LangWatchConfig
