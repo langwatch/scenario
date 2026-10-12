@@ -135,16 +135,34 @@ func (s *ExecutionState) addEncoded(m Message, id string, model []byte) (Message
 // aguiRowsJSON returns the AG-UI JSON of every message, encoding each one
 // at most once for the life of the run.
 func (s *ExecutionState) aguiRowsJSON() [][]byte {
+	var out [][]byte
+	s.withAGUIRowsJSON(func(rows [][]byte) { out = slices.Clone(rows) })
+	return out
+}
+
+// withAGUIRowsJSON calls f with the AG-UI JSON of every message, encoding
+// each one at most once for the life of the run, under the state lock and
+// without copying the list: f must not keep rows or call into the state.
+func (s *ExecutionState) withAGUIRowsJSON(f func(rows [][]byte)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([][]byte, len(s.messages))
 	for i := range s.messages {
 		if s.rows[i] == nil {
-			s.rows[i] = aguiRows(s.messages[i])[0].json
+			s.rows[i] = aguiRowOf(s.messages[i]).json
 		}
-		out[i] = s.rows[i]
 	}
-	return out
+	f(s.rows)
+}
+
+// keepAGUIRow stores the AG-UI JSON of the message at index, already
+// encoded by the caller, unless the message there is no longer the one with
+// id (a rollback in between).
+func (s *ExecutionState) keepAGUIRow(index int, id string, json []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if index < len(s.messages) && s.messages[index].ID == id && s.rows[index] == nil {
+		s.rows[index] = json
+	}
 }
 
 func (s *ExecutionState) setSpanProvider(f func() []sdktrace.ReadOnlySpan) { s.spans = f }
