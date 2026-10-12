@@ -85,6 +85,14 @@ func (q *Queue) Fail(err error) {
 	q.release(taken{err: err})
 }
 
+// FailWaiters fails every parked consumer with err and keeps the buffered
+// chunks for later takes.
+func (q *Queue) FailWaiters(err error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.release(taken{err: err})
+}
+
 // Wake hands c to every parked consumer without buffering it.
 func (q *Queue) Wake(c audio.Chunk) {
 	q.mu.Lock()

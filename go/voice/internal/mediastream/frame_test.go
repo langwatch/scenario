@@ -218,6 +218,18 @@ func TestQueue(t *testing.T) {
 	if err := <-errc; err != context.Canceled {
 		t.Fatalf("fail: %v", err)
 	}
+	go func() { _, err := q.Take(ctx, time.Second); errc <- err }()
+	waitParked(t, &q)
+	q.FailWaiters(context.DeadlineExceeded)
+	if err := <-errc; err != context.DeadlineExceeded {
+		t.Fatalf("FailWaiters: %v", err)
+	}
+	q.Put(audio.Chunk{Data: []byte{1, 1}})
+	q.FailWaiters(context.Canceled) // nobody parked: the chunk stays
+	if q.Len() != 1 {
+		t.Fatal("FailWaiters dropped a buffered chunk")
+	}
+	q.Clear()
 	go func() { c, _ := q.Take(ctx, time.Second); done <- c }()
 	waitParked(t, &q)
 	q.Wake(audio.Chunk{})
