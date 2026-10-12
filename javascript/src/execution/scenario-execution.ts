@@ -1,8 +1,7 @@
 import { context, type Span, SpanStatusCode } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
-import { getLangWatchTracer } from "langwatch";
-import { attributes } from "langwatch/observability";
+import { attributes, getLangWatchTracer } from "langwatch/observability";
 import { filter, Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
