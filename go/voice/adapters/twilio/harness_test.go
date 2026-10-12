@@ -59,6 +59,8 @@ type spyREST struct {
 	dtmfCalls     [][2]string
 	priorVoiceURL string
 	resolveErr    error
+	resolve       func(number string) (string, error)
+	readVoiceURL  func(sid string) (string, error)
 	placeCall     func(PlaceCallParams) (string, error)
 	endCall       func(string) error
 	writeVoiceURL func(sid, url string) error
@@ -77,11 +79,17 @@ func (s *spyREST) ResolvePhoneNumberSID(_ context.Context, n string) (string, er
 	if s.resolveErr != nil {
 		return "", s.resolveErr
 	}
+	if s.resolve != nil {
+		return s.resolve(n)
+	}
 	return phoneSID, nil
 }
 
 func (s *spyREST) ReadVoiceURL(_ context.Context, sid string) (string, error) {
 	s.record("readVoiceUrl", sid)
+	if s.readVoiceURL != nil {
+		return s.readVoiceURL(sid)
+	}
 	return s.priorVoiceURL, nil
 }
 

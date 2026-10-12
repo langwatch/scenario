@@ -217,13 +217,18 @@ func (t *Transport) reply(ctx context.Context, llm scenario.LLM, model, v string
 	text := res.Message.Text()
 	t.mu.Lock()
 	t.lastReply = text
-	t.history = append(t.history, scenario.AssistantMsg(text))
 	t.mu.Unlock()
 
 	audio, err := t.synthesize(ctx, text, v)
 	if err != nil {
 		return voice.AudioChunk{}, err
 	}
+	// Only a reply that was spoken joins the conversation: a retry after a
+	// failed synthesis asks the LLM again and must not stack a second
+	// assistant message.
+	t.mu.Lock()
+	t.history = append(t.history, scenario.AssistantMsg(text))
+	t.mu.Unlock()
 	audio.Transcript = ""
 	if text != "" && len(audio.Data) > 0 {
 		audio.Transcript = text

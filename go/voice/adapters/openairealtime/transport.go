@@ -184,6 +184,10 @@ func (t *Transport) StreamingTranscript() string {
 // WebSocket and sends the initial session.update. Realtime attributes are
 // added to ctx's span (the runtime's voice.adapter.connect).
 func (t *Transport) Connect(ctx context.Context) error {
+	// A second Connect replaces the previous socket rather than leaking it.
+	if t.IsConnected() {
+		_ = t.Disconnect(ctx)
+	}
 	// A reused transport starts each connection with a clean slate.
 	t.mu.Lock()
 	t.responseActive, t.deferredResponseCreate = false, false
@@ -231,6 +235,9 @@ func (t *Transport) Connect(ctx context.Context) error {
 	go t.readLoop(readCtx, conn, q)
 
 	if err := t.writeJSON(ctx, map[string]any{"type": "session.update", "session": t.sessionConfig()}); err != nil {
+		// Tear the half-open session down: closes the socket, stops the
+		// read loop and closes a minted session at zero.
+		_ = t.Disconnect(ctx)
 		return err
 	}
 	voice.SetSpanAttributes(span,

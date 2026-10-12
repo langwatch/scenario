@@ -322,8 +322,10 @@ func TestBLegResolveErrorSurfacesWithNoALegFallback(t *testing.T) {
 	}
 }
 
-func calleeState(a *Adapter) [2]string {
-	return state(a, func(a *Adapter) [2]string { return [2]string{a.calleeSID, a.priorCallee} })
+// calleeState is the number of b-leg callees whose voice URL is recorded
+// for restore.
+func calleeState(a *Adapter) int {
+	return state(a, func(a *Adapter) int { return len(a.priorCallees) })
 }
 
 func TestALegDisconnectIsANoOpOnTheCallee(t *testing.T) {
@@ -336,11 +338,11 @@ func TestALegDisconnectIsANoOpOnTheCallee(t *testing.T) {
 	if err := dialAndConnect(t, a, placeALeg(a)); err != nil {
 		t.Fatal(err)
 	}
-	if calleeState(a) != [2]string{} {
+	if calleeState(a) != 0 {
 		t.Fatal("a-leg set callee state")
 	}
 	_ = a.Disconnect(context.Background())
-	if got := rest.logSince(base); len(got) != 0 || calleeState(a) != [2]string{} {
+	if got := rest.logSince(base); len(got) != 0 || calleeState(a) != 0 {
 		t.Fatalf("callee REST %v", got)
 	}
 
@@ -355,7 +357,7 @@ func TestALegDisconnectIsANoOpOnTheCallee(t *testing.T) {
 		t.Fatal("a stream that never connects must time out")
 	}
 	_ = a.Disconnect(context.Background())
-	if got := rest.logSince(base); len(got) != 0 || calleeState(a) != [2]string{} {
+	if got := rest.logSince(base); len(got) != 0 || calleeState(a) != 0 {
 		t.Fatalf("callee REST %v", got)
 	}
 }

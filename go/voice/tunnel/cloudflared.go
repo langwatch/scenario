@@ -21,6 +21,11 @@ const DefaultCloudflaredStartupTimeout = 30 * time.Second
 // trycloudflareRE matches the hostname cloudflared prints at startup.
 var trycloudflareRE = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
 
+// trycloudflareAPI is the quick-tunnel API host, which cloudflared names in
+// its "failed to request quick Tunnel" error just before exiting: it
+// matches trycloudflareRE but is never a tunnel.
+const trycloudflareAPI = "https://api.trycloudflare.com"
+
 // Cloudflared opens Cloudflare quick tunnels (*.trycloudflare.com) by
 // running the cloudflared binary: no account, no Go dependency. It is the
 // twin of the Python SDK's CloudflareTunnel and the JavaScript SDK's
@@ -72,6 +77,12 @@ func (c Cloudflared) Open(ctx context.Context, port int) (Tunnel, error) {
 	defer timer.Stop()
 	select {
 	case url := <-found:
+		// A process that already exited announced nothing usable.
+		select {
+		case <-t.exited:
+			return nil, fmt.Errorf("tunnel: cloudflared exited (%s) after printing %s", exitStatus(t.waitErr), url)
+		default:
+		}
 		t.url = url
 		t.ready = c.Readiness
 		t.ready.Host = hostOf(url)
@@ -97,7 +108,10 @@ func scanForURL(r io.Reader, found chan<- string) {
 		n, err := r.Read(buf)
 		if n > 0 {
 			seen = append(seen, buf[:n]...)
-			if m := trycloudflareRE.Find(seen); m != nil {
+			for _, m := range trycloudflareRE.FindAll(seen, -1) {
+				if string(m) == trycloudflareAPI {
+					continue
+				}
 				found <- string(m)
 				_, _ = io.Copy(io.Discard, r)
 				return

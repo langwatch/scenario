@@ -69,7 +69,8 @@ func ceilingTimeoutError(timeout, ceiling, floor time.Duration) error {
 	f := seconds(floor)
 	return &ReceiveTimeoutError{Ceiling: true, msg: AdapterName + ": receiveAudio timed out. The absolute ceiling of " +
 		seconds(ceiling) + "s elapsed while the hosted agent kept sending frames, keepalive pings or transcripts, " +
-		"but never audio. Every inbound frame re-arms the idle deadline, so this ceiling, " +
+		"but never audio. Until the agent speaks, and while a tool turn is open, every inbound frame " +
+		"(keepalive pings included) re-arms the idle deadline, so this ceiling, " +
 		"max(ResponseTimeout, " + f + "s), is what bounds the wait. It usually " +
 		"means a wedged server tool or retrieval call, or an agent that ended or " +
 		"transferred its turn. If the agent is only slower than that, raise the agent's " +

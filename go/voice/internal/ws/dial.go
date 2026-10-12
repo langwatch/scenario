@@ -42,7 +42,7 @@ func Dial(ctx context.Context, rawURL string, o *DialOptions) (*Conn, *http.Resp
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("websocket: dial: %w", err)
+		return nil, nil, fmt.Errorf("websocket: dial: %w", redactURLError(err))
 	}
 	switch u.Scheme {
 	case "ws":
@@ -89,7 +89,7 @@ func Dial(ctx context.Context, rawURL string, o *DialOptions) (*Conn, *http.Resp
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("websocket: dial: %w", err)
+		return nil, nil, fmt.Errorf("websocket: dial: %w", redactURLError(err))
 	}
 	if err := verifyServerResponse(resp, key, o.Subprotocols); err != nil {
 		keepBodyHead(resp)
@@ -110,6 +110,29 @@ func Dial(ctx context.Context, rawURL string, o *DialOptions) (*Conn, *http.Resp
 	}
 	c := newConn(s, bufio.NewReaderSize(rwc, readBufferSize), true, resp.Header.Get("Sec-WebSocket-Protocol"))
 	return c, resp, nil
+}
+
+// redactURLError strips the query string (and any password) from the URL
+// a *url.Error prints: signed URLs carry their credential there, and the
+// error flows into logs and spans.
+func redactURLError(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	ue.URL = redactURL(ue.URL)
+	return err
+}
+
+func redactURL(raw string) string {
+	base, query, hasQuery := strings.Cut(raw, "?")
+	if u, err := url.Parse(base); err == nil {
+		base = u.Redacted()
+	}
+	if hasQuery && query != "" {
+		return base + "?[redacted]"
+	}
+	return base
 }
 
 // handshakeClient copies c (http.DefaultClient when nil) for one dial. When

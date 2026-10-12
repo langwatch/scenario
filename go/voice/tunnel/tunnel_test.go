@@ -62,6 +62,28 @@ func TestCloudflaredExitsBeforeURL(t *testing.T) {
 	}
 }
 
+// cloudflared names the API host in the error it logs before exiting when
+// it cannot get a quick tunnel; that is not a tunnel URL.
+func TestCloudflaredIgnoresTheAPIHost(t *testing.T) {
+	bin := fakeCloudflared(t, `echo 'ERR failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": dial tcp: i/o timeout' >&2; exit 1`)
+	_, err := Cloudflared{Binary: bin}.Open(context.Background(), 1)
+	if err == nil || !strings.Contains(err.Error(), "exited (code 1) before announcing a URL") {
+		t.Fatalf("err = %v", err)
+	}
+
+	bin = fakeCloudflared(t, `echo 'WRN retrying https://api.trycloudflare.com/tunnel' >&2
+echo "INF |  https://calm-otter-7.trycloudflare.com  |" >&2
+exec sleep 5`)
+	tun, err := Cloudflared{Binary: bin}.Open(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tun.Close()
+	if tun.URL() != "https://calm-otter-7.trycloudflare.com" {
+		t.Fatalf("URL = %q", tun.URL())
+	}
+}
+
 func TestCloudflaredStartupTimeout(t *testing.T) {
 	bin := fakeCloudflared(t, `sleep 5`)
 	_, err := Cloudflared{Binary: bin, StartupTimeout: 50 * time.Millisecond}.Open(context.Background(), 1)

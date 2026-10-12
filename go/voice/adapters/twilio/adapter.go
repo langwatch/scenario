@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -180,13 +182,19 @@ type Adapter struct {
 	activeReady    TunnelReadiness
 	publicBaseURL  string
 	phoneNumberSID string
+	// priorVoiceURL is the number's voice URL before WaitForCall rewrote
+	// it; priorVoiceRead says it was actually read, so a failed read never
+	// has Disconnect wipe the real URL with "".
 	priorVoiceURL  string
-	calleeSID      string
-	priorCallee    string
-	mode           mode
-	streamConn     mediastream.Conn
-	streamSID      string
-	callSID        string
+	priorVoiceRead bool
+	// priorCallees maps each b-leg callee's number SID to its voice URL
+	// before the first rewrite: a redial keeps the original, never our own
+	// webhook, and every callee touched is restored.
+	priorCallees map[string]string
+	mode         mode
+	streamConn   mediastream.Conn
+	streamSID    string
+	callSID      string
 	// callGeneration is bumped on every (re)connect and dial. A media loop
 	// captures it when it adopts its socket; once it moves, that socket is
 	// stale and is closed on its next frame instead of touching the call.
@@ -387,10 +395,12 @@ func (a *Adapter) connectEmbedded(ctx context.Context) error {
 	a.streamNonce, a.callSID = a.embed.nonce, a.embed.callSID
 	a.sessionCtx, a.sessionCancel = context.WithCancel(context.Background())
 	a.connected = true
-	sig := a.streamConnected
+	sig, cancel := a.streamConnected, a.sessionCancel
 	a.mu.Unlock()
 
+	loopDone := make(chan struct{})
 	go func() {
+		defer close(loopDone)
 		// The adapter owns the socket: it is closed however the stream
 		// ended, as the SDK-owned server closes the ones it accepts. A stream
 		// ended by a stop frame is no longer a live session Disconnect would
@@ -401,6 +411,22 @@ func (a *Adapter) connectEmbedded(ctx context.Context) error {
 		}
 	}()
 	if err := waitSignal(ctx, sig, a.embed.timeout); err != nil {
+		// No start frame, no stream: tear the session down so the adapter
+		// does not stay connected and a retried Connect does not return nil
+		// with nothing streaming.
+		a.mu.Lock()
+		a.localDisconnect = true
+		a.mu.Unlock()
+		a.embed.conn.Close()
+		cancel()
+		select {
+		case <-loopDone:
+		case <-time.After(2 * time.Second):
+			a.logger.Warn("twilio: the media session did not end after its socket was closed")
+		}
+		a.mu.Lock()
+		a.connected = false
+		a.mu.Unlock()
 		return fmt.Errorf("TwilioAgentAdapter: waiting for the media stream's start frame: %w", err)
 	}
 	a.mu.Lock()
@@ -462,20 +488,25 @@ func (a *Adapter) Disconnect(ctx context.Context) error {
 	// From here on the call is ours to end: a watchdog firing mid-teardown
 	// could hang up a later call's SID.
 	a.cancelMaxDurationLocked()
-	md, rest := a.mode, a.rest
-	phoneSID, prior, calleeSID, priorCallee := a.phoneNumberSID, a.priorVoiceURL, a.calleeSID, a.priorCallee
+	rest := a.rest
+	phoneSID, prior, priorRead := a.phoneNumberSID, a.priorVoiceURL, a.priorVoiceRead
+	priorCallees := maps.Clone(a.priorCallees)
 	srv, tun := a.server, a.tun
 	a.mu.Unlock()
 
+	// Only what was actually read is restored: a dial that failed before its
+	// read left nothing of ours to undo.
 	restoreFailed := false
-	if md == modeAnswer && phoneSID != "" && rest != nil {
+	if priorRead && phoneSID != "" && rest != nil {
 		if err := rest.WriteVoiceURL(ctx, phoneSID, prior); err != nil {
 			restoreFailed = true
 		}
 	}
-	if md == modeCall && calleeSID != "" && rest != nil {
-		if err := rest.WriteVoiceURL(ctx, calleeSID, priorCallee); err != nil {
-			restoreFailed = true
+	if rest != nil {
+		for _, sid := range slices.Sorted(maps.Keys(priorCallees)) {
+			if err := rest.WriteVoiceURL(ctx, sid, priorCallees[sid]); err != nil {
+				restoreFailed = true
+			}
 		}
 	}
 	if srv != nil {
@@ -519,7 +550,7 @@ func (a *Adapter) Disconnect(ctx context.Context) error {
 		a.publicBaseURL = ""
 	}
 	a.rest = nil
-	a.phoneNumberSID, a.priorVoiceURL, a.calleeSID, a.priorCallee = "", "", "", ""
+	a.phoneNumberSID, a.priorVoiceURL, a.priorVoiceRead, a.priorCallees = "", "", false, nil
 	a.streamConn, a.streamSID, a.callSID = nil, "", ""
 	return nil
 }

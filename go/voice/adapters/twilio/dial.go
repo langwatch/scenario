@@ -131,16 +131,9 @@ func (a *Adapter) dialOut(ctx context.Context, span trace.Span, rest REST, base 
 		if err != nil {
 			return err
 		}
-		a.mu.Lock()
-		a.calleeSID = sid
-		a.mu.Unlock()
-		prior, err := rest.ReadVoiceURL(ctx, sid)
-		if err != nil {
+		if err := a.savePriorCalleeURL(ctx, rest, sid); err != nil {
 			return err
 		}
-		a.mu.Lock()
-		a.priorCallee = prior
-		a.mu.Unlock()
 		if err := rest.WriteVoiceURL(ctx, sid, strings.TrimSuffix(base, "/")+"/twilio/voice"); err != nil {
 			return err
 		}
@@ -201,6 +194,31 @@ func (a *Adapter) dialOut(ctx context.Context, span trace.Span, rest REST, base 
 	return nil
 }
 
+// savePriorCalleeURL records a b-leg callee's voice URL before its first
+// rewrite. A later PlaceCall to the same number would read back our own
+// webhook, so only the first read per number SID is kept.
+func (a *Adapter) savePriorCalleeURL(ctx context.Context, rest REST, sid string) error {
+	a.mu.Lock()
+	_, saved := a.priorCallees[sid]
+	a.mu.Unlock()
+	if saved {
+		return nil
+	}
+	prior, err := rest.ReadVoiceURL(ctx, sid)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, saved := a.priorCallees[sid]; !saved {
+		if a.priorCallees == nil {
+			a.priorCallees = map[string]string{}
+		}
+		a.priorCallees[sid] = prior
+	}
+	return nil
+}
+
 // WaitForCall points the number's voice URL at this adapter and waits up to
 // timeout (0: DefaultStreamConnectTimeout) for a caller's media stream.
 func (a *Adapter) WaitForCall(ctx context.Context, timeout time.Duration) error {
@@ -225,13 +243,20 @@ func (a *Adapter) WaitForCall(ctx context.Context, timeout time.Duration) error 
 
 func (a *Adapter) answer(ctx context.Context, span trace.Span, rest REST, base, sid string, timeout time.Duration) error {
 	a.resetConnectionStateForDial()
-	prior, err := rest.ReadVoiceURL(ctx, sid)
-	if err != nil {
-		return err
-	}
+	// A repeat WaitForCall finds our own webhook installed: keep the URL
+	// read the first time, which is the one Disconnect must restore.
 	a.mu.Lock()
-	a.priorVoiceURL = prior
+	read := a.priorVoiceRead
 	a.mu.Unlock()
+	if !read {
+		prior, err := rest.ReadVoiceURL(ctx, sid)
+		if err != nil {
+			return err
+		}
+		a.mu.Lock()
+		a.priorVoiceURL, a.priorVoiceRead = prior, true
+		a.mu.Unlock()
+	}
 	if err := rest.WriteVoiceURL(ctx, sid, strings.TrimSuffix(base, "/")+"/twilio/voice"); err != nil {
 		return err
 	}

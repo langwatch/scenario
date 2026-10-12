@@ -89,6 +89,50 @@ func TestReplyTextIsTheChunkTranscript(t *testing.T) {
 	}
 }
 
+// A failed synthesis leaves the history untouched, so the retried turn
+// does not carry the unspoken reply into the LLM call or the history twice.
+func TestFailedSynthesisDoesNotJoinTheHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fail := true
+	tts := func(ctx context.Context, text, v string) (voice.AudioChunk, error) {
+		if fail {
+			return voice.AudioChunk{}, errors.New("tts 503")
+		}
+		return fixedTTS(ctx, text, v)
+	}
+	llm := &fakeLLM{text: "hello back"}
+	tr := must(New(Options{STT: stubSTT("hi"), LLM: llm, Voice: "openai/nova", Synthesize: tts}))
+	if err := tr.SendAudio(ctx, voice.AudioChunk{Data: []byte{1, 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tr.ReceiveAudio(ctx, 30*time.Second); err == nil {
+		t.Fatal("a failed synthesis answered the turn")
+	}
+	fail = false
+	if _, err := tr.ReceiveAudio(ctx, 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	assistants := func(msgs []scenario.Message) int {
+		n := 0
+		for _, m := range msgs {
+			if m.Role == scenario.RoleAssistant {
+				n++
+			}
+		}
+		return n
+	}
+	if got := assistants(llm.calls[1].Messages); got != 0 {
+		t.Fatalf("the retry sent %d unspoken assistant replies to the LLM", got)
+	}
+	tr.mu.Lock()
+	got := assistants(tr.history)
+	tr.mu.Unlock()
+	if got != 1 {
+		t.Fatalf("history holds %d assistant replies, want 1", got)
+	}
+}
+
 func TestTheTranscriptReachesTheAgentMessage(t *testing.T) {
 	t.Parallel()
 	sttCalls := &voicetest.STT{Text: "re-transcribed"}
