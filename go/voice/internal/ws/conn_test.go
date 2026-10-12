@@ -257,6 +257,33 @@ func TestDefaultReadLimit(t *testing.T) {
 	wantProtocolError(t, c, StatusMessageTooBig)
 }
 
+// With no read limit, a hostile 63-bit frame length closes the connection
+// with StatusMessageTooBig instead of reaching an allocation.
+func TestHugeFrameLengthWithoutReadLimit(t *testing.T) {
+	c, p := serverUnderTest(t)
+	c.SetReadLimit(-1)
+	if _, err := p.nc.Write(appendHeader(nil, true, opBinary, 1<<62, true, 0x37FA213D)); err != nil {
+		t.Fatal(err)
+	}
+	wantProtocolError(t, c, StatusMessageTooBig)
+	p.expectClose(StatusMessageTooBig)
+}
+
+// With no read limit, a frame larger than one growth step arrives whole
+// and correctly unmasked.
+func TestLargeFrameWithoutReadLimit(t *testing.T) {
+	c, p := serverUnderTest(t)
+	c.SetReadLimit(-1)
+	payload := make([]byte, 2*readGrowStep+3)
+	for i := range payload {
+		payload[i] = byte(i * 7)
+	}
+	go p.frame(true, opBinary, payload)
+	if _, msg := readOK(t, c); !bytes.Equal(msg, payload) {
+		t.Fatalf("got %d bytes, not the payload", len(msg))
+	}
+}
+
 // -- close handling (Autobahn 7.x)
 
 func TestPeerCloseIsEchoedAndReported(t *testing.T) {

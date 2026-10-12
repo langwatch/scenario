@@ -16,6 +16,14 @@ import (
 const (
 	// DefaultReadLimit bounds one message, as in github.com/coder/websocket.
 	DefaultReadLimit = 32 << 10
+	// MaxMessageSize bounds one message whatever the read limit, also with
+	// none set: a peer-announced frame length past it closes the connection
+	// with StatusMessageTooBig instead of reaching an allocation.
+	MaxMessageSize = 1 << 30
+	// readGrowStep is the most a read grows its buffer by before the bytes
+	// arrive, so a large announced length costs memory only as its payload
+	// is received.
+	readGrowStep = 1 << 20
 	// closeTimeout bounds each half of the close handshake.
 	closeTimeout = 5 * time.Second
 	// writeChunk is the largest write: bigger messages go out in pieces
@@ -73,8 +81,8 @@ func newConn(s stream, br *bufio.Reader, client bool, proto string) *Conn {
 func (c *Conn) Subprotocol() string { return c.proto }
 
 // SetReadLimit sets the largest message Read accepts; a bigger one closes
-// the connection with StatusMessageTooBig. n < 0 removes the limit. The
-// default is DefaultReadLimit.
+// the connection with StatusMessageTooBig. n < 0 removes the limit, short
+// of MaxMessageSize, which always applies. The default is DefaultReadLimit.
 func (c *Conn) SetReadLimit(n int64) { c.readLimit.Store(n) }
 
 // ------------------------------------------------------------------- read
@@ -168,16 +176,27 @@ func (c *Conn) readMessage(dst []byte) (MessageType, []byte, error) {
 		default:
 			return 0, dst, c.fail(protocolError("unknown opcode"))
 		}
-		if limit := c.readLimit.Load(); limit >= 0 && int64(len(dst)-start)+h.length > limit {
+		// h.length is under 1<<63 (readHeader rejects the top bit) and the
+		// message so far under MaxMessageSize, so the sum cannot overflow.
+		size := int64(len(dst)-start) + h.length
+		if limit := c.readLimit.Load(); limit >= 0 && size > limit {
 			return 0, dst, c.fail(&ProtocolError{Code: StatusMessageTooBig, Msg: "message exceeds the read limit"})
 		}
-		n := len(dst)
-		dst = slices.Grow(dst, int(h.length))[:n+int(h.length)]
-		if _, err := io.ReadFull(c.br, dst[n:]); err != nil {
-			return 0, dst[:n], err
+		if size > MaxMessageSize {
+			return 0, dst, c.fail(&ProtocolError{Code: StatusMessageTooBig, Msg: "message exceeds the maximum message size"})
 		}
-		if h.masked {
-			mask(dst[n:], h.key, 0)
+		frameStart := len(dst)
+		for pos, left := 0, int(h.length); left > 0; {
+			k := min(left, readGrowStep)
+			n := len(dst)
+			dst = slices.Grow(dst, k)[:n+k]
+			if _, err := io.ReadFull(c.br, dst[n:]); err != nil {
+				return 0, dst[:frameStart], err
+			}
+			if h.masked {
+				pos = mask(dst[n:], h.key, pos)
+			}
+			left -= k
 		}
 		if h.fin {
 			return typ, dst, nil
