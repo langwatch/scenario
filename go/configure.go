@@ -30,8 +30,10 @@ type Settings struct {
 	// RemoteTraceFetcher fetches remote traces for the judge when
 	// FetchRemoteTraces is on and the judge sets no fetcher of its own.
 	RemoteTraceFetcher RemoteTraceFetcher
-	// BatchRunOpener shows the live batch run; by default the batch is handed
-	// browser. A browser tab handoff package can replace it.
+	// BatchRunOpener shows the live batch run. By default the batch is handed
+	// to this machine's open LangWatch tab, or a tab is opened, following
+	// SCENARIO_BROWSER (auto, never, always), Headless and CI. A custom
+	// opener is not called when Headless is set.
 	BatchRunOpener BatchRunOpener
 	// GranularEvents streams message lifecycle events instead of snapshots.
 	// Defaults to SCENARIO_SEND_GRANULAR_EVENTS.
