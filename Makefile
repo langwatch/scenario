@@ -1,4 +1,4 @@
-.PHONY: help setup \
+.PHONY: help setup go-live \
 	voice-pipecat-up voice-pipecat-down \
 	voice-elevenlabs-provision \
 	voice-demos-up voice-demos-down
@@ -26,6 +26,8 @@ help:
 	@echo "  make python/pdocs"
 
 	@echo "  make python/test tests/test_specific.py"
+	@echo "  make go-live                                # Go live suite (real keys)"
+	@echo "  make go-live MODULES=\"providers/openai live\"  # some Go modules only"
 
 # Directory forwarding rule - handles patterns like python/target
 %/:
@@ -64,6 +66,13 @@ build-docs:
 		echo "Building Python docs..."; \
 		make python/pdocs; \
 	fi
+
+# Run the Go SDK live suite: every module's integration-tagged tests with
+# -tags integration -run Live -count=1 -p 1. Tests without their keys skip
+# and are listed, with the missing variable, in the summary.
+# Usage: make go-live [MODULES="providers/openai live"]
+go-live:
+	@go/scripts/live.sh $(MODULES)
 
 # ---------------------------------------------------------------------------
 # Voice demo infrastructure targets (issue #350)

@@ -260,7 +260,7 @@ func TestLiveVoiceElevenLabsHostedAgent(t *testing.T) {
 // TestLiveVoicePipecatAgent is the port of pipecat-scenario: a running
 // Pipecat bot (for example `make voice-pipecat-up`) is the agent under
 // test. Needs PIPECAT_URL (or PIPECAT_BOT_URL), such as
-// ws://localhost:8765/ws, and OPENAI_API_KEY.
+// ws://localhost:8765/stream for the bundled bot, and OPENAI_API_KEY.
 func TestLiveVoicePipecatAgent(t *testing.T) {
 	url := livetest.RequireAny(t, "PIPECAT_URL", "PIPECAT_BOT_URL")
 	llm := requireOpenAI(t)
