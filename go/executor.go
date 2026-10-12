@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -48,6 +49,8 @@ type Executor struct {
 	runCtx   context.Context
 	turnSpan trace.Span
 	finished bool
+	// finalized is set once the result finalizers ran.
+	finalized bool
 }
 
 // checkpoint is the outcome of an inline-criteria judge step.
@@ -177,12 +180,28 @@ func (ex *Executor) execute(ctx context.Context) (res *ScenarioResult, err error
 	ex.emitter.runStarted(ex.cfg, ex.runAgents())
 
 	defer func() {
+		// A step that panicked or called runtime.Goexit (t.FailNow in a
+		// custom step) skipped every finish path: report the run as an error
+		// run anyway, so finalizers run and RUN_FINISHED is sent, then let
+		// the panic continue.
+		var panicked any
+		if !ex.isFinished() {
+			panicked = recover()
+			cause := errRunAborted
+			if panicked != nil {
+				cause = fmt.Errorf("scenario run panicked: %v", panicked)
+			}
+			res, err = ex.finishWithError(runCtx, cause)
+		}
 		ex.endTurnSpan()
 		ex.stopExtensions(runCtx)
 		if err != nil {
 			runSpan.SetStatus(codes.Error, err.Error())
 		}
 		runSpan.End()
+		if panicked != nil {
+			panic(panicked)
+		}
 	}()
 
 	if err := ex.startExtensions(runCtx); err != nil {
@@ -238,6 +257,10 @@ func (ex *Executor) execute(ctx context.Context) (res *ScenarioResult, err error
 	r := ex.reachedMaxTurns(scriptEndedReasoning)
 	return ex.finish(runCtx, r), nil
 }
+
+// errRunAborted is the error of a run whose script step exited its
+// goroutine (runtime.Goexit, as t.FailNow does) instead of returning.
+var errRunAborted = errors.New("scenario run aborted: a script step exited without returning (t.FailNow or runtime.Goexit)")
 
 const scriptEndedReasoning = "Reached end of script without conclusion, add one of the following:\n" +
 	"- Add `Scenario.judge()` to the script to force criteria judgement\n" +

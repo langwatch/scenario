@@ -109,13 +109,28 @@ func (ex *Executor) runEvaluators(ctx context.Context, r *ScenarioResult) {
 	}
 }
 
-// finalize runs the result finalizers; their errors are logged.
+// finalize runs the result finalizers, once per run; their errors are
+// logged.
 func (ex *Executor) finalize(ctx context.Context, r *ScenarioResult) {
+	ex.mu.Lock()
+	done := ex.finalized
+	ex.finalized = true
+	ex.mu.Unlock()
+	if done {
+		return
+	}
 	for _, f := range ex.hooks.finalizers {
 		if err := f.FinalizeResult(ctx, ex, r); err != nil {
 			logger().Warn("result finalizer failed", "error", err.Error())
 		}
 	}
+}
+
+// isFinished reports whether RUN_FINISHED was emitted.
+func (ex *Executor) isFinished() bool {
+	ex.mu.Lock()
+	defer ex.mu.Unlock()
+	return ex.finished
 }
 
 func (ex *Executor) emitFinished(status RunStatus, r *ScenarioResult) {
