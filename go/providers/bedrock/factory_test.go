@@ -2,9 +2,12 @@ package bedrock
 
 import (
 	"context"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -52,13 +55,20 @@ func TestFactoryUsesEnvCredentialsAndOptions(t *testing.T) {
 
 func TestFactoryAPIKeyIsBearerToken(t *testing.T) {
 	var auth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// The SDK refuses to send a bearer token over plain HTTP, so the fake
+	// endpoint is HTTPS and the default config trusts it via AWS_CA_BUNDLE.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.Copy(io.Discard, r.Body)
 		auth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"output":{"message":{"role":"assistant","content":[{"text":"ok"}]}},"stopReason":"end_turn","usage":{"inputTokens":1,"outputTokens":2,"totalTokens":3},"metrics":{"latencyMs":1}}`)
 	}))
 	defer srv.Close()
+	bundle := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(bundle, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_CA_BUNDLE", bundle)
 	t.Setenv("AWS_REGION", "us-east-1")
 	p, err := New(scenario.ProviderOptions{Provider: "bedrock", APIKey: "bedrock-key", BaseURL: srv.URL})
 	if err != nil {
