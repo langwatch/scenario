@@ -48,6 +48,9 @@ env:
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
   OPENAI_API_BASE: https://gateway.langwatch.ai/v1
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -77,6 +80,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
@@ -132,7 +137,11 @@ jobs:
           sudo dpkg -i /tmp/cloudflared.deb
 
       - name: Run the Go live suite
-        # Inputs reach the shell through the environment, never inline.
+        # Inputs reach the shell through the environment, never inline, and
+        # go straight to the script: `make go-live MODULES=...` would paste
+        # them into the recipe as shell code.
         env:
           MODULES: ${{ inputs.modules }}
-        run: make go-live
+        run: |
+          read -ra modules <<< "$MODULES"
+          go/scripts/live.sh "${modules[@]}"

@@ -276,6 +276,14 @@ check_workflow \
   ".github/workflows/javascript-ci.yml"
 
 check_workflow \
+  "$REPO_ROOT/.github/workflows/go-ci.yml" \
+  "go-ci" \
+  "check" \
+  "go-complete" \
+  "go/**" \
+  ".github/workflows/go-ci.yml"
+
+check_workflow \
   "$REPO_ROOT/.github/workflows/docs-ci.yml" \
   "docs-ci" \
   "build" \
