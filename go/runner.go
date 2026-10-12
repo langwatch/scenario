@@ -142,6 +142,9 @@ func Run(ctx context.Context, cfg ScenarioConfig, opts ...RunOption) (*ScenarioR
 	if f := settings.RemoteTraceFetcher; f != nil {
 		f.ClearThread(cfg.ThreadID)
 	}
+	if f := defaultFetcher.Load(); f != nil {
+		f.ClearThread(cfg.ThreadID)
+	}
 	return result, err
 }
 

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/langwatch/scenario/go/internal/jsstr"
@@ -88,21 +89,112 @@ func renderFullSpan(out *lines, s sdktrace.ReadOnlySpan, attrs []cleanAttribute)
 	return attrs
 }
 
-// searchableLines is the text grep_trace matches against, one entry per line.
-func searchableLines(s sdktrace.ReadOnlySpan, attrs []cleanAttribute) ([]string, []cleanAttribute) {
-	parts := []string{s.Name()}
-	attrs = cleanAttributes(attrs, s.Attributes())
-	for _, a := range attrs {
-		parts = append(parts, a.key+": "+FormatValue(a.value))
+// grepMatcher finds the lines of a span's searchable text (its name, then
+// one "key: value" part per attribute and event) that contain a pattern,
+// case-insensitively. Parts are assembled in a reused buffer, so only
+// matching lines allocate.
+type grepMatcher struct {
+	needle []byte
+	// ascii selects the allocation-free ASCII fold.
+	ascii bool
+	buf   []byte
+	attrs []cleanAttribute
+}
+
+func newGrepMatcher(pattern string) *grepMatcher {
+	m := &grepMatcher{ascii: isASCII(pattern)}
+	if m.ascii {
+		m.needle = []byte(pattern)
+	} else {
+		m.needle = []byte(strings.ToLower(pattern))
 	}
-	for _, ev := range s.Events() {
-		parts = append(parts, ev.Name)
-		attrs = cleanAttributes(attrs, ev.Attributes)
-		for _, a := range attrs {
-			parts = append(parts, a.key+": "+FormatValue(a.value))
+	return m
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
 		}
 	}
-	return strings.Split(strings.Join(parts, "\n"), "\n"), attrs
+	return true
+}
+
+// containsFoldASCII reports whether s contains needle, folding ASCII case.
+func containsFoldASCII(s, needle []byte) bool {
+	n := len(needle)
+	if n == 0 {
+		return true
+	}
+	for i := 0; i+n <= len(s); i++ {
+		j := 0
+		for ; j < n; j++ {
+			a, b := s[i+j], needle[j]
+			if a != b && lowerASCII(a) != lowerASCII(b) {
+				break
+			}
+		}
+		if j == n {
+			return true
+		}
+	}
+	return false
+}
+
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
+func (m *grepMatcher) matches(line []byte) bool {
+	if m.ascii {
+		return containsFoldASCII(line, m.needle)
+	}
+	return bytes.Contains(bytes.ToLower(line), m.needle)
+}
+
+// part appends the matching lines of one part to hits, splitting on
+// newlines the way strings.Split does.
+func (m *grepMatcher) part(hits []string, part []byte) []string {
+	for {
+		i := bytes.IndexByte(part, '\n')
+		line := part
+		if i >= 0 {
+			line = part[:i]
+		}
+		if m.matches(line) {
+			hits = append(hits, string(line))
+		}
+		if i < 0 {
+			return hits
+		}
+		part = part[i+1:]
+	}
+}
+
+func (m *grepMatcher) attributeParts(hits []string, kvs []attribute.KeyValue) []string {
+	m.attrs = cleanAttributes(m.attrs, kvs)
+	for _, a := range m.attrs {
+		m.buf = append(append(append(m.buf[:0], a.key...), ": "...), FormatValue(a.value)...)
+		hits = m.part(hits, m.buf)
+	}
+	return hits
+}
+
+// span returns the matching lines of one span.
+func (m *grepMatcher) span(s sdktrace.ReadOnlySpan) []string {
+	var hits []string
+	m.buf = append(m.buf[:0], s.Name()...)
+	hits = m.part(hits, m.buf)
+	hits = m.attributeParts(hits, s.Attributes())
+	for _, ev := range s.Events() {
+		m.buf = append(m.buf[:0], ev.Name...)
+		hits = m.part(hits, m.buf)
+		hits = m.attributeParts(hits, ev.Attributes)
+	}
+	return hits
 }
 
 // GrepTrace searches every span's name, attributes and events for pattern,
@@ -112,22 +204,14 @@ func GrepTrace(spans []sdktrace.ReadOnlySpan, pattern string) string {
 		return NoSpans
 	}
 	sorted := SortByStartTime(spans)
-	needle := strings.ToLower(pattern)
 	type match struct {
 		span  sdktrace.ReadOnlySpan
 		lines []string
 	}
 	var matches []match
-	var attrs []cleanAttribute
+	matcher := newGrepMatcher(pattern)
 	for _, s := range sorted {
-		var all []string
-		all, attrs = searchableLines(s, attrs)
-		var hits []string
-		for _, line := range all {
-			if strings.Contains(strings.ToLower(line), needle) {
-				hits = append(hits, line)
-			}
-		}
+		hits := matcher.span(s)
 		if len(hits) > 0 {
 			matches = append(matches, match{span: s, lines: hits})
 		}

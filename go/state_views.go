@@ -198,12 +198,14 @@ func spansOfTrace(spans []sdktrace.ReadOnlySpan, id string) []sdktrace.ReadOnlyS
 	return out
 }
 
-// messageTraceIDs returns the distinct trace ids of the messages in
-// first-seen order.
+// MessageTraceIDs returns the distinct trace ids the messages carry, in
+// first-seen order, skipping the all-zero id of a non-recording tracer.
+func MessageTraceIDs(msgs []Message) []string { return messageTraceIDs(msgs) }
+
 func messageTraceIDs(msgs []Message) []string {
 	var ids []string
 	for _, m := range msgs {
-		if m.TraceID != "" && !slices.Contains(ids, m.TraceID) {
+		if m.TraceID != "" && m.TraceID != invalidTraceID && !slices.Contains(ids, m.TraceID) {
 			ids = append(ids, m.TraceID)
 		}
 	}

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
+
+	"github.com/langwatch/scenario/go/internal/browser"
 )
 
 // alertLogger prints the console banners about event reporting: the
@@ -73,33 +73,26 @@ func (a *alertLogger) watchMessage(ctx context.Context, setID, setURL string, lw
 	batchURL := setURL + "/" + a.batchRunID
 	fmt.Fprintf(a.out, "\n%s\n🎭  Running Scenario Tests\n%s\n", separator, separator)
 	fmt.Fprintf(a.out, "Follow it live: %s\n", batchURL)
-	if !a.headless {
-		opener := a.opener
-		if opener == nil {
-			opener = openInBrowser
-		}
-		if opener(ctx, BatchRunInfo{BatchURL: batchURL, BatchRunID: a.batchRunID, ScenarioSetID: setID, LangWatch: lw}) {
-			fmt.Fprintln(a.out, "↻ Sent to the LangWatch tab you already have open")
-		}
+	info := BatchRunInfo{BatchURL: batchURL, BatchRunID: a.batchRunID, ScenarioSetID: setID, LangWatch: lw}
+	handedOff := false
+	switch {
+	case a.opener == nil:
+		handedOff = showBatchRun(ctx, info, a.headless)
+	case !a.headless:
+		handedOff = a.opener(ctx, info)
+	}
+	if handedOff {
+		fmt.Fprintln(a.out, "↻ Sent to the LangWatch tab you already have open")
 	}
 	fmt.Fprintf(a.out, "%s\n\n", separator)
 }
 
-// openInBrowser is the default BatchRunOpener.
-func openInBrowser(_ context.Context, info BatchRunInfo) bool {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", info.BatchURL)
-	case "linux":
-		cmd = exec.Command("xdg-open", info.BatchURL)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", info.BatchURL)
-	default:
-		return false
-	}
-	if cmd.Start() == nil {
-		go func() { _ = cmd.Wait() }()
-	}
-	return false
+// showBatchRun is the default BatchRunOpener: it hands the batch to an open
+// LangWatch tab of this machine, or opens one, as the JS SDK does.
+func showBatchRun(ctx context.Context, info BatchRunInfo, headless bool) bool {
+	l := logger()
+	return browser.Show(ctx, browser.Location{BatchURL: info.BatchURL, BatchRunID: info.BatchRunID, ScenarioSetID: info.ScenarioSetID}, browser.Options{
+		Headless: headless, Endpoint: info.LangWatch.Endpoint, APIKey: info.LangWatch.APIKey, ProjectID: info.LangWatch.ProjectID,
+		HTTPClient: sharedHTTPClient(), Debug: l.Debug, Warn: l.Warn,
+	}) == browser.HandedOff
 }
