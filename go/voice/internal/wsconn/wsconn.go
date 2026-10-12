@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/langwatch/scenario/go/voice/internal/ws"
@@ -73,7 +74,7 @@ func Dial(ctx context.Context, url string, o DialOptions) (Conn, error) {
 			HTTPClient: o.HTTPClient, HTTPHeader: o.Header, Host: o.Host, Subprotocols: o.Subprotocols,
 		})
 		if err != nil {
-			return nil, err
+			return nil, redactDialError(err, url)
 		}
 		return FromCoder(c), nil
 	}
@@ -97,7 +98,7 @@ func DialCoderOptions(ctx context.Context, url string, o *websocket.DialOptions)
 	if o.CompressionMode != websocket.CompressionDisabled || o.OnPingReceived != nil || o.OnPongReceived != nil {
 		c, _, err := websocket.Dial(ctx, url, o)
 		if err != nil {
-			return nil, err
+			return nil, redactDialError(err, url)
 		}
 		return FromCoder(c), nil
 	}
@@ -105,6 +106,26 @@ func DialCoderOptions(ctx context.Context, url string, o *websocket.DialOptions)
 		HTTPClient: o.HTTPClient, Header: o.HTTPHeader, Host: o.Host, Subprotocols: o.Subprotocols,
 	})
 }
+
+// redactDialError hides the query string of url in a coder/websocket dial
+// error, which can carry a signed credential (ElevenLabs'
+// conversation_signature). coder/websocket formats the message when it wraps,
+// so the text is rewritten here; internal/ws redacts its own errors.
+func redactDialError(err error, url string) error {
+	_, query, ok := strings.Cut(url, "?")
+	if !ok || query == "" {
+		return err
+	}
+	return &redactedError{err: err, msg: strings.ReplaceAll(err.Error(), "?"+query, "?[redacted]")}
+}
+
+type redactedError struct {
+	err error
+	msg string
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
 
 // AcceptOptions configure Accept.
 type AcceptOptions struct {

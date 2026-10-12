@@ -2,6 +2,7 @@ package wsconn
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -159,5 +160,25 @@ func TestAcceptServesBothClients(t *testing.T) {
 	echoOnce(t, coder, "coder client")
 	if err := coder.Close(StatusNormalClosure, ""); err != nil {
 		t.Fatalf("coder Close: %v", err)
+	}
+}
+
+func TestCoderDialErrorRedactsTheQueryString(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	url := "ws://" + addr + "/convai?conversation_signature=secret-token"
+	_, err = DialCoderOptions(context.Background(), url, &websocket.DialOptions{CompressionMode: websocket.CompressionContextTakeover})
+	if err == nil {
+		t.Fatal("dial to a closed port succeeded")
+	}
+	if strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("error leaks the signed query: %v", err)
+	}
+	if !strings.Contains(err.Error(), "?[redacted]") {
+		t.Fatalf("error lost the redacted marker: %v", err)
 	}
 }
