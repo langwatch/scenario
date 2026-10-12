@@ -413,6 +413,11 @@ func (a *Adapter) connectEmbedded(ctx context.Context) error {
 	a.mu.Unlock()
 
 	go func() {
+		// The adapter owns the socket: it is closed however the stream
+		// ended, as the SDK-owned server closes the ones it accepts. A stream
+		// ended by a stop frame is no longer a live session Disconnect would
+		// close.
+		defer a.embed.conn.Close()
 		if err := a.runStreamSession(a.embed.conn); err != nil {
 			a.logger.Warn("twilio: media stream failed", "error", err)
 		}

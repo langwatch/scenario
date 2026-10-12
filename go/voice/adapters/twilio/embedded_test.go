@@ -317,3 +317,19 @@ func TestTunnelOptionExposesTheLocalServer(t *testing.T) {
 		t.Fatal("the tunnel outlived the connection")
 	}
 }
+
+func TestEmbeddedSocketIsClosedAfterAStopFrame(t *testing.T) {
+	c := newConn(start695("MZemb", "CAemb"), stopFrame)
+	a := newStream(c, StreamOptions{ConnectTimeout: 2 * time.Second})
+	if err := a.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Disconnect(context.Background())
+	deadline := time.Now().Add(2 * time.Second)
+	for !c.closed() {
+		if time.Now().After(deadline) {
+			t.Fatal("the embedded socket stayed open after the stream stopped")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
