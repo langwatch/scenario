@@ -110,7 +110,11 @@ constraint-dependencies = [
     "urllib3>=2.8.0",  # security: urllib3 advisories covering <2.8.0
     "python-liquid>=2.2.1",
     "filelock>=3.20.3",
-    "virtualenv>=21.7.12",  # security: virtualenv advisories covering <21.7.12
+    "virtualenv>=21.7.13",  # security: virtualenv advisories covering <=21.7.12
+    "fsspec>=2026.6.0",  # security: fsspec advisory covering <2026.6.0
+    "mako>=1.4.2",  # security: Mako advisory covering <=1.4.1
+    "multidict>=6.9.1",  # security: multidict advisory covering 6.7.0-6.9.0
+    "pydantic-ai-slim>=1.107.7",  # security: pydantic-ai advisories fixed on the 1.x line up to 1.107.7
     "pillow>=12.3.0",  # security: pillow advisories (#485, #503-#514)
     "gitpython>=3.1.62",  # security: GitPython advisories (#536-#539, #554-#557, #563, #622-#627, and later ones fixed in 3.1.60 and 3.1.62)
     "pyasn1>=0.6.4",  # security: pyasn1 advisories (#534, #535)
