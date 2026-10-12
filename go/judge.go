@@ -160,9 +160,9 @@ func (j *JudgeAgent) Call(ctx context.Context, in AgentInput) (*AgentReturn, err
 		return nil, nil
 	}
 
-	model := j.cfg.ModelConfig.merged(currentSettings().DefaultModel)
-	if model.LLM == nil {
-		return nil, ErrNoModel
+	model, err := j.cfg.ModelConfig.merged(currentSettings().DefaultModel)
+	if err != nil {
+		return nil, err
 	}
 	msgs, hasAudio, err := j.prepareMessages(ctx, in, model.Model)
 	if err != nil {

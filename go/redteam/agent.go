@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"reflect"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -220,24 +221,26 @@ func (a *Agent) Extension() scenario.Extension { return reportExtension{agent: a
 // models resolves the attacker and metaprompt models against the current
 // default model.
 func (a *Agent) models() (attacker, metaprompt scenario.ModelConfig) {
-	attacker = a.cfg.ModelConfig
-	if attacker.LLM == nil || attacker.Model == "" || attacker.MaxTokens == nil {
-		defaults := scenario.CurrentSettings().DefaultModel
-		if attacker.LLM == nil {
-			attacker.LLM = defaults.LLM
-		}
-		if attacker.Model == "" {
-			attacker.Model = defaults.Model
-		}
-		if attacker.MaxTokens == nil {
-			attacker.MaxTokens = defaults.MaxTokens
-		}
+	// The default's temperature is not inherited: the attacker defaults to
+	// DefaultTemperature instead.
+	temperature := a.cfg.ModelConfig.Temperature
+	attacker = a.cfg.ModelConfig.WithDefaults(scenario.CurrentSettings().DefaultModel)
+	attacker.Temperature = temperature
+	// A "provider/model" string resolves to its registered provider; when it
+	// cannot, LLM stays nil and the calls report scenario.ErrNoModel.
+	if resolved, err := attacker.Resolve(); err == nil {
+		attacker = resolved
 	}
 	if attacker.Temperature == nil {
 		t := DefaultTemperature
 		attacker.Temperature = &t
 	}
 	metaprompt = a.cfg.MetapromptModel
+	if metaprompt.LLM == nil && registeredModel(metaprompt.Model) {
+		if resolved, err := metaprompt.Resolve(); err == nil {
+			metaprompt = resolved
+		}
+	}
 	if metaprompt.LLM == nil {
 		metaprompt.LLM = attacker.LLM
 	}
@@ -248,6 +251,13 @@ func (a *Agent) models() (attacker, metaprompt scenario.ModelConfig) {
 		metaprompt.Temperature = attacker.Temperature
 	}
 	return attacker, metaprompt
+}
+
+// registeredModel reports whether model is a "provider/model" string naming
+// a registered provider.
+func registeredModel(model string) bool {
+	p, _ := scenario.SplitModel(model)
+	return p != "" && slices.Contains(scenario.RegisteredProviders(), p)
 }
 
 // Call implements scenario.AgentAdapter: it generates the next attack.
