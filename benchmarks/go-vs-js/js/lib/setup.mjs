@@ -17,6 +17,25 @@ process.env.SCENARIO_HEADLESS ??= "1";
 process.env.SCENARIO_DISABLE_SIMULATION_REPORT_INFO ??= "1";
 process.env.LOG_LEVEL ??= "error";
 
+// AI SDK 6 calls console.warn on every generateText call whose messages
+// hold a system message, which the JS user simulator and judge always pass
+// (20 lines per run; the AI_SDK_LOG_WARNINGS global does not cover it).
+// Printing them would add terminal I/O to the JS side only, so exactly that
+// message is dropped and counted; everything else is printed as usual.
+const SYSTEM_IN_MESSAGES_WARNING = "AI SDK Warning: System messages in the prompt or messages fields";
+let droppedWarnings = 0;
+const warn = console.warn.bind(console);
+console.warn = (...args) => {
+  if (typeof args[0] === "string" && args[0].startsWith(SYSTEM_IN_MESSAGES_WARNING)) {
+    droppedWarnings++;
+    return;
+  }
+  warn(...args);
+};
+
+/** The AI SDK "system messages" warnings dropped so far (see above). */
+export const droppedAiSdkWarnings = () => droppedWarnings;
+
 /**
  * Loads the SDK and sets up tracing once: the judge span collector, plus an
  * InMemorySpanExporter (the SDK puts traceExporter behind a

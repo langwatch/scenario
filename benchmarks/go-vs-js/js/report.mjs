@@ -158,12 +158,13 @@ if (t.go || t.aisdk || t.direct) {
         row("event bytes posted", tv("event_bytes_per_run", (v) => v), bytes),
         row("messages", tv("messages_per_run", (v) => v), (v) => num(v, 0)),
         row("spans exported", tv("spans_per_run", (v) => v), (v) => num(v, 1)),
+        row("AI SDK warnings dropped, not printed", tv("dropped_ai_sdk_warnings_per_run", (v) => v), (v) => num(v, 1)),
       ]
     ),
     ""
   );
   md.push(
-    "Events, messages and spans are a parity check: the two SDKs should post about the same events. Spans differ by design (the AI SDK adds its own spans per model call).",
+    "Events, messages and spans are a parity check: messages and events must match. Spans differ by design: both SDKs export the run, turn and agent call spans (41); Go adds one chat span per user simulator and judge model call (20), the AI SDK two (40), and the invokeLLM column none. Event bytes differ a little in the AI SDK column because the AI SDK returns the agent's answer as a list of text parts rather than a string (see README.md).",
     ""
   );
 } else md.push("_not run_", "");

@@ -79,7 +79,30 @@ Both sides also share:
 - **A parity check in `results.md`**: messages, events and event bytes
   posted, and spans exported per run, side by side. Messages and events
   should match; if they do not, the two SDKs are not doing the same work and
-  the timing rows should not be compared.
+  the timing rows should not be compared. Spans per run, by design:
+  - Go, 61: the run, 10 turns, 30 agent calls (user simulator, agent,
+    judge) and one `chat.<model>` span per user simulator and judge model
+    call (20).
+  - JS `aisdk`, 81: the run, 10 turns, 30 agent calls, and two AI SDK
+    spans (`ai.generateText`, `ai.generateText.doGenerate`) per user
+    simulator and judge model call (40). The agent under test runs
+    `generateText` with telemetry off, as on the Go side, where its model
+    calls start no span.
+  - JS `direct`, 41: the run, 10 turns and 30 agent calls; `invokeLLM` is
+    replaced, so no model call starts a span.
+
+  Event bytes also differ a little in `aisdk`: the agent's answer comes from
+  the AI SDK's `response.messages`, where text is a list of parts
+  (`[{"type":"text",...}]`) rather than a string, so each snapshot carrying
+  it is a few bytes longer. Go and JS `direct` post byte-identical totals.
+- **AI SDK warnings are dropped, not printed.** The JS user simulator and
+  judge pass their system prompt inside `messages`, and AI SDK 6 then calls
+  `console.warn` ("System messages in the prompt or messages fields...") on
+  every such `generateText` call: 20 lines per run, which the
+  `AI_SDK_LOG_WARNINGS` global does not turn off. Printing them would add
+  terminal I/O on the JS side only, so `js/lib/setup.mjs` drops exactly that
+  message (the check that produces it still runs) and the scenario
+  programs report how many were dropped per run.
 
 ### How the JS side fakes the model
 
@@ -169,10 +192,11 @@ Read the numbers with these in mind.
   The JS HTTP client (undici) and V8's GC also use helper threads.
 - **The AI SDK layer.** In the `aisdk` column every model call goes through
   `generateText`: zod validation of tool inputs, prompt conversion, and two
-  OpenTelemetry spans per call. Those spans are collected for the thread, so
-  the JS judge also reads a larger trace digest than the Go judge. The Go
-  SDK has no such layer (its providers start no spans). The `direct` column
-  removes this layer.
+  OpenTelemetry spans per user simulator and judge call. Those spans are
+  collected for the thread, so the JS judge also reads a larger trace digest
+  than the Go judge (81 spans per run against 61; the Go user simulator and
+  judge start one `chat.<model>` span per call). The `direct` column removes
+  this layer, and with it the model call spans (41 per run).
 - **Work Go does once and JS does every time.** Go caches each message's
   AG-UI JSON and each span's compiled digest for the life of a run; JS
   rebuilds the whole conversation for every MESSAGE_SNAPSHOT and the whole

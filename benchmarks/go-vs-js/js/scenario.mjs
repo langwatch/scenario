@@ -9,7 +9,7 @@
 //
 // Run with node --expose-gc. Every phase starts the in-process event sink
 // and points the run at it, and writes one JSON document to --out.
-import { runFull, setup } from "./lib/setup.mjs";
+import { droppedAiSdkWarnings, runFull, setup } from "./lib/setup.mjs";
 import { startSink } from "./lib/sink.mjs";
 import {
   maxRssBytes,
@@ -48,6 +48,7 @@ const doc = { sdk: "js", mode, phase, node_version: process.version, warmup };
 if (phase === "timing") {
   const durations = [];
   const c0 = sink.counts();
+  const w0 = droppedAiSdkWarnings();
   let spans = 0;
   let messages = 0;
   for (let i = 0; i < runs; i++) {
@@ -59,6 +60,7 @@ if (phase === "timing") {
   }
   const c1 = sink.counts();
   doc.run_ms = summarize(durations);
+  doc.dropped_ai_sdk_warnings_per_run = (droppedAiSdkWarnings() - w0) / runs;
   doc.messages_per_run = messages;
   doc.events_per_run = (c1.events - c0.events) / runs;
   doc.event_bytes_per_run = (c1.bytes - c0.bytes) / runs;
