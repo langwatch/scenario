@@ -96,6 +96,10 @@ func (c ModelConfig) merged(defaults ModelConfig) ModelConfig {
 // ErrNoModel is returned when neither the agent nor Configure provides an LLM.
 var ErrNoModel = errors.New("a model is required: set LLM on the agent config or call scenario.Configure(scenario.WithDefaultModel(...))")
 
+// errNilInference is returned when an LLM reports neither a result nor an
+// error, which the agents would otherwise dereference.
+var errNilInference = errors.New("the model returned neither a result nor an error")
+
 // invoker calls an LLM and learns, per agent, which request features the
 // provider rejects: a forced tool choice or a temperature. On such an error
 // the call is retried once with the feature adapted, and later calls apply
@@ -124,6 +128,9 @@ func (iv *invoker) invoke(ctx context.Context, llm LLM, params InferenceParams) 
 		adapted := iv.apply(params)
 		res, err := llm.Inference(ctx, adapted)
 		if err == nil {
+			if res == nil {
+				return nil, errNilInference
+			}
 			return res, nil
 		}
 		if !iv.learn(err, adapted) {
