@@ -372,10 +372,11 @@ func (ex *Executor) startTurn(run func() error) *TurnHandle {
 // AgentNonBlocking starts an agent turn without waiting for it, the
 // primitive behind voice barge-in tests. The script continues while the
 // agent responds; the run waits for the turn before it ends, and its error
-// fails the run.
-func (ex *Executor) AgentNonBlocking(ctx context.Context) *TurnHandle {
+// fails the run. With content, the messages are the agent's turn instead of
+// a response of the agent under test, as with AgentMessage.
+func (ex *Executor) AgentNonBlocking(ctx context.Context, content ...Message) *TurnHandle {
 	return ex.startTurn(func() error {
-		_, err := ex.scriptCallAgent(ctx, AgentRoleAgent, nil, nil)
+		_, err := ex.scriptCallAgent(ctx, AgentRoleAgent, content, nil)
 		return err
 	})
 }
