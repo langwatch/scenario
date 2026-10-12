@@ -330,10 +330,13 @@ func TestScheduledBargeInWaitsForThisTurnsSpeech(t *testing.T) {
 	tr := newSlowStarter()
 	cfg := alwaysInterrupt([2]float64{0, 0})
 	cfg.WaitForSpeech = 5 * time.Second
-	agents := []scenario.AgentAdapter{fastAgent(tr), &voicetest.User{}, &voicetest.Judge{Verdict: voicetest.Pass()}}
+	// The judge lets the run continue: a passing one would end it on the
+	// first turn's judge step, before the barge-in turn is ever scheduled.
+	agents := []scenario.AgentAdapter{fastAgent(tr), &voicetest.User{}, &voicetest.Judge{}}
 	res := runScenario(t, agents, []scenario.ScriptStep{
 		scenario.Agent(),
 		scenario.Proceed(scenario.Turns(2)),
+		scenario.Succeed("done"),
 	}, cfg)
 	if len(interrupts(voice.ResultOf(res))) == 0 {
 		t.Fatal("no barge-in")
