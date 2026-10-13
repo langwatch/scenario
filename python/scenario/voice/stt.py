@@ -32,7 +32,17 @@ from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
 
 
 class STTProvider(ABC):
-    """Abstract base for speech-to-text providers."""
+    """Abstract base for speech-to-text providers.
+
+    The default ``__repr__`` is deterministic and credential-free: a provider
+    instance reaches run configs, and the scenario cache derives its key from
+    ``config.model_dump()``, so an object-address repr would give every run a
+    fresh cache entry. Subclasses may override (see ElevenLabsSTTProvider)
+    but must keep the repr stable across instances with the same settings.
+    """
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(api_key='***')"
 
     @abstractmethod
     async def transcribe(self, audio: AudioChunk) -> str:
