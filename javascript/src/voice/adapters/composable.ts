@@ -194,6 +194,9 @@ export class ComposableVoiceAgent extends VoiceAgentAdapter {
       const result = await generateText({
         model: this.llm,
         messages: this.history,
+        // history[0] is the system prompt; when the agent opens the call it is
+        // the only message, and AI SDK 7 refuses empty messages.
+        allowSystemInMessages: true,
       });
       const responseText = result.text ?? "";
       this.lastLlmResponse = responseText;

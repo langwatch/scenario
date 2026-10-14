@@ -16,11 +16,9 @@ describe("False Assumptions", () => {
       call: async (input) => {
         const response = await generateText({
           model: openai("gpt-5-mini"),
-          messages: [
-            { role: "system", content: "You are a helpful assistant" },
-            ...input.messages,
-          ],
-          experimental_telemetry: { isEnabled: true },
+          instructions: "You are a helpful assistant",
+          messages: input.messages,
+          telemetry: { isEnabled: true },
         });
 
         return response.text;

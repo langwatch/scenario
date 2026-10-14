@@ -35,7 +35,7 @@ export const createLLMInvoker = (
       try {
         return await generate({
           ...adapted,
-          experimental_telemetry: { isEnabled: true },
+          telemetry: { isEnabled: true },
         });
       } catch (error) {
         const adaptation = adaptationFor(error, adapted);

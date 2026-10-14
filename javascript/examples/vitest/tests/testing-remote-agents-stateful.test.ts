@@ -42,15 +42,10 @@ beforeAll(async () => {
           // Generate response with full history
           const result = await generateText({
             model: openai("gpt-5-mini"),
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are a helpful travel assistant. Help users plan their trips and provide information about destinations.",
-              },
-              ...history,
-            ],
-            experimental_telemetry: { isEnabled: true },
+            instructions:
+              "You are a helpful travel assistant. Help users plan their trips and provide information about destinations.",
+            messages: history,
+            telemetry: { isEnabled: true },
           });
 
           // Add assistant response to history

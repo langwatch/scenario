@@ -26,6 +26,40 @@ pnpm install @langwatch/scenario vitest
 
 :::
 
+<Callout type="info">
+The TypeScript SDK targets [AI SDK](https://ai-sdk.dev) 7 and Node.js 22.12 or later. If your project is still on AI SDK 6, stay on `@langwatch/scenario` 1.x until you upgrade.
+</Callout>
+
+### AI SDK telemetry (TypeScript)
+
+AI SDK 7 emits no spans until a telemetry integration is registered, so the judge and LangWatch cannot see your agent's LLM calls by default. Register the OpenTelemetry integration once at start-up, for example in a Vitest setup file:
+
+```bash
+pnpm install @ai-sdk/otel
+```
+
+```typescript
+// vitest.setup.ts
+import { OpenTelemetry } from "@ai-sdk/otel";
+import { registerTelemetry } from "ai";
+
+registerTelemetry(new OpenTelemetry());
+```
+
+To attach per-call metadata to the spans (a user id, a tenant, a feature flag), pass it as `runtimeContext` and opt each key in with `telemetry.includeRuntimeContext`. Turn on `runtimeContext` on the integration too; the values are emitted as `ai.settings.context.<key>`:
+
+```typescript
+registerTelemetry(new OpenTelemetry({ runtimeContext: true }));
+
+await generateText({
+  model: openai("gpt-5-mini"),
+  instructions: "You are a vegetarian recipe agent.",
+  messages: input.messages,
+  runtimeContext: { userId: "user-123" },
+  telemetry: { functionId: "recipe-agent", includeRuntimeContext: { userId: true } },
+});
+```
+
 ## Quick Start
 
 Create your first Scenario test. This example demonstrates testing a vegetarian recipe agent:
@@ -138,10 +172,8 @@ const vegetarianRecipeAgent: AgentAdapter = {
   call: async (input) => {
     const response = await generateText({
       model: openai("gpt-4.1-mini"),
-      messages: [
-        { role: "system", content: "You are a vegetarian recipe agent." },
-        ...input.messages,
-      ],
+      instructions: "You are a vegetarian recipe agent.",
+      messages: input.messages,
     });
     return response.text;
   },

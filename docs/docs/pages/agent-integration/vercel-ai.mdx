@@ -20,11 +20,8 @@ import { generateText } from 'ai';
 async function myAgent(prompt: string) {
   const result = await generateText({
     model: openai('gpt-4-turbo'),
+    instructions: 'You are a helpful AI assistant.',
     messages: [
-      {
-        role: 'system',
-        content: 'You are a helpful AI assistant.',
-      },
       {
         role: 'user',
         content: prompt,
@@ -46,7 +43,7 @@ const createMyAgentAdapter = (): AgentAdapter => {
     name: "VercelAIAgent",
     call: async (input) => {
       const result = await myAgent(input.messages.at(-1)?.content);
-      return result.response.messages;
+      return result.responseMessages;
     },
   };
 };
