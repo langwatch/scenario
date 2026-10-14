@@ -153,7 +153,124 @@ if grep -qi "not gateway budget refusals\|does not excuse" "$MIXED_LOG"; then
 else
   fail "the mixed verdict does not explain itself"
 fi
+if grep -q "AssertionError" "$MIXED_LOG"; then
+  pass "a mixed run shows the non-budget failure message"
+else
+  fail "a mixed run hides the non-budget failure message"
+fi
+if grep -q "expected hello to equal goodbye" "$MIXED_LOG"; then
+  pass "a mixed run shows the non-budget failure body"
+else
+  fail "a mixed run hides the non-budget failure body"
+fi
 rm -f "$MIXED_LOG" "$MIXED_JUNIT"
+
+echo ""
+echo "=== failure reasons are visible without changing the verdict (#1010) ==="
+ERROR_XML='<testsuites><testsuite name="examples" tests="1" errors="1">
+  <testcase classname="examples.test_foo" name="test_error">
+    <error message="AttributeError">missing evaluator result</error>
+  </testcase>
+</testsuite></testsuites>'
+
+diagnostic_case() {
+  local label="$1" xml="$2" message="$3" body="$4"
+  local junit log got
+  junit="$(mktemp)"
+  log="$(mktemp)"
+  report "$xml" "$junit"
+  gate EXAMPLES_TOUCHED=false EXAMPLES_REPORT="$junit" GITHUB_STEP_SUMMARY=/dev/null \
+    bash "$GATE" bash -c "exit 7" >"$log" 2>&1
+  got=$?
+  if [ "$got" -eq 7 ]; then
+    pass "$label preserves the suite exit status"
+  else
+    fail "$label changes exit 7 to $got"
+  fi
+  if grep -Fq "$message" "$log"; then
+    pass "$label shows the message attribute"
+  else
+    fail "$label hides the message attribute"
+  fi
+  if grep -Fq "$body" "$log"; then
+    pass "$label shows the report body"
+  else
+    fail "$label hides the report body"
+  fi
+  rm -f "$junit" "$log"
+}
+
+diagnostic_case "a failure node" "$REAL_XML" "AssertionError" "expected hello to equal goodbye"
+diagnostic_case "an error node" "$ERROR_XML" "AttributeError" "missing evaluator result"
+
+DIAGNOSTIC_JUNIT="$(mktemp)"
+DIAGNOSTIC_LOG="$(mktemp)"
+report "$ERROR_XML" "$DIAGNOSTIC_JUNIT"
+CLASSIFICATION="$(python3 "$SCRIPT_DIR/ci/classify-examples-failures.py" "$DIAGNOSTIC_JUNIT" 2>"$DIAGNOSTIC_LOG")"
+if [ "$CLASSIFICATION" = "mixed examples.test_foo::test_error" ]; then
+  pass "failure details leave the stdout classification protocol unchanged"
+else
+  fail "failure details corrupt the stdout classification protocol: $CLASSIFICATION"
+fi
+
+report "$BUDGET_XML" "$DIAGNOSTIC_JUNIT"
+python3 "$SCRIPT_DIR/ci/classify-examples-failures.py" "$DIAGNOSTIC_JUNIT" > /dev/null 2>"$DIAGNOSTIC_LOG"
+if [ ! -s "$DIAGNOSTIC_LOG" ]; then
+  pass "budget-only failures do not emit non-budget diagnostics"
+else
+  fail "budget-only failures emit non-budget diagnostics"
+fi
+
+python3 - "$DIAGNOSTIC_JUNIT" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+suite = ET.Element("testsuite")
+for index in range(1, 7):
+    case = ET.SubElement(suite, "testcase", name=f"case{index}")
+    ET.SubElement(case, "failure", message=f"reason{index}")
+ET.ElementTree(suite).write(sys.argv[1])
+PY
+python3 "$SCRIPT_DIR/ci/classify-examples-failures.py" "$DIAGNOSTIC_JUNIT" > /dev/null 2>"$DIAGNOSTIC_LOG"
+if [ "$(grep -c '^\[examples failure\]' "$DIAGNOSTIC_LOG")" -eq 5 ]; then
+  pass "failure diagnostics are limited to five tests"
+else
+  fail "failure diagnostics do not report exactly the first five tests"
+fi
+if grep -q "case6" "$DIAGNOSTIC_LOG"; then
+  fail "failure diagnostics include a test past the five-test limit"
+else
+  pass "failure diagnostics omit tests past the five-test limit"
+fi
+
+python3 - "$DIAGNOSTIC_JUNIT" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+suite = ET.Element("testsuite")
+case = ET.SubElement(suite, "testcase", name="long_failure")
+ET.SubElement(case, "failure", message="AssertionError").text = "x" * 10000 + "TAIL_MARKER"
+ET.ElementTree(suite).write(sys.argv[1])
+PY
+python3 "$SCRIPT_DIR/ci/classify-examples-failures.py" "$DIAGNOSTIC_JUNIT" > /dev/null 2>"$DIAGNOSTIC_LOG"
+if python3 - "$DIAGNOSTIC_LOG" <<'PY'
+import pathlib
+import sys
+
+lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
+raise SystemExit(0 if len(lines) == 1 and len(lines[0]) <= len("[examples failure] ") + 1003 else 1)
+PY
+then
+  pass "a long failure is bounded to 1000 characters plus prefix and truncation marker"
+else
+  fail "a long failure is unbounded or missing"
+fi
+if grep -q '\.\.\.$' "$DIAGNOSTIC_LOG" && ! grep -q "TAIL_MARKER" "$DIAGNOSTIC_LOG"; then
+  pass "a truncated failure is marked and omits its tail"
+else
+  fail "a truncated failure is not marked or retains its tail"
+fi
+rm -f "$DIAGNOSTIC_JUNIT" "$DIAGNOSTIC_LOG"
 
 echo ""
 echo "=== the reason survives the log ==="
@@ -488,7 +605,7 @@ done
 echo ""
 # A harness that runs nothing prints the same happy line as one that runs
 # everything. This is what makes the line above mean something.
-EXPECTED_CHECKS=44
+EXPECTED_CHECKS=58
 if [ "$CHECKS" -ne "$EXPECTED_CHECKS" ]; then
   echo "  FAIL: ran $CHECKS checks, expected $EXPECTED_CHECKS; the harness is not running what it claims"
   FAIL=1
