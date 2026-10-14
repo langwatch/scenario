@@ -21,6 +21,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 BUDGET_MARKERS = ("budget_exceeded", "budget_scope")
+MAX_DIAGNOSTIC_CHARS = 1000
 
 # A JUnit report from pytest or vitest is kilobytes. Anything past this is not
 # one, and reading it would be the denial of service rather than the defence.
@@ -69,14 +70,21 @@ def classify(path: str) -> str:
         problems = list(case.findall("failure")) + list(case.findall("error"))
         if not problems:
             continue
-        text = " ".join(
+        detail = " ".join(
             f"{p.get('message') or ''} {p.text or ''}" for p in problems
-        ).lower()
+        )
+        text = detail.lower()
         if any(marker in text for marker in BUDGET_MARKERS):
             budget += 1
         else:
             name = f"{case.get('classname') or ''}::{case.get('name') or '?'}"
             other.append(name.strip(":"))
+            if len(other) <= 5:
+                reason = " ".join(detail.split()) or "(no failure message in report)"
+                diagnostic = f"{other[-1]}: {reason}"
+                if len(diagnostic) > MAX_DIAGNOSTIC_CHARS:
+                    diagnostic = diagnostic[:MAX_DIAGNOSTIC_CHARS] + "..."
+                print(f"[examples failure] {diagnostic}", file=sys.stderr)
 
     if other:
         return "mixed " + "; ".join(other[:5])
