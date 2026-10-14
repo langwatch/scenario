@@ -218,6 +218,7 @@ describe("JudgeAgent", () => {
   });
 
   describe("when custom system prompt is used with large trace", () => {
+    /** @scenario "The judge sends its system prompt as instructions" */
     it("preserves the custom system prompt", async () => {
       const largeTrace = createLargeTrace();
       const collector = createMockSpanCollector(largeTrace);
@@ -244,15 +245,16 @@ describe("JudgeAgent", () => {
 
       await agent.call(createBaseInput());
 
-      const systemMsg = capturedParams!.messages?.find(
-        (m) => "role" in m && m.role === "system"
-      );
-      expect(systemMsg).toBeDefined();
+      const instructions = capturedParams!.instructions;
+      expect(instructions).toBeDefined();
       const content =
-        typeof systemMsg!.content === "string"
-          ? systemMsg!.content
-          : JSON.stringify(systemMsg!.content);
+        typeof instructions === "string"
+          ? instructions
+          : JSON.stringify(instructions);
       expect(content).toContain(customPrompt);
+      expect(
+        capturedParams!.messages?.some((m) => m.role === "system")
+      ).toBe(false);
     });
   });
 

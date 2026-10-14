@@ -39,7 +39,7 @@ const userDataAgent: AgentAdapter = {
       messages: input.messages,
       tools: { fetch_user_data: fetchUserDataTool },
       toolChoice: "auto",
-      experimental_telemetry: { isEnabled: true },
+      telemetry: { isEnabled: true },
     });
     return response.text;
   },

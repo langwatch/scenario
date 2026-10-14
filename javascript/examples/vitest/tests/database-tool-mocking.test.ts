@@ -52,7 +52,7 @@ const databaseAgent: AgentAdapter = {
         find_user: findUserTool,
       },
       toolChoice: "auto",
-      experimental_telemetry: { isEnabled: true },
+      telemetry: { isEnabled: true },
     });
     return response.text;
   },

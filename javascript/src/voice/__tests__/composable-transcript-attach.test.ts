@@ -37,13 +37,16 @@ const stubStt: STTProvider = {
 /** Minimal ai-sdk LanguageModel stub returning a fixed reply. */
 function stubLlm(text: string): LanguageModel {
   return {
-    specificationVersion: "v3" as const,
+    specificationVersion: "v4" as const,
     provider: "fake",
     modelId: "fake-model",
     supportedUrls: {},
     doGenerate: async () => ({
-      finishReason: "stop",
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      finishReason: { unified: "stop", raw: "stop" },
+      usage: {
+        inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: 0 },
+      },
       content: [{ type: "text", text }],
       warnings: [],
     }),
