@@ -47,6 +47,19 @@ All arguments are keyword/option-named. Beyond the core ones:
 `validate_signature` (default `True` — set to `False` only when running against a
 local test harness that can't sign webhook requests).
 
+### Python inbound speech gate
+
+Twilio streams audio continuously, including silence. The Python adapter admits
+audio above an RMS threshold of 800 (PCM16 scale), plus 300 ms of pre-roll and
+400 ms of quiet audio after speech. This leaves an arrival gap so the shared
+response drain can end a turn on tail silence while the call stays connected.
+
+Use `speech_gate=scenario.TwilioSpeechGateOptions(rms_threshold=600,
+hangover_ms=500, preroll_ms=300)` to tune it for a different line, or
+`speech_gate=False` to receive every media batch. Disconnect spans report
+`voice.twilio.speech_gate.enabled`, `dropped_chunks`, `dropped_ms`, and `onsets`
+under the same `voice.twilio.speech_gate` prefix.
+
 ## Test harness (recommended)
 
 For end-to-end tests you need a public HTTPS URL that routes Twilio's webhook to
