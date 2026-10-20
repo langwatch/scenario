@@ -118,7 +118,7 @@ constraint-dependencies = [
     "pillow>=12.3.0",  # security: pillow advisories (#485, #503-#514)
     "gitpython>=3.1.62",  # security: GitPython advisories (#536-#539, #554-#557, #563, #622-#627, and later ones fixed in 3.1.60 and 3.1.62)
     "pyasn1>=0.6.4",  # security: pyasn1 advisories (#534, #535)
-    "aiohttp>=3.14.3",  # security: aiohttp advisories (#594-#596)
+    "aiohttp>=3.14.4",  # security: aiohttp advisories (#594-#596, and three covering <=3.14.3)
     "cryptography>=50.0.0",  # security: cryptography advisory (#597)
     "anyio>=4.14.2",  # security: anyio advisories (#745, #746)
     "httpx2>=2.12.0",  # security: httpx2 advisories (#708-#710)
