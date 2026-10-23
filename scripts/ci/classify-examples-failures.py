@@ -20,7 +20,21 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 
-BUDGET_MARKERS = ("budget_exceeded", "budget_scope")
+# The gateway refuses an over-budget key in more than one shape. A direct call
+# gets HTTP 402 `budget_exceeded`; a call that goes out through litellm comes
+# back as a RateLimitError carrying the gateway's own sentence instead, and the
+# 402 never appears in the report. Observed on 2026-09-08, when 27 of the 30
+# python examples failed together on "AI gateway access is exhausted" while this
+# classifier saw no budget marker at all and called every one of them a defect.
+#
+# Each marker has to be a string only the gateway can produce. "ratelimiterror"
+# on its own would not qualify: an example that mishandles a real 429 from a
+# provider deserves to fail, and matching the generic name would hide it.
+BUDGET_MARKERS = (
+    "budget_exceeded",
+    "budget_scope",
+    "ai gateway access is exhausted",
+)
 
 # A JUnit report from pytest or vitest is kilobytes. Anything past this is not
 # one, and reading it would be the denial of service rather than the defence.
