@@ -1850,7 +1850,7 @@ class ScenarioExecutor:
 
         self._pending_agents_on_turn.remove(next_agent)
 
-        if content:
+        if content is not None:
             if isinstance(content, str):
                 message = (
                     ChatCompletionUserMessageParam(role="user", content=content)
