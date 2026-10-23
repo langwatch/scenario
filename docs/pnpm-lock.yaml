@@ -19,7 +19,7 @@ overrides:
   picomatch@>=4 <4.0.4: 4.0.4
   '@hono/node-server@>=1.0.0 <1.19.15': '>=1.19.15 <2'
   glob@>=10.2.0 <10.5.0: 10.5.0
-  dompurify@>=3.0.0 <3.4.16: '>=3.4.16 <4'
+  dompurify@>=3.0.0 <3.4.17: '>=3.4.17 <4'
   compression@<1.8.2: '>=1.8.2 <2'
   source-map-js@>=1.0.0 <1.2.2: '>=1.2.2 <2'
   mermaid@>=11.0.0 <11.16.1: '>=11.16.1 <12'
@@ -33,7 +33,7 @@ overrides:
   hono@>=4.0.0 <4.13.5: '>=4.13.5 <5'
   nanoid@>=3.0.0 <3.3.18: '>=3.3.18 <4'
   browserslist@>=4.0.0 <4.28.7: '>=4.28.7 <5'
-  toml@>=3.0.0 <4.2.0: '>=4.2.0 <5'
+  toml@>=3.0.0 <5.0.1: '>=5.0.1 <6'
 
 importers:
 
@@ -2700,8 +2700,8 @@ packages:
     resolution: {integrity: sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw==}
     engines: {node: '>=0.10.0'}
 
-  dompurify@3.4.16:
-    resolution: {integrity: sha512-sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ==}
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -4646,8 +4646,8 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
-  toml@4.3.0:
-    resolution: {integrity: sha512-lVb8X9BsPVuH0M4BKeS91tXAmJvCjQ5UIyAbQFaxkKGyUFK2RPkhwaFSQH8vbpl1d23eu/IBH+dwVMHWaq9A5A==}
+  toml@5.0.1:
+    resolution: {integrity: sha512-EqYNA/YvUNndrA2B3O2ojzLQoTQrBxeZ9UIjQwk8t10oe6n7dwclBwd9IdZQTOKwe6vWX+AXtl6IntXRbepdxQ==}
     engines: {node: '>=20'}
 
   trim-lines@3.0.1:
@@ -7645,7 +7645,7 @@ snapshots:
     dependencies:
       esutils: 2.0.3
 
-  dompurify@3.4.16:
+  dompurify@3.4.17:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -9028,7 +9028,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.21
-      dompurify: 3.4.16
+      dompurify: 3.4.17
       es-toolkit: 1.49.0
       fastdom: 1.0.12
       katex: 0.16.47
@@ -9900,7 +9900,7 @@ snapshots:
     dependencies:
       '@types/mdast': 4.0.4
       estree-util-value-to-estree: 3.5.0
-      toml: 4.3.0
+      toml: 5.0.1
       unified: 11.0.5
       unist-util-mdx-define: 1.1.2
       yaml: 2.9.0
@@ -10319,7 +10319,7 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
-  toml@4.3.0: {}
+  toml@5.0.1: {}
 
   trim-lines@3.0.1: {}
 
@@ -10687,7 +10687,7 @@ snapshots:
       remark-parse: 11.0.0
       serve-static: 1.16.3
       shiki: 1.29.2
-      toml: 4.3.0
+      toml: 5.0.1
       twoslash: 0.2.12(typescript@5.9.3)
       ua-parser-js: 1.0.41
       unified: 11.0.5
