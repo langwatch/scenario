@@ -110,6 +110,10 @@ constraint-dependencies = [
     "urllib3>=2.8.0",  # security: urllib3 advisories covering <2.8.0
     "python-liquid>=2.2.1",
     "filelock>=3.20.3",
+    # filelock 4.2.1 fixes the advisories covering 3.20.4-4.2.0 but needs Python 3.11, and on 3.10
+    # virtualenv 21.14.9 (itself a security floor) needs filelock>=3.24.2, so 3.10 stays exposed (#1029).
+    "filelock>=4.2.1; python_full_version >= '3.11'",
+    "filelock<4.1.0; python_full_version < '3.11'",  # 4.1.0-4.2.0 add three more advisories
     "virtualenv>=21.14.9",  # security: virtualenv advisories covering <21.14.9
     "fsspec>=2026.6.0",  # security: fsspec advisory covering <2026.6.0
     "mako>=1.4.2",  # security: Mako advisory covering <=1.4.1
