@@ -10,6 +10,7 @@ import {
 } from "./scenario-execution-state";
 import { resolveAgents } from "../agents/connected-agent";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
+import { isEmptyAgentTurn } from "../agents/utils";
 import { getGlobalSettings } from "../config/configure";
 import { getProjectConfig } from "../config/get-project-config";
 import {
@@ -1267,6 +1268,18 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
             agentResponse,
             role === AgentRole.USER ? "user" : "assistant"
           );
+
+          // Voice adapters stream audio and may legitimately return nothing here.
+          // currentTurn is 0-based; the error names the 1-based turn a reader counts.
+          if (
+            role === AgentRole.AGENT &&
+            !this.voiceAdapters.includes(agent as VoiceAgentAdapter) &&
+            isEmptyAgentTurn(messages)
+          ) {
+            throw new Error(
+              `agent returned no content on turn ${this.state.currentTurn + 1}`
+            );
+          }
 
           // Set output for the span
           if (messages.length > 0) {
