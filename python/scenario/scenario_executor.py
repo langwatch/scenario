@@ -1121,8 +1121,6 @@ class ScenarioExecutor:
                     ChatCompletionUserMessageParam(role="user", content=input_message)
                 ]
 
-        from .voice.adapter import VoiceAgentAdapter
-
         try:
             with self._trace.span(
                 type="agent", name=f"{agent.__class__.__name__}.call"
@@ -1211,6 +1209,8 @@ class ScenarioExecutor:
                     )
                     # Voice adapters stream audio and may legitimately return nothing here.
                     # current_turn is 0-based; the error names the 1-based turn a reader counts.
+                    from .voice.adapter import VoiceAgentAdapter
+
                     if (
                         role == AgentRole.AGENT
                         and not isinstance(agent, VoiceAgentAdapter)

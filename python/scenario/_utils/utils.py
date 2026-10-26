@@ -494,7 +494,8 @@ def is_empty_agent_turn(messages: List[Any]) -> bool:
     Whether an agent turn carries nothing: no messages, or only blank ones.
 
     A message counts as content when it has non-blank text, a non-empty
-    ``tool_calls`` list, a ``tool``/``function`` role, or any non-text content
+    ``tool_calls`` list, a ``tool``/``function`` role, a message-level
+    ``audio``/``refusal``/``function_call`` field, or any non-text content
     part (audio, image, file, refusal, ...). A bare "-" is content.
 
     Args:
@@ -507,6 +508,11 @@ def is_empty_agent_turn(messages: List[Any]) -> bool:
         if safe_attr_or_key(message, "role") in ("tool", "function"):
             return False
         if safe_attr_or_key(message, "tool_calls"):
+            return False
+        if any(
+            safe_attr_or_key(message, field)
+            for field in ("audio", "refusal", "function_call")
+        ):
             return False
         content = safe_attr_or_key(message, "content")
         if isinstance(content, list):

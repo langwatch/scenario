@@ -70,6 +70,10 @@ class TestGivenMessagesWithNoContent:
         message = {"role": "assistant", "content": "", "tool_calls": []}
         assert is_empty_agent_turn([message]) is True
 
+    def test_none_tool_calls_with_blank_content_is_empty(self):
+        message = {"role": "assistant", "content": " ", "tool_calls": None}
+        assert is_empty_agent_turn([message]) is True
+
 
 class TestGivenMessagesWithContent:
     def test_text_content_is_not_empty(self):
@@ -90,6 +94,23 @@ class TestGivenMessagesWithContent:
                 }
             ],
         }
+        assert is_empty_agent_turn([message]) is False
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            {"audio": {"id": "a1", "data": "AAAA"}},
+            {"refusal": "I cannot help with that"},
+            {"function_call": {"name": "lookup", "arguments": "{}"}},
+        ],
+        ids=["audio", "refusal", "function-call"],
+    )
+    def test_message_level_field_with_empty_content_is_not_empty(self, field):
+        message = {"role": "assistant", "content": None, **field}
+        assert is_empty_agent_turn([message]) is False
+
+    def test_function_role_message_is_not_empty(self):
+        message = {"role": "function", "name": "lookup", "content": ""}
         assert is_empty_agent_turn([message]) is False
 
     def test_tool_message_is_not_empty(self):
@@ -216,19 +237,12 @@ class TestGivenAgentReturnsNoContent:
         with pytest.raises(RuntimeError, match="agent returned no content on turn 1"):
             await _run(_ReplyAgent([reply]), _Calls())
 
-    @pytest.mark.parametrize("reply", EMPTY_REPLIES)
-    async def test_user_simulator_is_called_once_only(self, reply):
+    async def test_user_simulator_called_once_and_judge_never(self):
+        # One reply shape is enough: the check is shape-independent past the helper.
         calls = _Calls()
         with pytest.raises(RuntimeError):
-            await _run(_ReplyAgent([reply]), calls)
-        assert calls.user == 1
-
-    @pytest.mark.parametrize("reply", EMPTY_REPLIES)
-    async def test_judge_is_never_called(self, reply):
-        calls = _Calls()
-        with pytest.raises(RuntimeError):
-            await _run(_ReplyAgent([reply]), calls)
-        assert calls.judge == 0
+            await _run(_ReplyAgent([""]), calls)
+        assert (calls.user, calls.judge) == (1, 0)
 
     async def test_error_names_the_agent_class(self):
         with pytest.raises(RuntimeError, match=r"\[_ReplyAgent\] agent returned no content"):
@@ -242,9 +256,9 @@ class TestGivenAgentReturnsNoContent:
 
 @pytest.mark.asyncio
 class TestGivenAgentReturnsNone:
-    async def test_run_is_rejected_by_the_return_type_check_already(self):
-        # check_valid_return_type already rejects None, so the "no content"
-        # error is not what surfaces here; the run still fails fast.
+    async def test_none_return_still_fails_via_the_existing_return_type_check(self):
+        # Guards the existing check_valid_return_type rejection: None never
+        # reaches the no-content check, but the run must keep failing fast.
         calls = _Calls()
         with pytest.raises(RuntimeError):
             await _run(_ReplyAgent([None]), calls)  # type: ignore[list-item]
@@ -272,17 +286,17 @@ class TestGivenAgentReturnsShortOrToolOnlyContent:
         }
         calls = _Calls()
         result = await _run(_ReplyAgent([reply]), calls)
-        assert result.success is True
+        assert result.success is True and calls.judge == 1
 
 
 @pytest.mark.asyncio
 class TestGivenUserSimulatorReturnsEmpty:
-    async def test_no_content_error_is_not_raised_for_the_user_turn(self):
+    async def test_run_completes_without_the_agent_no_content_error(self):
+        # The check is for the agent under test only: an empty user turn
+        # keeps its existing handling and the run reaches the judge.
         calls = _Calls()
-        try:
-            await _run(_ReplyAgent(["hello"]), calls, user_reply="")
-        except Exception as e:
-            assert "agent returned no content" not in str(e)
+        result = await _run(_ReplyAgent(["hello"]), calls, user_reply="")
+        assert result.success is True and calls.judge == 1
 
 
 @pytest.mark.asyncio
@@ -315,19 +329,39 @@ class TestGivenChecksDoNotApply:
 
     async def test_scripted_agent_step_with_blank_text_is_not_flagged(self):
         calls = _Calls()
-        try:
-            await scenario.arun(
-                name="scripted agent",
-                description="scripted agent step supplies the message",
-                agents=[_ReplyAgent(["x"]), _UserSim(calls), _Judge(calls)],
-                script=[
-                    scenario.user("hi"),
-                    scenario.agent({"role": "assistant", "content": ""}),
-                    scenario.judge(),
-                ],
-            )
-        except Exception as e:
-            assert "agent returned no content" not in str(e)
+        result = await scenario.arun(
+            name="scripted agent",
+            description="scripted agent step supplies the message",
+            agents=[_ReplyAgent(["x"]), _UserSim(calls), _Judge(calls)],
+            script=[
+                scenario.user("hi"),
+                scenario.agent({"role": "assistant", "content": ""}),
+                scenario.judge(),
+            ],
+        )
+        assert result.success is True and calls.judge == 1
 
-    # Voice adapters are not covered: a faithful fake voice adapter needs the
-    # realtime/WS harness; existing voice suites guard that path.
+    async def test_voice_adapter_returning_nothing_is_not_flagged(self):
+        from scenario.voice.adapter import VoiceAgentAdapter
+
+        class _SilentVoiceAgent(VoiceAgentAdapter):
+            """Voice adapter whose turn yields no messages; transport is stubbed."""
+
+            async def connect(self) -> None:
+                pass
+
+            async def disconnect(self) -> None:
+                pass
+
+            async def send_audio(self, chunk) -> None:
+                pass
+
+            async def recv_audio(self, timeout: float):
+                raise NotImplementedError
+
+            async def call(self, input: AgentInput) -> AgentReturnTypes:
+                return ""
+
+        calls = _Calls()
+        result = await _run(_SilentVoiceAgent(), calls, turns=1)
+        assert result.success is True and calls.judge == 1

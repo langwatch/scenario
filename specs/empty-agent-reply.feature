@@ -24,7 +24,7 @@ Feature: A scenario run fails fast when the agent under test returns no content
     And the user simulator and judge are fakes that count their calls (no LLM)
 
   # ======================================================================
-  # AC1 — empty agent turn fails the run at once
+  # AC1 — empty agent turn fails the run at once (1-based turn N)
   # ======================================================================
 
   @integration
@@ -48,6 +48,23 @@ Feature: A scenario run fails fast when the agent under test returns no content
     When the scenario runs
     Then the run raises an error containing "agent returned no content on turn 2"
 
+  @integration
+  Scenario Outline: JS: the run fails when the agent returns <reply>
+    Given the agent under test returns <reply>
+    When the scenario runs
+    Then the run raises an error containing "agent returned no content on turn 1"
+
+    Examples:
+      | reply     |
+      | null      |
+      | undefined |
+
+  @integration
+  Scenario: A rejected empty turn is not added to the conversation
+    Given the agent under test returns an empty string
+    When the scenario runs and raises
+    Then state.messages holds no assistant message
+
   # ======================================================================
   # AC2 — what counts as "no content" (helper)
   # ======================================================================
@@ -64,6 +81,7 @@ Feature: A scenario run fails fast when the agent under test returns no content
       | one message with whitespace-only content          |
       | one message with null content                     |
       | one message with an empty content list            |
+      | PY: one message with tool_calls None and blank content |
       | one message whose only text parts are blank       |
       | several messages that are all empty               |
 
@@ -77,6 +95,9 @@ Feature: A scenario run fails fast when the agent under test returns no content
       | one message with text content                                 |
       | an assistant message with tool calls and empty content        |
       | a tool message (PY role "tool" / JS tool-result parts)        |
+      | PY: a message with role "function"                            |
+      | PY: a message with audio, refusal or function_call set        |
+      | a refusal part                                                |
       | a message with an audio, image or file part                   |
       | one empty message next to one message with text               |
 
@@ -92,7 +113,7 @@ Feature: A scenario run fails fast when the agent under test returns no content
     And the judge is called
 
   # ======================================================================
-  # AC4 — tool-only and voice turns unchanged
+  # AC2 (cont.) / AC4 — tool-only turns are content
   # ======================================================================
 
   @integration
@@ -100,9 +121,10 @@ Feature: A scenario run fails fast when the agent under test returns no content
     Given the agent under test returns an assistant message with tool calls and no text
     When the scenario runs
     Then the run does not raise
+    And the judge is called
 
   # ======================================================================
-  # AC5 — user simulator and judge are not checked
+  # AC4 (cont.) — user simulator and judge are not checked
   # ======================================================================
 
   @integration
@@ -110,10 +132,10 @@ Feature: A scenario run fails fast when the agent under test returns no content
     Given the user simulator returns an empty string
     And the agent under test returns "hello"
     When the scenario runs
-    Then the error "agent returned no content" is never raised
+    Then the run completes and the judge is called
 
   # ======================================================================
-  # AC4 (cont.) — other turns not checked; AC1 — empty turn not stored
+  # AC4 (cont.) — turns that are not checked
   # ======================================================================
 
   @integration
@@ -126,15 +148,15 @@ Feature: A scenario run fails fast when the agent under test returns no content
   Scenario: A scripted agent step with blank text is not flagged
     Given the script supplies an agent message with blank content
     When the scenario runs
-    Then the error "agent returned no content" is never raised
-
-  # Voice agent adapters are not checked; no automated test (needs the realtime harness).
+    Then the run completes and the judge is called
 
   @integration
-  Scenario: A rejected empty turn is not added to the conversation
-    Given the agent under test returns an empty string
-    When the scenario runs and raises
-    Then state.messages holds no assistant message
+  Scenario: A voice agent adapter that returns nothing is not flagged
+    Given the agent under test is a voice adapter with a stubbed transport
+    And its call returns no messages
+    When the scenario runs
+    Then the error "agent returned no content" is never raised
+    And the judge is called
 
   # ======================================================================
   # AC6 / AC7 — docs and proof (not test-automated here)
@@ -142,21 +164,23 @@ Feature: A scenario run fails fast when the agent under test returns no content
   # AC6: adapter docs say adapters raise on error, not return a placeholder reply (docs review).
   # AC7: a real scenario run with an empty-reply agent fails at turn 1; output pasted in the PR.
 
-  # --- AC Coverage Map ---
-  # AC 1: "empty agent turn fails the run with 'agent returned no content on turn N'; no more sim/judge calls" ->
+  # --- AC Coverage Map (AC numbers from issue #1033) ---
+  # AC 1: "empty agent turn fails the run with 'agent returned no content on turn N' (1-based); no more sim/judge calls; turn not stored" ->
   #   Scenario Outline: The run fails when the agent returns <reply> on turn 1 (@integration)
   #   Scenario: The turn number in the error is the current turn (@integration)
-  # AC 2: "definition of no content" ->
+  #   Scenario Outline: JS: the run fails when the agent returns <reply> (@integration)
+  #   Scenario: A rejected empty turn is not added to the conversation (@integration)
+  # AC 2: "definition of no content / what counts as content" ->
   #   Scenario Outline: The helper treats <case> as an empty agent turn (@unit)
   #   Scenario Outline: The helper treats <case> as content (@unit)
+  #   Scenario: A tool-only agent turn is not flagged (@integration)
   # AC 3: "'-' is content" ->
   #   Scenario: A "-" reply is content and the run goes on (@integration)
-  # AC 4: "tool-only and audio turns unchanged" ->
-  #   Scenario: A tool-only agent turn is not flagged (@integration)
-  #   Scenario Outline: The helper treats <case> as content (@unit)
-  # AC 1 (cont.): Scenario: A rejected empty turn is not added to the conversation (@integration)
-  # AC 4 (cont.): ScenarioResult and scripted-agent scenarios (@integration); voice not tested
-  # AC 5: "user-sim and judge turns not checked" ->
+  # AC 4: "voice adapters, ScenarioResult returns, scripted agent steps, user-sim and judge turns not checked" ->
+  #   Scenario: A voice agent adapter that returns nothing is not flagged (@integration)
+  #   Scenario: A ScenarioResult return from the agent is not flagged (@integration)
+  #   Scenario: A scripted agent step with blank text is not flagged (@integration)
   #   Scenario: An empty user-simulator turn is not flagged by this check (@integration)
+  # AC 5: "no regression" -> existing suites in CI, no new scenario
   # AC 6: "docs say adapters raise on error" -> docs review, no automated test
   # AC 7: "real run proof in the PR" -> manual proof, no automated test

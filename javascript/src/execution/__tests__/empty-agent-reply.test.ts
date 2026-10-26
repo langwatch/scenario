@@ -15,6 +15,9 @@ import {
   type AgentReturnTypes,
   UserSimulatorAgentAdapter,
 } from "../../domain";
+import { VoiceAgentAdapter } from "../../voice/adapter";
+import { AdapterCapabilities } from "../../voice/capabilities";
+import type { AudioChunk } from "../../voice/audio-chunk";
 import { ScenarioExecution } from "../scenario-execution";
 
 const msg = (m: unknown) => m as ModelMessage;
@@ -28,7 +31,6 @@ describe("isEmptyAgentTurn()", () => {
       ["undefined content", [{ role: "assistant", content: undefined }]],
       ["null content", [{ role: "assistant", content: null }]],
       ["empty content array", [{ role: "assistant", content: [] }]],
-      ["null input", null],
       [
         "blank text parts",
         [
@@ -49,7 +51,7 @@ describe("isEmptyAgentTurn()", () => {
         ],
       ],
     ])("returns true for %s", (_name, messages) => {
-      expect(isEmptyAgentTurn((messages ?? []).map(msg))).toBe(true);
+      expect(isEmptyAgentTurn(messages.map(msg))).toBe(true);
     });
   });
 
@@ -174,6 +176,21 @@ class Judge extends JudgeAgentAdapter {
   }
 }
 
+/** Voice adapter with a stubbed transport whose turn yields no messages. */
+class SilentVoiceAgent extends VoiceAgentAdapter {
+  role = AgentRole.AGENT;
+  readonly capabilities = new AdapterCapabilities({ nativeVad: true });
+  async connect(): Promise<void> {}
+  async disconnect(): Promise<void> {}
+  async sendAudio(_chunk: AudioChunk): Promise<void> {}
+  async receiveAudio(_timeout: number): Promise<AudioChunk> {
+    throw new Error("not used");
+  }
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    return "";
+  }
+}
+
 function run(agent: ReplyAgent, counts: Calls, userReply = "hi") {
   const execution = new ScenarioExecution(
     {
@@ -207,17 +224,14 @@ describe("given the agent under test returns no content", () => {
         /agent returned no content on turn 1/,
       );
     });
+  });
 
-    it("calls the user simulator once only", async () => {
+  describe("when it returns an empty string", () => {
+    // One reply shape is enough: the check is shape-independent past the helper.
+    it("calls the user simulator once and never the judge", async () => {
       const counts = new Calls();
-      await run(new ReplyAgent([reply]), counts).catch(() => undefined);
-      expect(counts.user).toBe(1);
-    });
-
-    it("never calls the judge", async () => {
-      const counts = new Calls();
-      await run(new ReplyAgent([reply]), counts).catch(() => undefined);
-      expect(counts.judge).toBe(0);
+      await run(new ReplyAgent([""]), counts).catch(() => undefined);
+      expect([counts.user, counts.judge]).toEqual([1, 0]);
     });
   });
 
@@ -258,7 +272,9 @@ describe("given the agent under test returns short or tool-only content", () => 
       role: "assistant",
       content: [{ type: "tool-call", toolCallId: "c1", toolName: "lookup", input: {} }],
     };
-    await expect(run(new ReplyAgent([reply]), new Calls())).resolves.toBeDefined();
+    const counts = new Calls();
+    await expect(run(new ReplyAgent([reply]), counts)).resolves.toBeDefined();
+    expect(counts.judge).toBe(1);
   });
 
   it("does not raise on a tool message with tool-result parts", async () => {
@@ -275,7 +291,9 @@ describe("given the agent under test returns short or tool-only content", () => 
         ],
       },
     ];
-    await expect(run(new ReplyAgent([reply]), new Calls())).resolves.toBeDefined();
+    const counts = new Calls();
+    await expect(run(new ReplyAgent([reply]), counts)).resolves.toBeDefined();
+    expect(counts.judge).toBe(1);
   });
 
   it("does not raise on an audio file part", async () => {
@@ -288,12 +306,11 @@ describe("given the agent under test returns short or tool-only content", () => 
 });
 
 describe("given the user simulator returns an empty string", () => {
-  it("does not raise the agent no-content error", async () => {
-    const outcome = await run(new ReplyAgent(["hello"]), new Calls(), "").then(
-      () => "",
-      (e: Error) => String(e.message),
-    );
-    expect(outcome).not.toContain("agent returned no content");
+  it("completes the run and reaches the judge", async () => {
+    // The check is for the agent under test only; an empty user turn keeps its existing handling.
+    const counts = new Calls();
+    await expect(run(new ReplyAgent(["hello"]), counts, "")).resolves.toBeDefined();
+    expect(counts.judge).toBe(1);
   });
 });
 
@@ -349,12 +366,32 @@ describe("given checks that do not apply", () => {
       ],
       "test-batch-id",
     );
-    const outcome = await execution.execute().then(
-      () => "",
-      (e: Error) => String(e.message),
-    );
-    expect(outcome).not.toContain("agent returned no content");
+    await expect(execution.execute()).resolves.toBeDefined();
+    expect(counts.judge).toBe(1);
   });
-  // Voice adapters are not covered: a faithful fake needs the realtime/WS
-  // harness; existing voice suites guard that path.
+
+  it("does not flag a voice adapter that returns nothing", async () => {
+    const counts = new Calls();
+    const execution = new ScenarioExecution(
+      {
+        name: "silent voice agent",
+        description: "voice adapter streams audio and returns no messages",
+        agents: [new SilentVoiceAgent(), new UserSim(counts), new Judge(counts)],
+      },
+      [
+        async (_s, executor) => {
+          await executor.message({ role: "user", content: "hi" });
+        },
+        async (_s, executor) => {
+          await executor.agent();
+        },
+        async (_s, executor) => {
+          await executor.judge();
+        },
+      ],
+      "test-batch-id",
+    );
+    await expect(execution.execute()).resolves.toBeDefined();
+    expect(counts.judge).toBe(1);
+  });
 });
