@@ -10,6 +10,7 @@ from contextlib import contextmanager
 import sys
 from typing import (
     Any,
+    List,
     Iterator,
     Optional,
     Union,
@@ -482,3 +483,38 @@ async def await_if_awaitable(value: T) -> T:
         return await value
     else:
         return value
+
+
+def _is_blank_text(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def is_empty_agent_turn(messages: List[Any]) -> bool:
+    """
+    Whether an agent turn carries nothing: no messages, or only blank ones.
+
+    A message counts as content when it has non-blank text, a non-empty
+    ``tool_calls`` list, a ``tool``/``function`` role, or any non-text content
+    part (audio, image, file, refusal, ...). A bare "-" is content.
+
+    Args:
+        messages: The OpenAI-style messages the agent returned for its turn
+
+    Returns:
+        True if the turn should be treated as the agent returning no content
+    """
+    for message in messages:
+        if safe_attr_or_key(message, "role") in ("tool", "function"):
+            return False
+        if safe_attr_or_key(message, "tool_calls"):
+            return False
+        content = safe_attr_or_key(message, "content")
+        if isinstance(content, list):
+            for part in content:
+                if safe_attr_or_key(part, "type") != "text":
+                    return False
+                if not _is_blank_text(safe_attr_or_key(part, "text")):
+                    return False
+        elif not _is_blank_text(content):
+            return False
+    return True

@@ -182,6 +182,9 @@ class _Judge(AgentAdapter):
         self._calls = calls
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
+        # Like a real judge in the proceed loop: no verdict unless one is requested.
+        if input.judgment_request is None:
+            return []
         self._calls.judge += 1
         return ScenarioResult(
             success=True, messages=[], reasoning="ok", passed_criteria=["t"]

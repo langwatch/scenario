@@ -160,7 +160,9 @@ class Judge extends JudgeAgentAdapter {
   constructor(private counts: Calls) {
     super();
   }
-  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    // Like a real judge in the proceed loop: no verdict unless one is requested.
+    if (!input.judgmentRequest) return null as unknown as AgentReturnTypes;
     this.counts.judge += 1;
     return {
       success: true,

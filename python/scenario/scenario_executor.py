@@ -40,6 +40,7 @@ from langwatch.attributes import AttributeKey
 from scenario._utils import (
     convert_agent_return_types_to_openai_messages,
     check_valid_return_type,
+    is_empty_agent_turn,
     print_openai_messages,
     show_spinner,
     await_if_awaitable,
@@ -62,7 +63,7 @@ from .types import (
     ScenarioResult,
     ScriptStep,
 )
-from ._error_messages import agent_response_not_awaitable
+from ._error_messages import agent_response_not_awaitable, agent_returned_no_content
 from ._evaluators import (
     EvaluationsApiClient,
     RunEvaluatorsDeps,
@@ -1120,6 +1121,8 @@ class ScenarioExecutor:
                     ChatCompletionUserMessageParam(role="user", content=input_message)
                 ]
 
+        from .voice.adapter import VoiceAgentAdapter
+
         try:
             with self._trace.span(
                 type="agent", name=f"{agent.__class__.__name__}.call"
@@ -1206,6 +1209,16 @@ class ScenarioExecutor:
                         agent_response,
                         role="user" if role == AgentRole.USER else "assistant",
                     )
+                    # Voice adapters stream audio and may legitimately return nothing here.
+                    # current_turn is 0-based; the error names the 1-based turn a reader counts.
+                    if (
+                        role == AgentRole.AGENT
+                        and not isinstance(agent, VoiceAgentAdapter)
+                        and is_empty_agent_turn(messages)
+                    ):
+                        raise Exception(
+                            agent_returned_no_content(self._state.current_turn + 1)
+                        )
 
                 self.add_messages(messages, from_agent_idx=idx)
 
