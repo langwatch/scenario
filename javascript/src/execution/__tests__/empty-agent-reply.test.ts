@@ -1,0 +1,358 @@
+/**
+ * Issue #1033: a run fails fast when the agent under test returns no content.
+ * Helper unit tests plus executor-level tests. Fakes only, no LLM calls.
+ */
+
+import { describe, it, expect } from "vitest";
+import type { ModelMessage } from "ai";
+
+import { isEmptyAgentTurn } from "../../agents/utils";
+import {
+  AgentRole,
+  AgentAdapter,
+  JudgeAgentAdapter,
+  type AgentInput,
+  type AgentReturnTypes,
+  UserSimulatorAgentAdapter,
+} from "../../domain";
+import { ScenarioExecution } from "../scenario-execution";
+
+const msg = (m: unknown) => m as ModelMessage;
+
+describe("isEmptyAgentTurn()", () => {
+  describe("given messages with no content", () => {
+    it.each([
+      ["no messages", []],
+      ["empty string", [{ role: "assistant", content: "" }]],
+      ["whitespace", [{ role: "assistant", content: " \n\t " }]],
+      ["undefined content", [{ role: "assistant", content: undefined }]],
+      ["null content", [{ role: "assistant", content: null }]],
+      ["empty content array", [{ role: "assistant", content: [] }]],
+      ["null input", null],
+      [
+        "blank text parts",
+        [
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "" },
+              { type: "text", text: "  " },
+            ],
+          },
+        ],
+      ],
+      [
+        "several empty messages",
+        [
+          { role: "assistant", content: "" },
+          { role: "assistant", content: [] },
+        ],
+      ],
+    ])("returns true for %s", (_name, messages) => {
+      expect(isEmptyAgentTurn((messages ?? []).map(msg))).toBe(true);
+    });
+  });
+
+  describe("given messages with content", () => {
+    it.each([
+      ["text content", [{ role: "assistant", content: "hi" }]],
+      ["a dash reply", [{ role: "assistant", content: "-" }]],
+      [
+        "a text part with text",
+        [{ role: "assistant", content: [{ type: "text", text: "hello" }] }],
+      ],
+      [
+        "an assistant tool-call part with no text",
+        [
+          {
+            role: "assistant",
+            content: [
+              { type: "tool-call", toolCallId: "c1", toolName: "lookup", input: {} },
+            ],
+          },
+        ],
+      ],
+      [
+        "a tool message with tool-result parts",
+        [
+          {
+            role: "tool",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "c1",
+                toolName: "lookup",
+                output: { type: "text", value: "" },
+              },
+            ],
+          },
+        ],
+      ],
+      [
+        "a file part (audio)",
+        [
+          {
+            role: "assistant",
+            content: [
+              { type: "file", mediaType: "audio/wav", data: "AAAA" },
+            ],
+          },
+        ],
+      ],
+      [
+        "an image part",
+        [
+          {
+            role: "assistant",
+            content: [{ type: "image", image: "AAAA", mediaType: "image/png" }],
+          },
+        ],
+      ],
+      [
+        "a reasoning part",
+        [{ role: "assistant", content: [{ type: "reasoning", text: "thinking" }] }],
+      ],
+      [
+        "one empty message next to one with text",
+        [
+          { role: "assistant", content: "" },
+          { role: "assistant", content: "hi" },
+        ],
+      ],
+    ])("returns false for %s", (_name, messages) => {
+      expect(isEmptyAgentTurn(messages.map(msg))).toBe(false);
+    });
+  });
+});
+
+class Calls {
+  user = 0;
+  judge = 0;
+}
+
+class ReplyAgent extends AgentAdapter {
+  role = AgentRole.AGENT;
+  calls = 0;
+  constructor(private replies: unknown[]) {
+    super();
+  }
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    const reply = this.replies[Math.min(this.calls, this.replies.length - 1)];
+    this.calls += 1;
+    return reply as AgentReturnTypes;
+  }
+}
+
+class UserSim extends UserSimulatorAgentAdapter {
+  role = AgentRole.USER;
+  constructor(private counts: Calls, private reply = "hi") {
+    super();
+  }
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    this.counts.user += 1;
+    return this.reply;
+  }
+}
+
+class Judge extends JudgeAgentAdapter {
+  role = AgentRole.JUDGE;
+  criteria: string[] = [];
+  constructor(private counts: Calls) {
+    super();
+  }
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    this.counts.judge += 1;
+    return {
+      success: true,
+      messages: [],
+      reasoning: "ok",
+      metCriteria: [],
+      unmetCriteria: [],
+    } as unknown as AgentReturnTypes;
+  }
+}
+
+function run(agent: ReplyAgent, counts: Calls, userReply = "hi") {
+  const execution = new ScenarioExecution(
+    {
+      name: "empty agent reply",
+      description: "agent under test returns an empty reply",
+      agents: [agent, new UserSim(counts, userReply), new Judge(counts)],
+    },
+    [
+      async (_state, executor) => {
+        await executor.proceed(3);
+      },
+      async (_state, executor) => {
+        await executor.judge();
+      },
+    ],
+    "test-batch-id",
+  );
+  return execution.execute();
+}
+
+describe("given the agent under test returns no content", () => {
+  describe.each([
+    ["an empty string", ""],
+    ["whitespace", "   "],
+    ["an empty array", []],
+    ["a message with undefined content", { role: "assistant", content: undefined }],
+    ["a message with empty content", { role: "assistant", content: "" }],
+  ])("when it returns %s", (_name, reply) => {
+    it("rejects with the no-content error for turn 1", async () => {
+      await expect(run(new ReplyAgent([reply]), new Calls())).rejects.toThrow(
+        /agent returned no content on turn 1/,
+      );
+    });
+
+    it("calls the user simulator once only", async () => {
+      const counts = new Calls();
+      await run(new ReplyAgent([reply]), counts).catch(() => undefined);
+      expect(counts.user).toBe(1);
+    });
+
+    it("never calls the judge", async () => {
+      const counts = new Calls();
+      await run(new ReplyAgent([reply]), counts).catch(() => undefined);
+      expect(counts.judge).toBe(0);
+    });
+  });
+
+  describe("when it returns an empty reply on turn 2", () => {
+    it("reports turn 2 in the error", async () => {
+      await expect(
+        run(new ReplyAgent(["hello", ""]), new Calls()),
+      ).rejects.toThrow(/agent returned no content on turn 2/);
+    });
+  });
+
+  describe("when it returns null", () => {
+    it("rejects with the no-content error for turn 1", async () => {
+      await expect(run(new ReplyAgent([null]), new Calls())).rejects.toThrow(
+        /agent returned no content on turn 1/,
+      );
+    });
+  });
+
+  describe("when it returns undefined", () => {
+    it("rejects with the no-content error for turn 1", async () => {
+      await expect(run(new ReplyAgent([undefined]), new Calls())).rejects.toThrow(
+        /agent returned no content on turn 1/,
+      );
+    });
+  });
+});
+
+describe("given the agent under test returns short or tool-only content", () => {
+  it("continues to the judge on a dash reply", async () => {
+    const counts = new Calls();
+    await run(new ReplyAgent(["-"]), counts);
+    expect(counts.judge).toBe(1);
+  });
+
+  it("does not raise on an assistant tool-call message with no text", async () => {
+    const reply = {
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "c1", toolName: "lookup", input: {} }],
+    };
+    await expect(run(new ReplyAgent([reply]), new Calls())).resolves.toBeDefined();
+  });
+
+  it("does not raise on a tool message with tool-result parts", async () => {
+    const reply = [
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "lookup",
+            output: { type: "text", value: "" },
+          },
+        ],
+      },
+    ];
+    await expect(run(new ReplyAgent([reply]), new Calls())).resolves.toBeDefined();
+  });
+
+  it("does not raise on an audio file part", async () => {
+    const reply = {
+      role: "assistant",
+      content: [{ type: "file", mediaType: "audio/wav", data: "AAAA" }],
+    };
+    await expect(run(new ReplyAgent([reply]), new Calls())).resolves.toBeDefined();
+  });
+});
+
+describe("given the user simulator returns an empty string", () => {
+  it("does not raise the agent no-content error", async () => {
+    const outcome = await run(new ReplyAgent(["hello"]), new Calls(), "").then(
+      () => "",
+      (e: Error) => String(e.message),
+    );
+    expect(outcome).not.toContain("agent returned no content");
+  });
+});
+
+describe("given an empty agent turn is rejected", () => {
+  it("does not add the empty turn to state messages", async () => {
+    let captured: { messages: ModelMessage[] } | undefined;
+    const counts = new Calls();
+    const execution = new ScenarioExecution(
+      {
+        name: "empty not stored",
+        description: "empty agent turn stays out of state",
+        agents: [new ReplyAgent([""]), new UserSim(counts), new Judge(counts)],
+      },
+      [
+        async (state) => {
+          captured = state;
+        },
+        async (_state, executor) => {
+          await executor.proceed(2);
+        },
+      ],
+      "test-batch-id",
+    );
+    await execution.execute().catch(() => undefined);
+    expect(captured!.messages.filter((m) => m.role === "assistant")).toEqual([]);
+  });
+});
+
+describe("given checks that do not apply", () => {
+  it("does not flag a ScenarioResult return", async () => {
+    const reply = { success: true, messages: [], reasoning: "ok", metCriteria: [], unmetCriteria: [] };
+    await expect(run(new ReplyAgent([reply]), new Calls())).resolves.toBeDefined();
+  });
+
+  it("does not flag a scripted agent step with blank content", async () => {
+    const counts = new Calls();
+    const execution = new ScenarioExecution(
+      {
+        name: "scripted agent",
+        description: "scripted agent step supplies the message",
+        agents: [new ReplyAgent(["x"]), new UserSim(counts), new Judge(counts)],
+      },
+      [
+        async (_s, executor) => {
+          await executor.message({ role: "user", content: "hi" });
+        },
+        async (_s, executor) => {
+          await executor.message({ role: "assistant", content: "" });
+        },
+        async (_s, executor) => {
+          await executor.judge();
+        },
+      ],
+      "test-batch-id",
+    );
+    const outcome = await execution.execute().then(
+      () => "",
+      (e: Error) => String(e.message),
+    );
+    expect(outcome).not.toContain("agent returned no content");
+  });
+  // Voice adapters are not covered: a faithful fake needs the realtime/WS
+  // harness; existing voice suites guard that path.
+});
