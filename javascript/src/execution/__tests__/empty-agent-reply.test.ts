@@ -3,8 +3,8 @@
  * Helper unit tests plus executor-level tests. Fakes only, no LLM calls.
  */
 
-import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
+import { describe, it, expect } from "vitest";
 
 import { isEmptyAgentTurn } from "../../agents/utils";
 import {
@@ -16,8 +16,8 @@ import {
   UserSimulatorAgentAdapter,
 } from "../../domain";
 import { VoiceAgentAdapter } from "../../voice/adapter";
-import { AdapterCapabilities } from "../../voice/capabilities";
 import type { AudioChunk } from "../../voice/audio-chunk";
+import { AdapterCapabilities } from "../../voice/capabilities";
 import { ScenarioExecution } from "../scenario-execution";
 
 const msg = (m: unknown) => m as ModelMessage;

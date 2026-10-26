@@ -6,7 +6,7 @@ Helper unit tests plus executor-level tests. Fakes only, no LLM calls.
 from __future__ import annotations
 
 import os
-from typing import List
+from typing import List, cast
 
 import pytest
 
@@ -285,7 +285,7 @@ class TestGivenAgentReturnsShortOrToolOnlyContent:
             ],
         }
         calls = _Calls()
-        result = await _run(_ReplyAgent([reply]), calls)
+        result = await _run(_ReplyAgent([cast(AgentReturnTypes, reply)]), calls)
         assert result.success is True and calls.judge == 1
 
 

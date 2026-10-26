@@ -8,9 +8,9 @@ import {
   ScenarioExecutionState,
   StateChangeEventType,
 } from "./scenario-execution-state";
-import { isEmptyAgentTurn } from "../agents/utils";
 import { resolveAgents } from "../agents/connected-agent";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
+import { isEmptyAgentTurn } from "../agents/utils";
 import { getGlobalSettings } from "../config/configure";
 import { getProjectConfig } from "../config/get-project-config";
 import {
