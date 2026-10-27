@@ -50,11 +50,10 @@ def _auto_save_redteam_report(scenario: ScenarioExecutor, result: ScenarioResult
     if red_team is None:
         return
 
-    override_dir = os.environ.get("SCENARIO_REDTEAM_REPORT_DIR")
-    if override_dir:
-        set_batch_dir(override_dir)
-
     try:
+        override_dir = os.environ.get("SCENARIO_REDTEAM_REPORT_DIR")
+        if override_dir:
+            set_batch_dir(override_dir)
         save_redteam_report(
             result,
             red_team=red_team,
@@ -245,8 +244,19 @@ class ScenarioReporter:
 # Store the original run method
 original_run = ScenarioExecutor.run
 
+_owns_headless_flag = False
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_addoption(parser):
-    parser.addoption("--headless", action="store_true")
+    global _owns_headless_flag
+    parser.addoption("--scenario-headless", action="store_true", default=False)
+    # trylast lets a browser plugin that also defines --headless keep it.
+    try:
+        parser.addoption("--headless", action="store_true")
+        _owns_headless_flag = True
+    except ValueError:
+        _owns_headless_flag = False
     parser.addoption(
         "--scenario-debug",
         action="store_true",
@@ -302,7 +312,9 @@ def pytest_configure(config):
         print(colored("\nScenario debug mode enabled (--scenario-debug).", "yellow"))
         ScenarioConfig.configure(verbose=True, debug=True)
 
-    if config.getoption("--headless"):
+    if config.getoption("--scenario-headless") or (
+        _owns_headless_flag and config.getoption("--headless")
+    ):
         ScenarioConfig.configure(headless=True)
 
     # Create a global reporter instance

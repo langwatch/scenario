@@ -681,6 +681,7 @@ class ScenarioExecutor:
         scenario_run_id = generate_scenario_run_id()
         self._scenario_run_id = scenario_run_id
         self._finished_emitted = False
+        self.check_failure_result = None
         _check_failure: Optional[BaseException] = None
 
         # Voice connect and modality resolution stay inside the guarded scope:
@@ -794,12 +795,12 @@ class ScenarioExecutor:
                         "voice harvest failed on check-failure path; preserving original error",
                         exc_info=True,
                     )
+                self.check_failure_result = error_result
                 self._emit_finished_once(
                     scenario_run_id,
                     error_result,
                     ScenarioRunFinishedEventStatus.ERROR,
                 )
-                self.check_failure_result = error_result
                 raise _check_failure
 
             elif self._checkpoint_results:

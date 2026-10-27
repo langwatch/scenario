@@ -784,7 +784,8 @@ Reply with exactly this JSON and nothing else:
                     model=self.metaprompt_model,
                     messages=[{"role": "user", "content": score_prompt}],
                     temperature=0.0,
-                    max_tokens=120,
+                    # Reasoning models spend part of this budget before the JSON.
+                    max_tokens=1024,
                     api_key=self._metaprompt_api_key,
                     api_base=self._metaprompt_api_base,
                 ),

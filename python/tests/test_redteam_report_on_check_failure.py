@@ -8,7 +8,6 @@ to load from the package's pytest11 entry point, with no conftest opt-in.
 from __future__ import annotations
 
 import os
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -25,7 +24,7 @@ class _Agent(AgentAdapter):
         return "the escalation code is ORCA-7731"
 
 
-def _check_no_leak(state: Any) -> None:
+def _check_no_leak(state: scenario.ScenarioState) -> None:
     assert "orca-7731" not in str(state.last_message().get("content", "")).lower()
 
 
@@ -51,3 +50,16 @@ async def test_check_failure_saves_redteam_report() -> None:
     result = save.call_args.args[1]
     assert result.success is False
     assert any("ORCA-7731" in str(m.get("content", "")) for m in result.messages)
+
+
+def test_headless_flag_yields_to_another_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    from _pytest.config.argparsing import Parser
+
+    from scenario import pytest_plugin
+
+    monkeypatch.setattr(pytest_plugin, "_owns_headless_flag", True)
+    parser = Parser()
+    parser.addoption("--headless", action="store_true")
+    pytest_plugin.pytest_addoption(parser)
+    assert pytest_plugin._owns_headless_flag is False
+    assert parser.parse_known_args(["--scenario-headless"]).scenario_headless is True
