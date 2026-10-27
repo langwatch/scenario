@@ -20,7 +20,7 @@ class LovableAgent:
 
     def __init__(self, template_path: str):
         agent = Agent(
-            "openai:gpt-6-luna",
+            "openai-responses:gpt-6-luna",
             system_prompt=f"""
         You are a coding assistant specialized in building whole new websites from scratch.
 
@@ -46,7 +46,6 @@ class LovableAgent:
         """,
             model_settings={
                 "parallel_tool_calls": False,
-                "temperature": 0.0,
                 "max_tokens": 8192,
             },
         )

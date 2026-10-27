@@ -46,7 +46,6 @@ class CustomLLMJudge(scenario.AgentAdapter):
 
         response = litellm.completion(
             model=self.model,
-            temperature=0.0,
             messages=[
                 {
                     "role": "system",

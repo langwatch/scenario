@@ -105,7 +105,6 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
             },
             {"role": "user", "content": content},
         ],
-        temperature=0.7,
         stream=True,
     )
 

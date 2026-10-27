@@ -105,6 +105,8 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
             for tool in tools
         ],
         tool_choice="auto",
+        reasoning_effort="none",  # gpt-6 runs function tools on chat completions only with reasoning off
+        allowed_openai_params=["reasoning_effort"],  # litellm would drop it unsent
     )
 
     message = response.choices[0].message  # type: ignore

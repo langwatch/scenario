@@ -62,7 +62,9 @@ class DatabaseAgent(scenario.AgentAdapter):
             model="openai/gpt-6-luna",
             messages=input.messages,
             tools=tool_schemas,
-            tool_choice="auto",  # LLM decides when to use tools
+            tool_choice="auto",  # LLM decides when to use tools,
+            reasoning_effort="none",  # gpt-6 runs function tools on chat completions only with reasoning off
+            allowed_openai_params=["reasoning_effort"],  # litellm would drop it unsent
         )
 
         message = response.choices[0].message  # type: ignore[attr-defined]  # litellm response has dynamic attributes

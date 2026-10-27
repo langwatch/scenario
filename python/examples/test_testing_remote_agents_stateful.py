@@ -91,7 +91,6 @@ async def stateful_handler(request: web.Request) -> web.Response:
             },
             *history,  # Include full conversation history
         ],
-        temperature=0.7,
     )
 
     assistant_message = response.choices[0].message.content

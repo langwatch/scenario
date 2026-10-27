@@ -736,6 +736,7 @@ class JudgeAgent(AgentAdapter):
             transcript_for_prompt = (
                 build_transcript_skeleton(working_messages)
                 + "\n\nUse expand_transcript(indices) to see full message content or grep_transcript(pattern) to search across messages. Reference messages by the index shown in brackets."
+                + " The skeleton hides message content, so a fact missing from it is not evidence. Before you call finish_test with any criterion unmet, call grep_transcript for each identifier, amount or name that criterion mentions (for example an order id) and read the matches."
             )
         else:
             transcript_for_prompt = transcript
