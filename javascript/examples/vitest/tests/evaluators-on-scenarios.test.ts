@@ -91,6 +91,9 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY || !process.env.OPENAI_API_KEY)(
           required: false,
           mappings: { output: (state) => state.toolCalls("run_sql").last?.input },
           settings: {
+            // llm_boolean asks for its verdict through a function call, which
+            // reasoning models refuse while reasoning is on.
+            model: "openai/gpt-4.1-mini",
             prompt:
               "Does this SQL group chargebacks by quarter for one merchant? Answer true or false.",
           },
