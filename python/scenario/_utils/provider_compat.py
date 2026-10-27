@@ -108,7 +108,8 @@ def apply_adaptations(kwargs: dict, adaptations: Set[str]) -> dict:
 
 
 class ProviderCompat:
-    """Calls ``litellm.completion``, adapting to the refusals seen so far."""
+    """Calls ``litellm.completion`` or ``litellm.acompletion``, adapting to the
+    refusals seen so far."""
 
     def __init__(self) -> None:
         self._adaptations: Set[str] = set()
@@ -118,6 +119,22 @@ class ProviderCompat:
             adapted = apply_adaptations(kwargs, self._adaptations)
             try:
                 return cast(ModelResponse, litellm.completion(**adapted))
+            except Exception as error:
+                adaptation = adaptation_for(error, adapted)
+                if adaptation is None or adaptation in self._adaptations:
+                    raise
+                logger.debug(
+                    "provider refused the call to %s, retrying with %s",
+                    kwargs.get("model"),
+                    adaptation,
+                )
+                self._adaptations.add(adaptation)
+
+    async def acompletion(self, **kwargs: Any) -> ModelResponse:
+        while True:
+            adapted = apply_adaptations(kwargs, self._adaptations)
+            try:
+                return cast(ModelResponse, await litellm.acompletion(**adapted))
             except Exception as error:
                 adaptation = adaptation_for(error, adapted)
                 if adaptation is None or adaptation in self._adaptations:

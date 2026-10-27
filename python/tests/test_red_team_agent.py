@@ -1536,6 +1536,51 @@ class TestTemperatureBug:
             ScenarioConfig.default_config = original
 
 
+class TestReasoningModelTemperature:
+    """Reasoning models refuse a temperature other than the default."""
+
+    REFUSAL = Exception(
+        "litellm.UnsupportedParamsError: gpt-5 models don't support "
+        "temperature=0.7. Only temperature=1 is supported."
+    )
+
+    @staticmethod
+    def _response(content: str) -> MagicMock:
+        choice = MagicMock()
+        choice.message.content = content
+        response = MagicMock()
+        response.choices = [choice]
+        return response
+
+    @pytest.mark.asyncio
+    async def test_attacker_call_is_resent_without_temperature(self):
+        agent = RedTeamAgent.crescendo(target="test", model="openai/gpt-5")
+        agent._attacker_history = [{"role": "system", "content": "attack"}]
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = [self.REFUSAL, self._response("hello there")]
+            reply = await agent._call_attacker_llm()
+
+        assert reply == "hello there"
+        assert "temperature" in mock_llm.call_args_list[0].kwargs
+        assert "temperature" not in mock_llm.call_args_list[1].kwargs
+
+    @pytest.mark.asyncio
+    async def test_scorer_call_is_resent_without_temperature(self):
+        agent = RedTeamAgent.crescendo(target="test", model="openai/gpt-5")
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = [
+                self.REFUSAL,
+                self._response('{"score": 6, "adaptation": "push"}'),
+            ]
+            messages = [{"role": "assistant", "content": "Well, partly."}]
+            score, hint = await agent._score_last_response(messages, current_turn=1)
+
+        assert (score, hint) == (6, "push")
+        assert "temperature" not in mock_llm.call_args_list[1].kwargs
+
+
 # ---------------------------------------------------------------------------
 # Refusal detection
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ from scenario._red_team.techniques import AttackTechnique, DEFAULT_TECHNIQUES
 from scenario._red_team.techniques_goat import Technique as GoatTechnique
 from scenario.script import user, agent, judge
 from scenario._utils.utils import await_if_awaitable
+from scenario._utils.provider_compat import ProviderCompat
 
 from ._error_messages import agent_not_configured_error_message
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScriptStep
@@ -291,6 +292,10 @@ class RedTeamAgent(AgentAdapter):
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._extra_params = extra_params
+        # One per model: an adaptation learned for the attacker model says
+        # nothing about the metaprompt model.
+        self._attacker_compat = ProviderCompat()
+        self._metaprompt_compat = ProviderCompat()
 
         # Single-turn injection config
         if not 0.0 <= injection_probability <= 1.0:
@@ -609,7 +614,7 @@ class RedTeamAgent(AgentAdapter):
 
                 response = cast(
                     ModelResponse,
-                    await litellm.acompletion(
+                    await self._metaprompt_compat.acompletion(
                         model=self.metaprompt_model,
                         messages=[
                             {"role": "user", "content": prompt},
@@ -775,7 +780,7 @@ Reply with exactly this JSON and nothing else:
         try:
             response = cast(
                 ModelResponse,
-                await litellm.acompletion(
+                await self._metaprompt_compat.acompletion(
                     model=self.metaprompt_model,
                     messages=[{"role": "user", "content": score_prompt}],
                     temperature=0.0,
@@ -798,7 +803,9 @@ Reply with exactly this JSON and nothing else:
             score = max(0, min(10, int(data.get("score", 0))))
             adaptation = str(data.get("adaptation", "continue current approach"))
         except Exception as exc:
-            logger.debug("Scorer failed (turn %d): %s", current_turn, exc)
+            # A refused or broken scorer call reads as a hard refusal (score
+            # 0), so the attack runs blind; say so where the user can see it.
+            logger.warning("Scorer failed (turn %d): %s", current_turn, exc)
             score, adaptation = 0, "continue current approach"
 
         result = (score, adaptation)
@@ -818,7 +825,7 @@ Reply with exactly this JSON and nothing else:
         """
         response = cast(
             ModelResponse,
-            await litellm.acompletion(
+            await self._attacker_compat.acompletion(
                 model=self._model,
                 messages=self._attacker_history,
                 temperature=self._temperature,
