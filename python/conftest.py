@@ -1,13 +1,18 @@
 """
 Repository-wide collection guards.
 
-Nothing here configures a test. The one job is to refuse a combination of
-markers that reads as protection and provides none.
+Nothing here configures a test. It refuses a combination of markers that
+reads as protection and provides none, and keeps the installed pytest plugin
+from writing red-team reports for the suite's own mocked red-team runs.
 """
 
 from __future__ import annotations
 
+import os
+
 import pytest
+
+os.environ.setdefault("SCENARIO_REDTEAM_REPORT", "0")
 
 
 def pytest_collection_modifyitems(

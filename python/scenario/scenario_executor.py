@@ -296,6 +296,10 @@ class ScenarioExecutor:
         # Create executor's own event stream
         self._events = Subject()
         self._finished_emitted: bool = False
+        # The result of a run that a failing check ended. `run()` raises the
+        # check's error instead of returning it, so the pytest plugin reads it
+        # here to still write the red-team report for that run.
+        self.check_failure_result: Optional[ScenarioResult] = None
 
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
@@ -795,6 +799,7 @@ class ScenarioExecutor:
                     error_result,
                     ScenarioRunFinishedEventStatus.ERROR,
                 )
+                self.check_failure_result = error_result
                 raise _check_failure
 
             elif self._checkpoint_results:

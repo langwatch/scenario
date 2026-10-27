@@ -311,7 +311,14 @@ def pytest_configure(config):
     # Create a patched version of Scenario.run that auto-reports
     @functools.wraps(original_run)
     async def auto_reporting_run(self, *args, **kwargs):
-        result = await original_run(self, *args, **kwargs)
+        try:
+            result = await original_run(self, *args, **kwargs)
+        except BaseException:
+            # A failing check raises out of run(); a red-team run that broke
+            # the agent this way still gets its report.
+            if self.check_failure_result is not None:
+                _auto_save_redteam_report(self, self.check_failure_result)
+            raise
 
         # Always report to the global reporter
         # Ensure the reporter exists before adding result
