@@ -244,19 +244,9 @@ class ScenarioReporter:
 # Store the original run method
 original_run = ScenarioExecutor.run
 
-_owns_headless_flag = False
-
-
-@pytest.hookimpl(trylast=True)
 def pytest_addoption(parser):
-    global _owns_headless_flag
+    # Namespaced: the plugin auto-loads, and browser plugins own --headless.
     parser.addoption("--scenario-headless", action="store_true", default=False)
-    # trylast lets a browser plugin that also defines --headless keep it.
-    try:
-        parser.addoption("--headless", action="store_true")
-        _owns_headless_flag = True
-    except ValueError:
-        _owns_headless_flag = False
     parser.addoption(
         "--scenario-debug",
         action="store_true",
@@ -312,9 +302,7 @@ def pytest_configure(config):
         print(colored("\nScenario debug mode enabled (--scenario-debug).", "yellow"))
         ScenarioConfig.configure(verbose=True, debug=True)
 
-    if config.getoption("--scenario-headless") or (
-        _owns_headless_flag and config.getoption("--headless")
-    ):
+    if config.getoption("--scenario-headless"):
         ScenarioConfig.configure(headless=True)
 
     # Create a global reporter instance

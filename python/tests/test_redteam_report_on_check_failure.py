@@ -52,14 +52,12 @@ async def test_check_failure_saves_redteam_report() -> None:
     assert any("ORCA-7731" in str(m.get("content", "")) for m in result.messages)
 
 
-def test_headless_flag_yields_to_another_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_headless_flag_does_not_clash_with_a_browser_plugin() -> None:
     from _pytest.config.argparsing import Parser
 
     from scenario import pytest_plugin
 
-    monkeypatch.setattr(pytest_plugin, "_owns_headless_flag", True)
     parser = Parser()
     parser.addoption("--headless", action="store_true")
     pytest_plugin.pytest_addoption(parser)
-    assert pytest_plugin._owns_headless_flag is False
     assert parser.parse_known_args(["--scenario-headless"]).scenario_headless is True

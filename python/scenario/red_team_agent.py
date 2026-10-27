@@ -294,8 +294,8 @@ class RedTeamAgent(AgentAdapter):
         self._extra_params = extra_params
         # One per model: an adaptation learned for the attacker model says
         # nothing about the metaprompt model.
-        self._attacker_compat = ProviderCompat()
-        self._metaprompt_compat = ProviderCompat()
+        self._attacker_compat: ProviderCompat = ProviderCompat()
+        self._metaprompt_compat: ProviderCompat = ProviderCompat()
 
         # Single-turn injection config
         if not 0.0 <= injection_probability <= 1.0:
