@@ -58,6 +58,8 @@ const MODELS: Record<string, () => LanguageModel | null> = {
     env.OPENAI_API_KEY ? createOpenAI()("gpt-5.6-luna") : null,
   "openai gpt-6-luna": () =>
     env.OPENAI_API_KEY ? createOpenAI()("gpt-6-luna") : null,
+  "openai gpt-6.1-terra": () =>
+    env.OPENAI_API_KEY ? createOpenAI()("gpt-6.1-terra") : null,
   "gemini gemini-3.5-flash": () =>
     env.GEMINI_API_KEY
       ? createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY })(

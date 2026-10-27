@@ -16,7 +16,8 @@ the parameter:
   ``none``.
 
 Nothing is changed up front, except for the models known to refuse function
-tools with reasoning on (``TOOL_REASONING_OFF_MODELS``): whether a model
+tools with reasoning on (``TOOL_REASONING_OFF_MODELS``, the gpt-6 and gpt-6.1
+families): whether a model
 accepts a parameter is not knowable in advance, so the call goes out as
 configured and is adapted only when the provider's refusal asks for exactly
 that. An adaptation is remembered for the later calls of the same agent, and a
@@ -42,17 +43,15 @@ REASONING_OFF = "none"
 # Models observed refusing function tools on /v1/chat/completions while their
 # reasoning is on. Disabling reasoning is itself refused by models that only
 # run with it on, so a model joins only once it has been seen to need it.
+# Every gpt-6 and gpt-6.1 model seen so far does, so the family is matched.
 TOOL_REASONING_OFF_MODELS = frozenset(
     {
         "gpt-5.6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
-        "gpt-6-astra",
-        "gpt-6-luna",
-        "gpt-6-sol",
-        "gpt-6.1-sol",
     }
 )
+TOOL_REASONING_OFF_FAMILIES = ("gpt-6-", "gpt-6.1-")
 
 # Models seen refusing tools with reasoning on in this process.
 _learned_tool_reasoning_off: Set[str] = set()
@@ -65,7 +64,11 @@ def _model_name(model: Any) -> str:
 
 def needs_reasoning_off(model: Any) -> bool:
     name = _model_name(model)
-    return name in TOOL_REASONING_OFF_MODELS or name in _learned_tool_reasoning_off
+    return (
+        name in TOOL_REASONING_OFF_MODELS
+        or name.startswith(TOOL_REASONING_OFF_FAMILIES)
+        or name in _learned_tool_reasoning_off
+    )
 
 
 def _with_reasoning_off(kwargs: dict) -> dict:

@@ -11,7 +11,7 @@ against `/v1/chat/completions`: the same request answers 400 without
 `reasoning_effort` and 200 with `reasoning_effort="none"`.
 
 Reasoning is disabled up front only for the models seen to need it
-(`TOOL_REASONING_OFF_MODELS`, gpt-5.6 and gpt-6). Whether any other model
+(`TOOL_REASONING_OFF_MODELS` and the gpt-6 and gpt-6.1 families). Whether any other model
 accepts reasoning off is not knowable up front: Gemini 2.5 Pro rejects it with
 "Budget 0 is invalid. This model only works in thinking mode.". So any other
 call goes out untouched and is re-sent with reasoning off only when the
@@ -266,6 +266,17 @@ class TestGivenAModelKnownToRefuseToolsWithReasoningOn:
         assert sent["reasoning_effort"] == "none"
         # drop_params would strip a reasoning_effort litellm does not know.
         assert "reasoning_effort" in sent["allowed_openai_params"]
+
+    @pytest.mark.asyncio
+    async def test_covers_the_gpt_6_1_family(self):
+        judge = JudgeAgent(criteria=["c"], model="openai/gpt-6.1-terra")
+
+        mock = await _call_judge(
+            judge, _agent_input(), _rejecting_completion(_bad_request(_REJECTION_MESSAGE))
+        )
+
+        assert mock.call_count == 1
+        assert mock.call_args.kwargs["reasoning_effort"] == "none"
 
     @pytest.mark.asyncio
     async def test_keeps_an_effort_the_caller_chose(self):
