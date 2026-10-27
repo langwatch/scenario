@@ -2005,8 +2005,8 @@ class TestMarathonScriptEarlyExit:
         assert len(steps) == 7
 
     @pytest.mark.asyncio
-    async def test_early_exit_check_calls_succeed(self):
-        """When check_early_exit() is True, the check step should call succeed()."""
+    async def test_early_exit_check_fails_the_run(self):
+        """The attacker reaching its objective means the agent broke: fail(), never succeed()."""
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
             success_score=9, success_confirm_turns=2, total_turns=3,
@@ -2014,7 +2014,7 @@ class TestMarathonScriptEarlyExit:
         agent._turn_scores = {1: (9, ""), 2: (10, "")}
 
         mock_executor = AsyncMock()
-        mock_executor.succeed = AsyncMock(return_value=MagicMock())
+        mock_executor.fail = AsyncMock(return_value=MagicMock())
 
         mock_state = MagicMock()
         mock_state.current_turn = 2
@@ -2027,15 +2027,16 @@ class TestMarathonScriptEarlyExit:
         if inspect.isawaitable(step_result):
             _ = await step_result
 
-        mock_executor.succeed.assert_called_once()
-        call_args = mock_executor.succeed.call_args
+        mock_executor.fail.assert_called_once()
+        mock_executor.succeed.assert_not_called()
+        call_args = mock_executor.fail.call_args
         assert "Early exit" in call_args[0][0]
         assert "score >= 9" in call_args[0][0]
         assert "2 consecutive turns" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_early_exit_check_runs_final_checks(self):
-        """When early exit triggers, final_checks should run before succeed()."""
+        """When early exit triggers, final_checks should run before fail()."""
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
             success_score=9, success_confirm_turns=1, total_turns=3,
@@ -2051,7 +2052,7 @@ class TestMarathonScriptEarlyExit:
             call_order.append("fc2")
 
         mock_executor = AsyncMock()
-        mock_executor.succeed = AsyncMock(return_value=MagicMock())
+        mock_executor.fail = AsyncMock(return_value=MagicMock())
 
         mock_state = MagicMock()
         mock_state.current_turn = 1
@@ -2066,7 +2067,7 @@ class TestMarathonScriptEarlyExit:
             _ = await step_result
 
         assert call_order == ["fc1", "fc2"]
-        mock_executor.succeed.assert_called_once()
+        mock_executor.fail.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_early_exit_check_noop_when_not_triggered(self):
@@ -2086,6 +2087,7 @@ class TestMarathonScriptEarlyExit:
             _ = await step_result
 
         mock_state._executor.succeed.assert_not_called()
+        mock_state._executor.fail.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
