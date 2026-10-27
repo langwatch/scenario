@@ -14,7 +14,7 @@ import { userSimulatorAgent } from "../user-simulator-agent";
 
 vi.mock("../../config", () => ({
   getProjectConfig: vi.fn().mockResolvedValue({
-    defaultModel: { model: "openai/gpt-5-mini", temperature: 0 },
+    defaultModel: { model: "openai/gpt-6-luna", temperature: 0 },
   }),
 }));
 

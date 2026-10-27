@@ -90,7 +90,7 @@ async def _call_judge(
 ) -> tuple[Any, List[Dict[str, Any]]]:
     """Run one JudgeAgent.call and return (result, kwargs of every completion)."""
     previous_default_config = ScenarioConfig.default_config
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge = JudgeAgent(criteria=CRITERIA)
 
     mock_scenario_state = MagicMock()
@@ -146,7 +146,7 @@ class TestGatedUnforcedCall:
     @pytest.mark.asyncio
     async def test_a_custom_system_prompt_changes_nothing_below_the_floor(self):
         previous_default_config = ScenarioConfig.default_config
-        ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+        ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
         judge = JudgeAgent(
             criteria=CRITERIA, system_prompt="You are a strict reviewer."
         )
@@ -256,7 +256,7 @@ class TestGatedLargeTranscript:
         that would otherwise route into the discovery loop still costs zero
         completions below the floor."""
         previous_default_config = ScenarioConfig.default_config
-        ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+        ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
         # A tiny token_threshold trips is_large_transcript on any transcript.
         judge = JudgeAgent(
             criteria=CRITERIA, max_discovery_steps=2, token_threshold=10
@@ -372,7 +372,7 @@ class TestFloorHoldsEndToEnd:
         min_turns=2 the first LLM calls land on the turn-3 judge call: one
         decision (make_verdict) and one verdict (finish_test)."""
         previous_default_config = ScenarioConfig.default_config
-        ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+        ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
 
         agent = _EchoAgent()
         user = _CountingUser()

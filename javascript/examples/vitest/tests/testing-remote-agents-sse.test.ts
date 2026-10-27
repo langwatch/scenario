@@ -43,7 +43,7 @@ beforeAll(async () => {
 
           // Stream response using real LLM
           const result = streamText({
-            model: openai("gpt-5-mini"),
+            model: openai("gpt-6-luna"),
             messages: [
               {
                 role: "system",
@@ -159,9 +159,9 @@ describe("Testing Remote Agents - Server-Sent Events", () => {
       name: "SSE weather response",
       description: "User asks about weather and receives SSE-formatted stream",
       agents: [
-        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
         sseAdapter,
-        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user("What's the weather like in Tokyo today?"),

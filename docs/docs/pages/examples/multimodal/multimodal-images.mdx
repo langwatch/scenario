@@ -35,7 +35,7 @@ const imageAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   async call(input) {
     const response = await generateText({
-      model: openai("gpt-4o"),
+      model: openai("gpt-6-luna"),
       messages: [
         {
           role: "system",

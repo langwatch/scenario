@@ -85,7 +85,7 @@ async def _call_judge(
     criteria: List[str] = CRITERIA,
 ) -> "tuple[Any, List[Dict[str, Any]]]":
     previous = ScenarioConfig.default_config
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-5-mini")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge_agent = JudgeAgent(criteria=criteria)
     calls: List[Dict[str, Any]] = []
     queue = list(responses)
@@ -270,7 +270,7 @@ async def test_run_finished_event_carries_the_per_criterion_result():
         agents=[
             _PasswordAgent(),
             _ScriptedUser(model="none"),
-            JudgeAgent(model="openai/gpt-5-mini", criteria=CRITERIA),
+            JudgeAgent(model="openai/gpt-6-luna", criteria=CRITERIA),
         ],
         script=[user(), agent(), judge()],
         event_bus=ScenarioEventBus(event_reporter=_SilentReporter()),
@@ -379,7 +379,7 @@ def test_temperature_refusal_retries_without_temperature():
 
     with patch("scenario.judge_agent.litellm.completion", side_effect=fake_completion):
         ProviderCompat().completion(
-            model="openai/gpt-5.5",
+            model="openai/gpt-6-luna",
             messages=[{"role": "user", "content": "Judge this."}],
             temperature=0.0,
         )
@@ -397,7 +397,7 @@ def test_any_other_provider_error_is_raised_unchanged():
     with patch("scenario.judge_agent.litellm.completion", side_effect=fake_completion):
         with pytest.raises(Exception) as raised:
             ProviderCompat().completion(
-                model="openai/gpt-5.5",
+                model="openai/gpt-6-luna",
                 messages=[{"role": "user", "content": "Judge this."}],
                 temperature=0.0,
                 tools=[{"type": "function", "function": {"name": "finish_test"}}],

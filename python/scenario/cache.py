@@ -83,7 +83,7 @@ def scenario_cache(ignore=[]):
             def invoke(self, message: str, context: dict) -> str:
                 # This LLM call will be cached
                 response = llm_client.complete(
-                    model="gpt-4",
+                    model="gpt-6-luna",
                     messages=[{"role": "user", "content": message}]
                 )
                 return response.choices[0].message.content

@@ -541,7 +541,7 @@ async def test_marathon_script_no_early_exit_structure():
 
     agent_obj = RedTeamAgent.crescendo(
         target="test",
-        model="openai/gpt-4",
+        model="openai/gpt-6-luna",
         success_score=None,
         total_turns=3,
     )

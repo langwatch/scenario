@@ -205,7 +205,7 @@ from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
 class CustomLLMJudge(scenario.AgentAdapter):
     role = scenario.AgentRole.JUDGE
 
-    def __init__(self, criteria: list[str], model: str = "openai/gpt-4o"):
+    def __init__(self, criteria: list[str], model: str = "openai/gpt-6-luna"):
         self.criteria = criteria
         self.model = model
 
@@ -325,7 +325,7 @@ class CustomLLMJudge extends AgentAdapter {
       .join("\n");
 
     const { object: result } = await generateObject({
-      model: openai("gpt-4o-mini"),
+      model: openai("gpt-6-luna"),
       temperature: 0,
       schema: z.object({
         pass: z.boolean(),

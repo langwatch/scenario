@@ -13,13 +13,13 @@ import litellm
 import scenario
 from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-6-luna")
 
 
 class CustomLLMJudge(scenario.AgentAdapter):
     role = scenario.AgentRole.JUDGE
 
-    def __init__(self, criteria: list[str], model: str = "openai/gpt-4.1-mini"):
+    def __init__(self, criteria: list[str], model: str = "openai/gpt-6-luna"):
         self.criteria = criteria
         self.model = model
 
@@ -46,7 +46,6 @@ class CustomLLMJudge(scenario.AgentAdapter):
 
         response = litellm.completion(
             model=self.model,
-            temperature=0.0,
             messages=[
                 {
                     "role": "system",

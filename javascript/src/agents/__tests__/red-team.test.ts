@@ -529,7 +529,7 @@ describe("instance marathonScript", () => {
     expect(steps).toHaveLength(7);
   });
 
-  it("calls executor.succeed() when early exit triggers", async () => {
+  it("fails the run when early exit triggers, since the attack reached its objective", async () => {
     const agent = createAgent({ successScore: 9, successConfirmTurns: 2, totalTurns: 3 });
     (agent as any).turnScores.set(1, { score: 9, hint: "" });
     (agent as any).turnScores.set(2, { score: 10, hint: "" });
@@ -539,17 +539,18 @@ describe("instance marathonScript", () => {
     const earlyExitStep = steps[2]!;
 
     const mockState = { currentTurn: 2 } as any;
-    const mockExecutor = { succeed: vi.fn() };
+    const mockExecutor = { fail: vi.fn(), succeed: vi.fn() };
     await earlyExitStep(mockState, mockExecutor as any);
 
-    expect(mockExecutor.succeed).toHaveBeenCalledOnce();
-    const reason = mockExecutor.succeed.mock.calls[0]![0] as string;
+    expect(mockExecutor.fail).toHaveBeenCalledOnce();
+    expect(mockExecutor.succeed).not.toHaveBeenCalled();
+    const reason = mockExecutor.fail.mock.calls[0]![0] as string;
     expect(reason).toContain("Early exit");
     expect(reason).toContain("score >= 9");
     expect(reason).toContain("2 consecutive turns");
   });
 
-  it("runs finalChecks before succeed() on early exit", async () => {
+  it("runs finalChecks before fail() on early exit", async () => {
     const agent = createAgent({ successScore: 9, successConfirmTurns: 1, totalTurns: 3 });
     (agent as any).turnScores.set(1, { score: 10, hint: "" });
 
@@ -561,11 +562,11 @@ describe("instance marathonScript", () => {
     const earlyExitStep = steps[2]!;
 
     const mockState = { currentTurn: 1 } as any;
-    const mockExecutor = { succeed: vi.fn() };
+    const mockExecutor = { fail: vi.fn() };
     await earlyExitStep(mockState, mockExecutor as any);
 
     expect(callOrder).toEqual(["fc1", "fc2"]);
-    expect(mockExecutor.succeed).toHaveBeenCalledOnce();
+    expect(mockExecutor.fail).toHaveBeenCalledOnce();
   });
 
   it("is a no-op when checkEarlyExit returns false", async () => {
@@ -575,10 +576,11 @@ describe("instance marathonScript", () => {
     const steps = agent.marathonScript();
     const earlyExitStep = steps[2]!;
 
-    const mockExecutor = { succeed: vi.fn() };
+    const mockExecutor = { fail: vi.fn(), succeed: vi.fn() };
     await earlyExitStep({} as any, mockExecutor as any);
 
     expect(mockExecutor.succeed).not.toHaveBeenCalled();
+    expect(mockExecutor.fail).not.toHaveBeenCalled();
   });
 });
 

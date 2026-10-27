@@ -99,7 +99,7 @@ class LangWatchDecoratorAgent(scenario.AgentAdapter):
 
         tools = [check_inventory]
         response = litellm.completion(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-6-luna",
             messages=[
                 {
                     "role": "system",
@@ -113,6 +113,8 @@ When asked about products, use the check_inventory tool.""",
                 for tool in tools
             ],
             tool_choice="auto",
+            reasoning_effort="none",  # gpt-6 runs function tools on chat completions only with reasoning off
+            allowed_openai_params=["reasoning_effort"],  # litellm would drop it unsent
         )
 
         message = response.choices[0].message  # type: ignore[union-attr]
@@ -141,7 +143,7 @@ When asked about products, use the check_inventory tool.""",
                     )
 
             follow_up = litellm.completion(
-                model="openai/gpt-4.1-mini",
+                model="openai/gpt-6-luna",
                 messages=[
                     {
                         "role": "system",
@@ -177,9 +179,9 @@ async def test_langwatch_decorator_span_evaluation():
         """,
         agents=[
             LangWatchDecoratorAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             scenario.JudgeAgent(
-                model="openai/gpt-4.1-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "A fraud check HTTP call was made (http.fraud_check span exists)",
                     "A database query was performed (db.query span exists)",

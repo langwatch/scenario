@@ -10,12 +10,12 @@ graded run, so on such a model every run died before a verdict. Verified live
 against `/v1/chat/completions`: the same request answers 400 without
 `reasoning_effort` and 200 with `reasoning_effort="none"`.
 
-Reasoning is disabled by RETRY, never preemptively. Whether a model accepts
-reasoning off is not knowable up front — Gemini 2.5 Pro rejects it with
-"Budget 0 is invalid. This model only works in thinking mode." — so the call
-goes out untouched and is re-sent with reasoning off only when the provider's
-rejection asks for exactly that. Models that work today are never sent
-anything new.
+Reasoning is disabled up front only for the models seen to need it
+(`TOOL_REASONING_OFF_MODELS` and the gpt-6 and gpt-6.1 families). Whether any other model
+accepts reasoning off is not knowable up front: Gemini 2.5 Pro rejects it with
+"Budget 0 is invalid. This model only works in thinking mode.". So any other
+call goes out untouched and is re-sent with reasoning off only when the
+provider's rejection asks for exactly that, and that model is remembered.
 
 The example that would have caught this (`examples/test_audio_to_text.py`) was
 skipped in CI, which is how it sat unnoticed. These tests are offline and
@@ -33,6 +33,7 @@ import pytest
 from litellm.exceptions import BadRequestError
 
 from scenario import JudgeAgent
+from scenario._utils import provider_compat
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
 from scenario.types import AgentInput, JudgmentRequest
@@ -42,6 +43,17 @@ _REJECTION_MESSAGE = (
     "for gpt-5.6-luna in /v1/chat/completions. To use function tools, use "
     "/v1/responses or set reasoning_effort to 'none'."
 )
+
+
+# A reasoning model outside the known list, so only the refusal can tell.
+_UNKNOWN_REASONER = "openai/gpt-x-reasoner"
+
+
+@pytest.fixture(autouse=True)
+def _forget_learned_models():
+    provider_compat._learned_tool_reasoning_off.clear()
+    yield
+    provider_compat._learned_tool_reasoning_off.clear()
 
 
 def _bad_request(message: str) -> BadRequestError:
@@ -115,7 +127,7 @@ async def _call_judge(
 class TestGivenAProviderThatRejectsToolsWithoutReasoningOff:
     @pytest.mark.asyncio
     async def test_retries_with_reasoning_off_and_reaches_a_verdict(self):
-        judge = JudgeAgent(criteria=["c"], model="openai/gpt-5.6-luna")
+        judge = JudgeAgent(criteria=["c"], model=_UNKNOWN_REASONER)
 
         mock = await _call_judge(
             judge, _agent_input(), _rejecting_completion(_bad_request(_REJECTION_MESSAGE))
@@ -132,7 +144,7 @@ class TestGivenAProviderThatRejectsToolsWithoutReasoningOff:
         own rejection surfaces instead of the intent being rewritten."""
         judge = JudgeAgent(
             criteria=["c"],
-            model="openai/gpt-5.6-luna",
+            model=_UNKNOWN_REASONER,
             reasoning_effort="high",
         )
 
@@ -161,7 +173,7 @@ class TestGivenAProviderThatAcceptsTheCall:
 class TestGivenAnUnrelatedRejection:
     @pytest.mark.asyncio
     async def test_surfaces_the_rejection_without_retrying(self):
-        judge = JudgeAgent(criteria=["c"], model="openai/gpt-5.6-luna")
+        judge = JudgeAgent(criteria=["c"], model=_UNKNOWN_REASONER)
         unrelated = _bad_request("Unsupported value for parameter 'temperature'.")
 
         with pytest.raises(BadRequestError):
@@ -173,7 +185,7 @@ class TestGivenAnUnrelatedRejection:
     async def test_mentioning_the_tokens_without_the_directive_is_not_retried(self):
         """Mentions "reasoning_effort" and "'none'" but does not ask us to turn
         reasoning off — retrying would replace the provider's real error."""
-        judge = JudgeAgent(criteria=["c"], model="openai/gpt-5.6-luna")
+        judge = JudgeAgent(criteria=["c"], model=_UNKNOWN_REASONER)
         invalid_value = _bad_request(
             "reasoning_effort 'none' is invalid for this model."
         )
@@ -201,7 +213,7 @@ class TestEveryCallSiteThatSendsTools:
     ]
 
     def _judge(self) -> JudgeAgent:
-        return JudgeAgent(criteria=["c"], model="openai/gpt-5.6-luna")
+        return JudgeAgent(criteria=["c"], model=_UNKNOWN_REASONER)
 
     def test_the_discovery_loop_retries_with_reasoning_off(self):
         judge = self._judge()
@@ -238,3 +250,56 @@ class TestEveryCallSiteThatSendsTools:
             )
 
         assert completion.call_args.kwargs["reasoning_effort"] == "none"
+
+
+class TestGivenAModelKnownToRefuseToolsWithReasoningOn:
+    @pytest.mark.asyncio
+    async def test_sends_reasoning_off_on_the_first_call(self):
+        judge = JudgeAgent(criteria=["c"], model="openai/gpt-6-luna")
+
+        mock = await _call_judge(
+            judge, _agent_input(), _rejecting_completion(_bad_request(_REJECTION_MESSAGE))
+        )
+
+        assert mock.call_count == 1
+        sent = mock.call_args.kwargs
+        assert sent["reasoning_effort"] == "none"
+        # drop_params would strip a reasoning_effort litellm does not know.
+        assert "reasoning_effort" in sent["allowed_openai_params"]
+
+    @pytest.mark.asyncio
+    async def test_covers_the_gpt_6_1_family(self):
+        judge = JudgeAgent(criteria=["c"], model="openai/gpt-6.1-terra")
+
+        mock = await _call_judge(
+            judge, _agent_input(), _rejecting_completion(_bad_request(_REJECTION_MESSAGE))
+        )
+
+        assert mock.call_count == 1
+        assert mock.call_args.kwargs["reasoning_effort"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_keeps_an_effort_the_caller_chose(self):
+        judge = JudgeAgent(
+            criteria=["c"], model="openai/gpt-6-luna", reasoning_effort="high"
+        )
+
+        mock = await _call_judge(judge, _agent_input())
+
+        assert mock.call_args.kwargs["reasoning_effort"] == "high"
+
+
+class TestGivenAModelSeenRefusingEarlier:
+    @pytest.mark.asyncio
+    async def test_a_new_agent_sends_reasoning_off_from_the_start(self):
+        rejecting = _rejecting_completion(_bad_request(_REJECTION_MESSAGE))
+        await _call_judge(
+            JudgeAgent(criteria=["c"], model=_UNKNOWN_REASONER), _agent_input(), rejecting
+        )
+
+        mock = await _call_judge(
+            JudgeAgent(criteria=["c"], model=_UNKNOWN_REASONER), _agent_input(), rejecting
+        )
+
+        assert mock.call_count == 1
+        assert mock.call_args.kwargs["reasoning_effort"] == "none"

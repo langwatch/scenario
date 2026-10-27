@@ -44,7 +44,7 @@ const userDataAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-5-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
       tools: { fetch_user_data: fetchUserDataTool },
       toolChoice: "auto",

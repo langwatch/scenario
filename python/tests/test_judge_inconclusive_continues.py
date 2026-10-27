@@ -30,7 +30,7 @@ async def _run_judge(
 ) -> AgentReturnTypes:
     """Drive JudgeAgent through a finish_test tool call and return the raw result."""
     previous_default_config = ScenarioConfig.default_config
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     criteria = ["Agent requests approval before applying the change"]
     judge = JudgeAgent(criteria=criteria)
 
@@ -140,7 +140,7 @@ async def test_criteria_less_last_turn_judge_pins_finish_test_and_stays_terminal
     criteria — otherwise the run falls through to the generic max-turns
     failure and the judge's reasoning is lost."""
     previous_default_config = ScenarioConfig.default_config
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge = JudgeAgent(criteria=[])
 
     mock_scenario_state = MagicMock()

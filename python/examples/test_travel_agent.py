@@ -36,9 +36,9 @@ async def test_travel_agent():
         """,
         agents=[
             TravelAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             scenario.JudgeAgent(
-                model="openai/gpt-4.1-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "The agent should share the prices of each accomodation for the user to consider.",
                     "The agent should not bias the user towards a specific accomodation.",
@@ -133,7 +133,7 @@ def travel_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
     ]
 
     response = litellm.completion(
-        model="openai/gpt-4.1-mini",
+        model="openai/gpt-6-luna",
         messages=[
             {
                 "role": "system",
@@ -153,6 +153,8 @@ def travel_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
             for tool in tools
         ],
         tool_choice="auto",
+        reasoning_effort="none",  # gpt-6 runs function tools on chat completions only with reasoning off
+        allowed_openai_params=["reasoning_effort"],  # litellm would drop it unsent
     )
 
     message = response.choices[0].message  # type: ignore

@@ -45,7 +45,7 @@ class ChatAgent(scenario.AgentAdapter):
         # Use the injected LLM client (could be real litellm or our mock)
         assert self.llm_client is not None, "LLM client must be provided"
         response = self.llm_client.completion(
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-6-luna",
             messages=input.messages,
         )
 
@@ -64,7 +64,7 @@ def check_mock_was_called_correctly(mock_llm: MockLLM) -> None:
     """Check that the mock LLM was called with expected parameters."""
     assert mock_llm.last_messages is not None, "Mock was not called"
     assert mock_llm.call_count == 1
-    assert mock_llm.last_model == "openai/gpt-4o-mini"
+    assert mock_llm.last_model == "openai/gpt-6-luna"
     assert len(mock_llm.last_messages) == 2
     assert mock_llm.last_messages[0]["role"] == "user"
     assert "Hello there!" in mock_llm.last_messages[0]["content"]
@@ -83,7 +83,7 @@ async def test_llm_provider_mocking():
         description="Test agent behavior with mock LLM client",
         agents=[
             ChatAgent(llm_client=mock_llm),
-            scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
         ],
         script=[
             scenario.user("Hello there!"),
@@ -99,4 +99,4 @@ async def test_llm_provider_mocking():
     assert result.success
     # Additional verification outside the scenario
     assert mock_llm.call_count == 1
-    assert mock_llm.last_model == "openai/gpt-4o-mini"
+    assert mock_llm.last_model == "openai/gpt-6-luna"

@@ -99,7 +99,7 @@ describe("Weather Agent", () => {
       role: AgentRole.AGENT,
       call: async (input) => {
         const response = await generateText({
-          model: openai("gpt-4.1-mini"),
+          model: openai("gpt-6-luna"),
           system: `You are a helpful assistant that may help the user with weather information.`,
           messages: input.messages,
           tools: { get_current_weather: getCurrentWeather },
@@ -152,7 +152,7 @@ describe("Weather Agent", () => {
         "The user asks for the weather in a specific city, and the agent should use the weather tool to find it.",
       agents: [
         weatherAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user("What's the weather like in Barcelona?"),
@@ -206,7 +206,7 @@ the target of the run. When you set no name, the framework uses the class name o
 the adapter. An adapter written as a plain object has no class name of its own, so
 set a name there to see the agent as the target of the run.
 
-A function returned by [`connectAgent`](https://langwatch.ai/docs/agent-testing/connect-your-agent) from the `langwatch` package is accepted as is: `scenario.run({ agents: [supportAgent, userSimulatorAgent(), judgeAgent({ criteria })] })` runs it as the agent under test, and `parameters: { model: "gpt-5-mini" }` on the config sets its run parameters.
+A function returned by [`connectAgent`](https://langwatch.ai/docs/agent-testing/connect-your-agent) from the `langwatch` package is accepted as is: `scenario.run({ agents: [supportAgent, userSimulatorAgent(), judgeAgent({ criteria })] })` runs it as the agent under test, and `parameters: { model: "gpt-6-luna" }` on the config sets its run parameters.
 
 Scenario provides built-in agents for common testing needs:
 
@@ -297,7 +297,7 @@ import { openai } from "@ai-sdk/openai";
 export default defineConfig({
   // Set a default model provider for all agents (e.g., userSimulatorAgent, judgeAgent)
   defaultModel: {
-    model: openai("gpt-4o-mini"),
+    model: openai("gpt-6-luna"),
     temperature: 0.1,
   },
 });

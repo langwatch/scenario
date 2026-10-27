@@ -21,7 +21,10 @@ classifiers = [
 dependencies = [
     "pytest>=9.0.3",
     "pytest-rerunfailures>=14.0",
-    "litellm>=1.83.14",
+    # litellm 1.106 imports the optional `mcp` package whenever a completion
+    # passes tools, so JudgeAgent fails with "No module named 'mcp'" on a
+    # fresh install. Lift the cap once litellm stops doing that.
+    "litellm>=1.83.14,<1.106",
     "openai>=1.88.0",
     "python-dotenv>=1.0.1",
     "termcolor>=2.4.0",
@@ -89,6 +92,11 @@ report = [
 
 [project.scripts]
 scenario = "scenario.cli:main"
+
+# Named after the module so a project that already opts in with
+# `pytest_plugins = ["scenario.pytest_plugin"]` keeps working.
+[project.entry-points.pytest11]
+"scenario.pytest_plugin" = "scenario.pytest_plugin"
 
 [project.urls]
 "Homepage" = "https://github.com/langwatch/scenario"

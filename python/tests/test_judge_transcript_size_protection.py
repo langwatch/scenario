@@ -110,7 +110,7 @@ def mock_litellm_response(tool_name: str, args: Dict[str, Any]) -> MagicMock:
 @pytest.fixture(autouse=True)
 def setup_config() -> Generator[None, None, None]:
     previous_default_config = ScenarioConfig.default_config
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     mock_executor = MagicMock()
     mock_executor.config = MagicMock()
     mock_executor.config.cache_key = None

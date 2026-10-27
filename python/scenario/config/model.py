@@ -20,7 +20,7 @@ class ModelConfig(BaseModel):
     including headers, timeout, client, and other provider-specific options.
 
     Attributes:
-        model: The model identifier (e.g., "openai/gpt-4.1-mini", "anthropic/claude-3-sonnet")
+        model: The model identifier (e.g., "openai/gpt-6-luna", "anthropic/claude-3-sonnet")
         api_base: Optional base URL where the model is hosted
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for response generation (0.0 = deterministic, 1.0 = creative)
@@ -30,7 +30,7 @@ class ModelConfig(BaseModel):
         ```
         # Basic configuration
         model_config = ModelConfig(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-6-luna",
             api_base="https://api.openai.com/v1",
             api_key="your-api-key",
             temperature=0.1,
@@ -39,7 +39,7 @@ class ModelConfig(BaseModel):
 
         # With custom headers and timeout
         model_config = ModelConfig(
-            model="openai/gpt-4",
+            model="openai/gpt-6-luna",
             headers={"X-Custom-Header": "value"},
             timeout=60,
             num_retries=3
@@ -48,7 +48,7 @@ class ModelConfig(BaseModel):
         # With custom OpenAI client
         from openai import OpenAI
         model_config = ModelConfig(
-            model="openai/gpt-4",
+            model="openai/gpt-6-luna",
             client=OpenAI(
                 base_url="https://custom.com",
                 default_headers={"X-Auth": "token"}

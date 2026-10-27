@@ -40,7 +40,7 @@ result = await scenario.run(
     name="support",
     description="The user asks for a refund",
     agents=[support_agent, scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
-    parameters={"model": "gpt-5-mini"},
+    parameters={"model": "gpt-6-luna"},
 )
 ```
 
@@ -49,7 +49,7 @@ const result = await scenario.run({
   name: "support",
   description: "The user asks for a refund",
   agents: [supportAgent, scenario.userSimulatorAgent(), scenario.judgeAgent({ criteria: [...] })],
-  parameters: { model: "gpt-5-mini" },
+  parameters: { model: "gpt-6-luna" },
 });
 ```
 
@@ -238,7 +238,7 @@ const mySimpleAgent: AgentAdapter = {
 import litellm
 
 class LiteLLMAgent(scenario.AgentAdapter):
-    def __init__(self, model: str = "openai/gpt-4o-mini"):
+    def __init__(self, model: str = "openai/gpt-6-luna"):
         self.model = model
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
@@ -257,7 +257,7 @@ const openAIAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   async call(input) {
     const response = await generateText({
-      model: openai("gpt-4.1-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
     });
     return response.text;
@@ -390,7 +390,7 @@ const toolAgent: AgentAdapter = {
   async call(input) {
     // Use generateText with tools
     const response = await generateText({
-      model: openai("gpt-4.1-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
       tools: { get_current_weather: getCurrentWeather },
       toolChoice: "auto",

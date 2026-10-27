@@ -121,9 +121,9 @@ async def test_remote_trace_propagation(test_server):
         description="User asks for the weather in London",
         agents=[
             RemoteAgentAdapter(),
-            scenario.UserSimulatorAgent(model="openai/gpt-5-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             scenario.JudgeAgent(
-                model="openai/gpt-5-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "Agent tells the user the weather in London",
                     "The traces show the agent called the get_weather tool",

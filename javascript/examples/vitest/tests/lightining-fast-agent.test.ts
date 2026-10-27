@@ -25,7 +25,7 @@ describe("Lightning Fast Agent", () => {
         `,
         agents: [
           lightningFastAgent,
-          scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+          scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
         ],
         script: [
           scenario.user("foo"),

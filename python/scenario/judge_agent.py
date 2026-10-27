@@ -347,7 +347,7 @@ class JudgeAgent(AgentAdapter):
 
         # Customized judge with specific model and behavior
         strict_judge = scenario.JudgeAgent(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-6-luna",
             criteria=[
                 "Code examples are syntactically correct",
                 "Explanations are technically accurate",
@@ -422,7 +422,7 @@ class JudgeAgent(AgentAdapter):
             criteria: List of success criteria to evaluate the conversation against.
                      Can include both positive requirements ("Agent provides helpful responses")
                      and negative constraints ("Agent should not provide personal information").
-            model: LLM model identifier (e.g., "openai/gpt-4.1-mini").
+            model: LLM model identifier (e.g., "openai/gpt-6-luna").
                    If not provided, uses the default model from global configuration.
             api_base: Optional base URL where the model is hosted. If not provided,
                       uses the base URL from global configuration.
@@ -736,6 +736,7 @@ class JudgeAgent(AgentAdapter):
             transcript_for_prompt = (
                 build_transcript_skeleton(working_messages)
                 + "\n\nUse expand_transcript(indices) to see full message content or grep_transcript(pattern) to search across messages. Reference messages by the index shown in brackets."
+                + " The skeleton hides message content, so a fact missing from it is not evidence. Before you call finish_test with any criterion unmet, call grep_transcript for each identifier, amount or name that criterion mentions (for example an order id) and read the matches."
             )
         else:
             transcript_for_prompt = transcript
