@@ -77,6 +77,9 @@ def classify(path: str) -> str:
         else:
             name = f"{case.get('classname') or ''}::{case.get('name') or '?'}"
             other.append(name.strip(":"))
+            # stderr reaches the job log; stdout is the verdict the gate reads.
+            detail = " ".join(f"{p.get('message') or ''}\n{p.text or ''}" for p in problems)
+            print(f"--- {name.strip(':')}\n{detail[:3000]}", file=sys.stderr)
 
     if other:
         return "mixed " + "; ".join(other[:5])
