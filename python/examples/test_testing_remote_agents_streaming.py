@@ -73,7 +73,7 @@ async def stream_handler(request: web.Request) -> web.StreamResponse:
 
     # Stream response using real LLM
     stream = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-6-luna",
         messages=[
             {
                 "role": "system",
@@ -141,10 +141,10 @@ async def test_streaming_response(test_server):
         name="Streaming weather response",
         description="User asks about weather and receives streamed response",
         agents=[
-            scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             StreamingAgentAdapter(),
             scenario.JudgeAgent(
-                model="openai/gpt-4o-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "Agent should provide weather information",
                     "Response should be complete and coherent",

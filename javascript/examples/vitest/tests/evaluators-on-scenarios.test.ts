@@ -70,9 +70,9 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY || !process.env.OPENAI_API_KEY)(
         "A fraud analyst asks for the chargebacks per quarter for merchant ACME Travel.",
       agents: [
         sqlAnalystAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
         scenario.judgeAgent({
-          model: openai("gpt-5-mini"),
+          model: openai("gpt-6-luna"),
           criteria: ["The agent reports chargeback counts per quarter"],
         }),
       ],
@@ -91,8 +91,8 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY || !process.env.OPENAI_API_KEY)(
           required: false,
           mappings: { output: (state) => state.toolCalls("run_sql").last?.input },
           settings: {
-            // llm_boolean asks for its verdict through a function call, which
-            // reasoning models refuse while reasoning is on.
+            // The platform runs llm_boolean on gpt-6 only once
+            // langwatch/langwatch#9102 is deployed; switch to gpt-6-luna then.
             model: "openai/gpt-4.1-mini",
             prompt:
               "Does this SQL group chargebacks by quarter for one merchant? Answer true or false.",

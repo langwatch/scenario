@@ -13,7 +13,7 @@ from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
 from scenario._tracing import judge_span_collector
 from scenario._judge.trace_tools import grep_trace
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-6-luna")
 
 
 class ToolVerifyingJudge(scenario.AgentAdapter):

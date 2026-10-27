@@ -70,7 +70,7 @@ vi.mock("../../../config", async (importOriginal) => {
   return {
     ...original,
     getProjectConfig: vi.fn().mockResolvedValue({
-      defaultModel: { model: "openai/gpt-5-mini", temperature: 0 },
+      defaultModel: { model: "openai/gpt-6-luna", temperature: 0 },
     }),
   };
 });
@@ -1874,7 +1874,7 @@ describe("project-wide remote trace defaults", () => {
 
   it("applies the project default when the scenario config does not set it", async () => {
     vi.mocked(getProjectConfig).mockResolvedValueOnce({
-      defaultModel: { model: "openai/gpt-5-mini", temperature: 0 },
+      defaultModel: { model: "openai/gpt-6-luna", temperature: 0 },
       fetchRemoteTraces: true,
     } as never);
     const api = fakeTraceApi({
@@ -1905,7 +1905,7 @@ describe("project-wide remote trace defaults", () => {
 
   it("lets the per-run scenario config win over the project default", async () => {
     vi.mocked(getProjectConfig).mockResolvedValueOnce({
-      defaultModel: { model: "openai/gpt-5-mini", temperature: 0 },
+      defaultModel: { model: "openai/gpt-6-luna", temperature: 0 },
       fetchRemoteTraces: true,
     } as never);
     const api = fakeTraceApi({ [TRACE_A]: ["404"] });

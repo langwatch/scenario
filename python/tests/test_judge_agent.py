@@ -30,7 +30,7 @@ async def test_judge_agent_merges_global_config_and_agent_params():
     # Setup global config with extra params
     ScenarioConfig.default_config = ScenarioConfig(
         default_model=ModelConfig(
-            model="openai/gpt-4",
+            model="openai/gpt-6-luna",
             api_base="https://custom.com",
             headers={"X-Global": "global-value"},  # type: ignore  # extra param via ConfigDict(extra="allow")
             timeout=30,  # type: ignore  # extra param via ConfigDict(extra="allow")
@@ -83,7 +83,7 @@ async def test_judge_agent_merges_global_config_and_agent_params():
             call_kwargs = mock_completion.call_args.kwargs
 
             # Verify merged params: config defaults + agent overrides
-            assert call_kwargs["model"] == "openai/gpt-4"
+            assert call_kwargs["model"] == "openai/gpt-6-luna"
             assert call_kwargs["api_base"] == "https://custom.com"
             assert call_kwargs["temperature"] == 0.5  # Agent override
             assert call_kwargs["timeout"] == 60  # Agent override
@@ -101,7 +101,7 @@ async def test_judge_agent_merges_global_config_and_agent_params():
 async def test_judge_agent_with_string_default_model_config():
     """JudgeAgent should initialize _extra_params when default_model is a string."""
     # Setup global config with string default_model
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
 
     judge = JudgeAgent(
         criteria=["Test criterion"],
@@ -146,7 +146,7 @@ async def test_judge_agent_with_string_default_model_config():
 
             assert mock_completion.called
             call_kwargs = mock_completion.call_args.kwargs
-            assert call_kwargs["model"] == "openai/gpt-4"
+            assert call_kwargs["model"] == "openai/gpt-6-luna"
             assert call_kwargs["temperature"] == 0.5
     finally:
         context_scenario.reset(token)
@@ -169,7 +169,7 @@ async def test_judge_is_last_message_on_final_turn(
     current_turn: int, max_turns: Any, expect_last: bool
 ):
     """Judge should see is_last_message=True when current_turn >= effective_max_turns - 1."""
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
 
     judge = JudgeAgent(criteria=["Test criterion"])
 
@@ -244,7 +244,7 @@ async def test_judge_result_messages_is_conversation_not_judge_context():
     judge's internal LLM messages (system prompt + transcript text) instead of
     input.messages (the actual conversation between user-sim and agent under test).
     """
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge = JudgeAgent(criteria=["Agent replies helpfully"])
 
     # This is the "real" conversation the judge is evaluating.
@@ -307,7 +307,7 @@ async def test_judge_includes_additional_context_in_prompt():
     Tests backward compat: callers still using the old context= field should see the value
     forwarded to the judge prompt. See #660 for the rename to additional_context.
     """
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge = JudgeAgent(criteria=["Agent installed the dependency"])
 
     mock_scenario_state = MagicMock()
@@ -363,7 +363,7 @@ async def test_judge_includes_additional_context_in_prompt():
 @pytest.mark.asyncio
 async def test_judge_omits_additional_context_when_none():
     """No <additional_context> block when JudgmentRequest.context is absent."""
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge = JudgeAgent(criteria=["Agent responded"])
 
     mock_scenario_state = MagicMock()
@@ -428,7 +428,7 @@ async def _run_judge_finish_test(
     ``dict`` models a raw non-string payload. Building the arguments with
     ``json.dumps`` avoids hand-escaping nested JSON.
     """
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge = JudgeAgent(criteria=criteria)
 
     mock_scenario_state = MagicMock()

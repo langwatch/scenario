@@ -37,7 +37,7 @@ const chatAgent: AgentAdapter = {
   call: async (input) => {
     // This generateText call will be intercepted by our mock
     const response = await generateText({
-      model: openai("gpt-5-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
       experimental_telemetry: { isEnabled: true },
     });

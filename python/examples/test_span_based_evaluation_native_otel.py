@@ -79,7 +79,7 @@ class NativeOtelAgent(scenario.AgentAdapter):
         # LLM call with tool usage
         tools = [check_inventory]
         response = litellm.completion(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-6-luna",
             messages=[
                 {
                     "role": "system",
@@ -128,7 +128,7 @@ When asked about products, use the check_inventory tool.""",
 
             # Make follow-up call with tool results
             follow_up = litellm.completion(
-                model="openai/gpt-4.1-mini",
+                model="openai/gpt-6-luna",
                 messages=[
                     {
                         "role": "system",
@@ -167,9 +167,9 @@ async def test_native_otel_span_evaluation():
         """,
         agents=[
             NativeOtelAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             scenario.JudgeAgent(
-                model="openai/gpt-4.1-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "A fraud check HTTP call was made (http.fraud_check span exists)",
                     "A database query was performed (db.query span exists)",

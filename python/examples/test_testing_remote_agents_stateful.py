@@ -83,7 +83,7 @@ async def stateful_handler(request: web.Request) -> web.Response:
 
     # Generate response with FULL history
     response = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-6-luna",
         messages=[
             {
                 "role": "system",
@@ -159,10 +159,10 @@ async def test_stateful_conversation(test_server):
         name="Stateful weather conversation",
         description="Agent remembers previous turns using thread ID",
         agents=[
-            scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             StatefulAgentAdapter(),
             scenario.JudgeAgent(
-                model="openai/gpt-4o-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "Agent should remember context from message to message",
                     "Agent should provide relevant follow-up information",

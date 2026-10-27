@@ -32,7 +32,7 @@ def build_span_set():
             attributes={
                 "gen_ai.prompt": "What is the weather in Paris?",
                 "gen_ai.completion": "Let me check the weather for you.",
-                "model": "gpt-4",
+                "model": "gpt-6-luna",
             },
         ),
         create_mock_span(
@@ -87,7 +87,7 @@ class TestExpandTraceValidSpanId:
         assert "gen_ai.prompt" in result
         assert "What is the weather in Paris?" in result
         assert "gen_ai.completion" in result
-        assert "gpt-4" in result
+        assert "gpt-6-luna" in result
 
     def test_shows_span_id_in_brackets(self) -> None:
         spans = build_span_set()

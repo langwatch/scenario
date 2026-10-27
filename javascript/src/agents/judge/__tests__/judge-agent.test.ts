@@ -14,7 +14,7 @@ function createSmallTrace(): ReadableSpan[] {
       name: "llm.call",
       startTime: [1700000000, 0],
       endTime: [1700000000, 500_000_000],
-      attributes: { model: "gpt-4" },
+      attributes: { model: "gpt-6-luna" },
     }),
   ];
 }

@@ -69,7 +69,7 @@ describe("Weather Agent", () => {
       `,
       agents: [
         weatherAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user(),
@@ -204,7 +204,7 @@ async def test_mocked_weather_agent_tool():
         """,
         agents=[
             WeatherAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
         ],
         script=[
             scenario.message(
@@ -276,7 +276,7 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
     ]
 
     response = litellm.completion(
-        model="openai/gpt-4.1-mini",
+        model="openai/gpt-6-luna",
         messages=[
             {
                 "role": "system",
@@ -308,7 +308,7 @@ const agent = (): AgentAdapter => ({
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1-nano"),
+      model: openai("gpt-6-luna"),
       messages: [
         {
           role: "system",

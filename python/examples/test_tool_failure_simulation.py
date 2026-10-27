@@ -45,7 +45,7 @@ class ResilientAgent(scenario.AgentAdapter):
 
         # Let the LLM decide when and how to call the external service tool
         response = litellm.completion(
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-6-luna",
             messages=input.messages,
             tools=tool_schemas,
             tool_choice="auto",
@@ -88,7 +88,7 @@ class ResilientAgent(scenario.AgentAdapter):
             # If tools were called, get the LLM's final response based on service results
             if tool_responses:
                 follow_up_response = litellm.completion(
-                    model="openai/gpt-4o-mini",
+                    model="openai/gpt-6-luna",
                     messages=input.messages + [message] + tool_responses,
                 )
                 return follow_up_response.choices[0].message.content or ""  # type: ignore[attr-defined]  # litellm response has dynamic attributes
@@ -157,7 +157,7 @@ async def test_tool_timeout_simulation():
             description="Test agent's ability to handle tool timeouts",
             agents=[
                 ResilientAgent(),
-                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+                scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             ],
             script=[
                 scenario.user("Call the external service at endpoint /api/data"),
@@ -190,7 +190,7 @@ async def test_tool_rate_limit_simulation():
             description="Test agent's ability to handle rate limits",
             agents=[
                 ResilientAgent(),
-                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+                scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             ],
             script=[
                 scenario.user("Call the external service at endpoint /api/data"),
@@ -223,7 +223,7 @@ async def test_tool_success_simulation():
             description="Test agent's ability to handle successful tool calls",
             agents=[
                 ResilientAgent(),
-                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+                scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             ],
             script=[
                 scenario.user("Call the external service at endpoint /api/data"),

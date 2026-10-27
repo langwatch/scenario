@@ -154,7 +154,7 @@ describeFeature(feature, ({ Background, Scenario }) => {
       When("the scenario resolves its agents", () => {
         // The SDK type is accepted where the duck-typed shape is declared.
         const accepted: ConnectedAgentFunction = fake.agent;
-        resolved = resolveAgents([accepted, plainAdapter], { model: "gpt-5-mini" });
+        resolved = resolveAgents([accepted, plainAdapter], { model: "gpt-6-luna" });
       });
       Then("the decorated function is wrapped into an agent adapter with the AGENT role", () => {
         expect(resolved[0]).toBeInstanceOf(ConnectedAgentAdapter);
@@ -313,7 +313,7 @@ describeFeature(feature, ({ Background, Scenario }) => {
     const fake = makeFake();
     let adapter: ConnectedAgentAdapter;
     Given("a scenario that sets a run parameter", () => {
-      adapter = new ConnectedAgentAdapter(fake.agent, { model: "gpt-5-mini" });
+      adapter = new ConnectedAgentAdapter(fake.agent, { model: "gpt-6-luna" });
     });
     When("the wrapper invokes the decorated function", async () => {
       await adapter.call(makeInput());
@@ -322,7 +322,7 @@ describeFeature(feature, ({ Background, Scenario }) => {
       await adapter.call(makeInput());
     });
     Then("the function receives that parameter value", () => {
-      expect(fake.calls[1]?.params).toEqual({ model: "gpt-5-mini" });
+      expect(fake.calls[1]?.params).toEqual({ model: "gpt-6-luna" });
     });
   });
 

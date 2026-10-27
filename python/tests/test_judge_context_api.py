@@ -29,7 +29,7 @@ def _make_mock_litellm_response(verdict: str = "success") -> MagicMock:
 
 def _make_executor(criteria=None) -> ScenarioExecutor:
     """Return an initialised ScenarioExecutor with a single JudgeAgent."""
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     executor = ScenarioExecutor(
         name="context test",
         description="test description",

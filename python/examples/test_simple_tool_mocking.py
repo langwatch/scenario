@@ -54,7 +54,7 @@ class UserDataAgent(scenario.AgentAdapter):
 
         # Let LLM decide when and how to call tools
         response = litellm.completion(
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-6-luna",
             messages=input.messages,
             tools=tool_schemas,
             tool_choice="auto",
@@ -93,7 +93,7 @@ class UserDataAgent(scenario.AgentAdapter):
             # Continue conversation with tool results
             if tool_responses:
                 follow_up_response = litellm.completion(
-                    model="openai/gpt-4o-mini",
+                    model="openai/gpt-6-luna",
                     messages=input.messages + [message] + tool_responses,
                 )
                 return follow_up_response.choices[0].message.content or ""  # type: ignore[attr-defined]  # litellm response has dynamic attributes
@@ -121,7 +121,7 @@ async def test_simple_tool_mocking():
             description="Test agent's actual tool calling with mocked tool implementation",
             agents=[
                 UserDataAgent(),
-                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+                scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             ],
             script=[
                 scenario.user("Show me user data for ID 123"),

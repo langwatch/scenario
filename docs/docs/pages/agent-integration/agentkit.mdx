@@ -31,7 +31,7 @@ export const customerSupportAgent = createAgent({
   name: "Customer Support Agent",
   description: "Helps customers with their questions.",
   system: "You are a helpful customer support agent.",
-  model: openai({ model: "gpt-4o-mini", apiKey: process.env.OPENAI_API_KEY }),
+  model: openai({ model: "gpt-6-luna", apiKey: process.env.OPENAI_API_KEY }),
   tools: [getCompanyPolicy],
 });
 ```

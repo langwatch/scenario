@@ -23,7 +23,7 @@ const weatherAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-5-mini"),
+      model: openai("gpt-6-luna"),
       messages: [
         {
           role: "system",
@@ -92,11 +92,11 @@ describe("Weather Agent", () => {
       `,
       agents: [
         weatherAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         // Explicit city so the agent must call get_current_weather. A bare
-        // scenario.user() let the gpt-5-mini sim emit a city-less opener, and
+        // scenario.user() let the gpt-6-luna sim emit a city-less opener, and
         // the agent (per its "do not guess the city" prompt) then asked for
         // clarification instead of calling the tool — a flaky failure of this
         // assertion (unrelated to #705; it intermittently reddened ci-checks).

@@ -35,7 +35,7 @@ const userDataAgent: AgentAdapter = {
     // Agent uses generateText with tools
     // The AI SDK handles tool execution automatically here
     const response = await generateText({
-      model: openai("gpt-5-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
       tools: { fetch_user_data: fetchUserDataTool },
       toolChoice: "auto",

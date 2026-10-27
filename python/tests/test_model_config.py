@@ -24,7 +24,7 @@ def test_modelconfig_api_base_field():
 @pytest.mark.asyncio
 async def test_user_simulator_agent_uses_modelconfig_api_base():
     model_config = ModelConfig(
-        model="openai/gpt-4.1-mini", api_base="https://custom-api-base.example.com"
+        model="openai/gpt-6-luna", api_base="https://custom-api-base.example.com"
     )
     agent = UserSimulatorAgent(model=model_config.model, api_base=model_config.api_base)
     agent_input = MagicMock(spec=AgentInput)
@@ -44,7 +44,7 @@ def test_modelconfig_accepts_extra_litellm_params():
     custom_client = MagicMock(spec=OpenAI)
 
     config = ModelConfig(
-        model="openai/gpt-4",
+        model="openai/gpt-6-luna",
         api_base="https://custom.com",
         headers={"X-Custom-Header": "test-value"},  # type: ignore  # extra param via ConfigDict(extra="allow")
         timeout=60,  # type: ignore  # extra param via ConfigDict(extra="allow")
@@ -52,7 +52,7 @@ def test_modelconfig_accepts_extra_litellm_params():
         client=custom_client,  # type: ignore  # extra param via ConfigDict(extra="allow")
     )
 
-    assert config.model == "openai/gpt-4"
+    assert config.model == "openai/gpt-6-luna"
     assert config.api_base == "https://custom.com"
 
     # Verify extra params are stored

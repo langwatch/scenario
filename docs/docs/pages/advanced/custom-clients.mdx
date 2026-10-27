@@ -18,7 +18,7 @@ import scenario
 
 scenario.JudgeAgent(
     criteria=["Agent responds helpfully"],
-    model="openai/gpt-4o",
+    model="openai/gpt-6-luna",
     headers={"X-Custom-Header": "value"},
     timeout=60,
     num_retries=3,
@@ -41,7 +41,7 @@ import scenario
 
 scenario.configure(
     default_model=ModelConfig(
-        model="openai/gpt-4o",
+        model="openai/gpt-6-luna",
         timeout=60,
         headers={"X-Custom-Header": "value"},
     )

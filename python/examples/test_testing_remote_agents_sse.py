@@ -97,7 +97,7 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
 
     # Stream response using real LLM
     stream = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-6-luna",
         messages=[
             {
                 "role": "system",
@@ -164,10 +164,10 @@ async def test_sse_response(test_server):
         name="SSE weather response",
         description="User asks about weather and receives SSE-formatted stream",
         agents=[
-            scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             SSEAgentAdapter(),
             scenario.JudgeAgent(
-                model="openai/gpt-4o-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "Agent should provide weather information",
                     "Response should be complete and coherent",

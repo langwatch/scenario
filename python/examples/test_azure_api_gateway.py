@@ -118,11 +118,11 @@ async def test_azure_gateway_with_custom_client():
             MockAgent(),
             # UserSimulatorAgent generates realistic user inputs
             # IMPORTANT: Pass custom_client here to route its LLM calls through your gateway
-            scenario.UserSimulatorAgent(model="gpt-4o-mini", client=custom_client),
+            scenario.UserSimulatorAgent(model="gpt-6-luna", client=custom_client),
             # JudgeAgent evaluates if the agent's response meets criteria
             # IMPORTANT: Pass custom_client here too so evaluation also uses your gateway
             scenario.JudgeAgent(
-                model="gpt-4o-mini",
+                model="gpt-6-luna",
                 criteria=[
                     "The agent responds to the user's message",
                     "The agent offers to help if they don't know the answer",

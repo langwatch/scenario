@@ -48,7 +48,7 @@ class UserDataAgent(scenario.AgentAdapter):
         # Let the LLM decide when and how to call the API tool
         # The LLM will extract user_id from the user's natural language request
         response = litellm.completion(
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-6-luna",
             messages=input.messages,
             tools=tool_schemas,
             tool_choice="auto",  # LLM decides when to use tools
@@ -91,7 +91,7 @@ class UserDataAgent(scenario.AgentAdapter):
             # If tools were called, get the LLM's final response based on API results
             if tool_responses:
                 follow_up_response = litellm.completion(
-                    model="openai/gpt-4o-mini",
+                    model="openai/gpt-6-luna",
                     messages=input.messages + [message] + tool_responses,
                 )
                 return follow_up_response.choices[0].message.content or ""  # type: ignore[attr-defined]  # litellm response has dynamic attributes
@@ -124,7 +124,7 @@ async def test_api_service_mocking():
             description="Test tool's HTTP integration with mocked API calls",
             agents=[
                 UserDataAgent(),
-                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+                scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             ],
             script=[
                 # User makes a natural language request

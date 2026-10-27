@@ -16,7 +16,7 @@ import scenario
 
 scenario.JudgeAgent(
     criteria=["Agent responds helpfully"],
-    model="openai/gpt-4o",
+    model="openai/gpt-6-luna",
     headers={"X-Custom-Header": "value"},
     timeout=60,
     num_retries=3,
@@ -42,10 +42,10 @@ result = await scenario.run(
     name="test with custom client",
     agents=[
         my_agent,
-        scenario.UserSimulatorAgent(model="gpt-4o", client=custom_client),
+        scenario.UserSimulatorAgent(model="gpt-6-luna", client=custom_client),
         scenario.JudgeAgent(
             criteria=["Agent is helpful"],
-            model="gpt-4o",
+            model="gpt-6-luna",
             client=custom_client,
         ),
     ],
@@ -65,7 +65,7 @@ import scenario
 
 scenario.configure(
     default_model=ModelConfig(
-        model="openai/gpt-4o",
+        model="openai/gpt-6-luna",
         timeout=60,
         headers={"X-Custom-Header": "value"},
     )

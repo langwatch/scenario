@@ -81,7 +81,7 @@ async def _call_judge(
     """Run one JudgeAgent.call with scripted responses; returns
     (result, kwargs of every completion call)."""
     previous_default_config = ScenarioConfig.default_config
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-5-mini")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     judge = JudgeAgent(criteria=CRITERIA)
 
     calls: List[Dict[str, Any]] = []

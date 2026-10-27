@@ -14,7 +14,7 @@ const createMultilingualAgent = (): AgentAdapter => ({
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-5-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
       experimental_telemetry: { isEnabled: true },
     });
@@ -47,7 +47,7 @@ describe.skipIf(skipInCi)("Multilingual Agent", () => {
       agents: [
         agent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user(

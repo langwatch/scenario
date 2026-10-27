@@ -15,10 +15,15 @@ the parameter:
   langwatch/scenario#864). The call is re-sent with ``reasoning_effort``
   ``none``.
 
-Nothing is changed up front: whether a model accepts a parameter is not
-knowable in advance, so the call goes out as configured and is adapted only
-when the provider's refusal asks for exactly that. An adaptation is remembered
-for the later calls of the same agent, so a model pays for the refusal once.
+Nothing is changed up front, except for the models known to refuse function
+tools with reasoning on (``TOOL_REASONING_OFF_MODELS``): whether a model
+accepts a parameter is not knowable in advance, so the call goes out as
+configured and is adapted only when the provider's refusal asks for exactly
+that. An adaptation is remembered for the later calls of the same agent, and a
+model seen refusing tools with reasoning on is remembered for the process.
+``reasoning_effort`` is also named in ``allowed_openai_params``: litellm does
+not know every new model takes it, and ``drop_params`` would strip it unsent.
+langevals carries the same rules (langwatch/langwatch#9102).
 The JavaScript SDK recognises the same refusals; keep them in sync.
 """
 
@@ -33,6 +38,41 @@ from litellm.files.main import ModelResponse
 logger = logging.getLogger("scenario")
 
 REASONING_OFF = "none"
+
+# Models observed refusing function tools on /v1/chat/completions while their
+# reasoning is on. Disabling reasoning is itself refused by models that only
+# run with it on, so a model joins only once it has been seen to need it.
+TOOL_REASONING_OFF_MODELS = frozenset(
+    {
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-6-astra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+    }
+)
+
+# Models seen refusing tools with reasoning on in this process.
+_learned_tool_reasoning_off: Set[str] = set()
+
+
+def _model_name(model: Any) -> str:
+    name = str(model or "")
+    return name.split("/", 1)[1] if name.startswith("openai/") else name
+
+
+def needs_reasoning_off(model: Any) -> bool:
+    name = _model_name(model)
+    return name in TOOL_REASONING_OFF_MODELS or name in _learned_tool_reasoning_off
+
+
+def _with_reasoning_off(kwargs: dict) -> dict:
+    allowed = list(kwargs.get("allowed_openai_params") or [])
+    if "reasoning_effort" not in allowed:
+        allowed.append("reasoning_effort")
+    return {**kwargs, "reasoning_effort": REASONING_OFF, "allowed_openai_params": allowed}
 
 
 def _forces_tool(tool_choice: Any) -> bool:
@@ -69,7 +109,7 @@ def adaptation_for(error: Exception, kwargs: dict) -> Optional[str]:
     # chose an effort keeps it and gets the provider's own error.
     if (
         kwargs.get("tools")
-        and "reasoning_effort" not in kwargs
+        and kwargs.get("reasoning_effort") in (None, REASONING_OFF)
         and "set reasoning_effort to 'none'" in text
     ):
         return "reasoning_off"
@@ -99,11 +139,11 @@ def apply_adaptations(kwargs: dict, adaptations: Set[str]) -> dict:
         adapted["tool_choice"] = "auto"
         adapted["messages"] = [*adapted.get("messages", []), instruction]
     if (
-        "reasoning_off" in adaptations
+        ("reasoning_off" in adaptations or needs_reasoning_off(adapted.get("model")))
         and adapted.get("tools")
-        and "reasoning_effort" not in adapted
+        and adapted.get("reasoning_effort") in (None, REASONING_OFF)
     ):
-        adapted["reasoning_effort"] = REASONING_OFF
+        adapted = _with_reasoning_off(adapted)
     return adapted
 
 
@@ -113,6 +153,11 @@ class ProviderCompat:
 
     def __init__(self) -> None:
         self._adaptations: Set[str] = set()
+
+    def _remember(self, adaptation: str, kwargs: dict) -> None:
+        self._adaptations.add(adaptation)
+        if adaptation == "reasoning_off":
+            _learned_tool_reasoning_off.add(_model_name(kwargs.get("model")))
 
     def completion(self, **kwargs: Any) -> ModelResponse:
         while True:
@@ -128,7 +173,7 @@ class ProviderCompat:
                     kwargs.get("model"),
                     adaptation,
                 )
-                self._adaptations.add(adaptation)
+                self._remember(adaptation, kwargs)
 
     async def acompletion(self, **kwargs: Any) -> ModelResponse:
         while True:
@@ -144,4 +189,4 @@ class ProviderCompat:
                     kwargs.get("model"),
                     adaptation,
                 )
-                self._adaptations.add(adaptation)
+                self._remember(adaptation, kwargs)

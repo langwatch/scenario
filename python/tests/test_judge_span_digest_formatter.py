@@ -53,7 +53,7 @@ class TestJudgeSpanDigestFormatterSingleSpan:
             attributes={
                 "gen_ai.prompt": "Hello",
                 "gen_ai.completion": "Hi there!",
-                "model": "gpt-4",
+                "model": "gpt-6-luna",
             },
         )
 
@@ -61,7 +61,7 @@ class TestJudgeSpanDigestFormatterSingleSpan:
 
         assert "gen_ai.prompt: Hello" in result
         assert "gen_ai.completion: Hi there!" in result
-        assert "model: gpt-4" in result
+        assert "model: gpt-6-luna" in result
 
 
 class TestJudgeSpanDigestFormatterMultipleSpans:
@@ -349,7 +349,7 @@ class TestFormatStructureOnlyOmitsDetails:
             attributes={
                 "gen_ai.prompt": "Hello",
                 "gen_ai.completion": "Hi there!",
-                "model": "gpt-4",
+                "model": "gpt-6-luna",
             },
             events=[event],
         )
@@ -363,7 +363,7 @@ class TestFormatStructureOnlyOmitsDetails:
         assert "gen_ai.prompt" not in result
         assert "Hello" not in result
         assert "Hi there!" not in result
-        assert "gpt-4" not in result
+        assert "gpt-6-luna" not in result
         assert "token.generated" not in result
 
 

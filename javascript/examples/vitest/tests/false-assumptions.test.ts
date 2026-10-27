@@ -15,7 +15,7 @@ describe("False Assumptions", () => {
       role: AgentRole.AGENT,
       call: async (input) => {
         const response = await generateText({
-          model: openai("gpt-5-mini"),
+          model: openai("gpt-6-luna"),
           messages: [
             { role: "system", content: "You are a helpful assistant" },
             ...input.messages,

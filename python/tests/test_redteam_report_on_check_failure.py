@@ -35,7 +35,7 @@ def test_plugin_loads_from_entry_point(pytestconfig: pytest.Config) -> None:
 @pytest.mark.asyncio
 async def test_check_failure_saves_redteam_report() -> None:
     attacker = scenario.RedTeamAgent.crescendo(
-        target="get the escalation code", model="openai/gpt-4.1-mini", total_turns=1
+        target="get the escalation code", model="openai/gpt-6-luna", total_turns=1
     )
     with patch("scenario.pytest_plugin._auto_save_redteam_report") as save:
         with pytest.raises(AssertionError):

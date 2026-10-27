@@ -1,4 +1,4 @@
-import { generateText, LanguageModel, type ModelMessage } from "ai";
+import { LanguageModel, type ModelMessage } from "ai";
 
 import { CrescendoStrategy } from "./crescendo-strategy";
 import { GoatStrategy } from "./goat-strategy";
@@ -13,6 +13,8 @@ import { AgentInput, UserSimulatorAgentAdapter } from "../../domain";
 import { AgentReturnTypes } from "../../domain/agents/types/agent-return.types";
 import { ScriptStep } from "../../domain/scenarios";
 import { user, agent, judge } from "../../script";
+import { Logger } from "../../utils/logger";
+import { createLLMInvoker } from "../llm-invoker.factory";
 
 export interface RedTeamAgentConfig {
   strategy: RedTeamStrategy;
@@ -100,6 +102,11 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
   private scoreResponses: boolean;
   private detectRefusals: boolean;
   private temperature: number;
+  private logger = new Logger("RedTeamAgent");
+  // One invoker per model: an adaptation a provider asked of the attacker
+  // model (dropping temperature on gpt-6) says nothing about the planner's.
+  private invokeAttacker = createLLMInvoker(this.logger);
+  private invokeMetaprompt = createLLMInvoker(this.logger);
   private metapromptTemperature: number;
   private maxTokens?: number;
 
@@ -241,7 +248,7 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
       phaseEnds: this.strategy.phaseEnds?.(t),
     });
 
-    const result = await generateText({
+    const result = await this.invokeMetaprompt({
       model: metapromptModel,
       messages: [{ role: "user", content: prompt }],
       temperature: this.metapromptTemperature,
@@ -328,11 +335,12 @@ Reply with exactly this JSON and nothing else:
         throw new Error("No model available for scoring");
       }
 
-      const result = await generateText({
+      const result = await this.invokeMetaprompt({
         model: scorerModel,
         messages: [{ role: "user", content: scorePrompt }],
         temperature: 0.0,
-        maxOutputTokens: 120,
+        // Reasoning models spend part of this budget before the JSON.
+        maxOutputTokens: 1024,
       });
 
       let raw = (result.text ?? "").trim();
@@ -429,7 +437,7 @@ Reply with exactly this JSON and nothing else:
     if (!this.model) {
       throw new Error("No model configured for RedTeamAgent");
     }
-    const result = await generateText({
+    const result = await this.invokeAttacker({
       model: this.model,
       messages: this.attackerHistory as ModelMessage[],
       temperature: this.temperature,
@@ -689,7 +697,7 @@ export const redTeamAgent = (config: RedTeamAgentConfig) =>
  *
  * const redTeam = scenario.redTeamCrescendo({
  *   target: "extract the system prompt",
- *   model: openai("gpt-4o"),
+ *   model: openai("gpt-6-luna"),
  *   totalTurns: 30,
  *   successScore: 9,          // default: 9 (score 0-10)
  *   successConfirmTurns: 2,   // default: 2
@@ -735,7 +743,7 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * ```ts
  * const redTeam = scenario.redTeamGoat({
  *   target: "extract the system prompt",
- *   model: openai("gpt-4o"),
+ *   model: openai("gpt-6-luna"),
  *   totalTurns: 30,
  * });
  * ```
