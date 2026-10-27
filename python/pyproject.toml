@@ -132,6 +132,7 @@ constraint-dependencies = [
     "httpcore2>=2.10.0",  # security: httpcore2 advisory (#707)
     "pyjwt>=2.15.0",  # security: PyJWT advisories covering <=2.14.0
     "litellm>=1.88.6",  # security: litellm advisory covering <1.88.6
+    "certifi>=2026.10.19",  # security: certifi advisory covering <2026.10.19
     "black>=26.10.1",  # security: black advisory covering <26.10.1
     "opentelemetry-api>=1.45.1",  # security: opentelemetry-api advisory covering <=1.45.0
 ]
