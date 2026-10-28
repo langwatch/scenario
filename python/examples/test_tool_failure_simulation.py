@@ -58,6 +58,8 @@ class ResilientAgent(scenario.AgentAdapter):
             tool_responses = []
 
             for tool_call in message.tool_calls:
+                if tool_call.type != "function":
+                    continue
                 tool_name = tool_call.function.name
                 # LLM provides the arguments (endpoint) extracted from user input
                 args = json.loads(tool_call.function.arguments)
