@@ -122,6 +122,8 @@ When asked about products, use the check_inventory tool.""",
             tool_responses = []
 
             for tool_call in message.tool_calls:
+                if tool_call.type != "function":
+                    continue
                 tool_name = tool_call.function.name
                 tool_args = json.loads(tool_call.function.arguments)
 
