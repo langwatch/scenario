@@ -1625,7 +1625,7 @@ wheels = [
 
 [[package]]
 name = "langwatch-scenario"
-version = "1.5.0"
+version = "1.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "audioop-lts", marker = "python_full_version >= '3.13'" },
@@ -1703,7 +1703,7 @@ requires-dist = [
     { name = "imageio-ffmpeg", specifier = ">=0.5.0" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "joblib", specifier = ">=1.4.2" },
-    { name = "langwatch", specifier = ">=1.0.0,<2" },
+    { name = "langwatch", specifier = ">=1.0.0,<3" },
     { name = "litellm", specifier = ">=1.83.14" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=1.88.0" },

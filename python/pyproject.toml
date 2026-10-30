@@ -42,7 +42,7 @@ dependencies = [
     # Floor 1.0: the first langwatch that imports pandas-free. Older versions
     # pull pandas in at module load through langwatch.evaluations, which
     # breaks installs without the [report] extra.
-    "langwatch>=1.0.0,<2",
+    "langwatch>=1.0.0,<3",
     "opentelemetry-sdk>=1.20.0",
     # Voice agent support (issue #350). Hard deps: voice is first-class.
     # imageio-ffmpeg bundles the ffmpeg binary (not ffplay) for audio
