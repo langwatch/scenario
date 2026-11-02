@@ -74,6 +74,13 @@ Feature: Two-phase judge: decision gate then verdict
     And it instructs the judge to lean towards continuing while the conversation is short
 
   @unit
+  Scenario: The decision prompt does not end the conversation over a criterion not reached yet
+    Given the decision call is being prepared
+    When the system prompt is built
+    Then it tells the judge an unmet criterion is not a reason to end the conversation
+    And a custom system prompt carries the same rule
+
+  @unit
   Scenario: A verdict maps each criterion by its schema key, not by position
     Given a judge with three criteria
     When the verdict call answers the criteria keys out of order
