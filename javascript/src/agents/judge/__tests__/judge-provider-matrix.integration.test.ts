@@ -12,7 +12,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGoogle } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import type { LanguageModel, ModelMessage } from "ai";
@@ -58,7 +58,7 @@ const MODELS: Record<string, () => LanguageModel | null> = {
     env.OPENAI_API_KEY ? createOpenAI()("gpt-5.6-luna") : null,
   "gemini gemini-3.5-flash": () =>
     env.GEMINI_API_KEY
-      ? createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY })(
+      ? createGoogle({ apiKey: env.GEMINI_API_KEY })(
           "gemini-3.5-flash"
         )
       : null,

@@ -161,7 +161,7 @@ const mockWeatherTool = vi.fn().mockResolvedValue("Sunny, 75°F");
 
 const weatherTool = tool({
   description: "Get weather data",
-  parameters: z.object({ city: z.string() }),
+  inputSchema: z.object({ city: z.string() }),
   execute: mockWeatherTool,
 });
 

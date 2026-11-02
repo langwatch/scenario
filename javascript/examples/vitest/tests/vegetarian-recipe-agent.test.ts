@@ -9,19 +9,14 @@ describe("Vegetarian Recipe Agent", () => {
     call: async (input) => {
       const response = await generateText({
         model: openai("gpt-5-mini"),
-        messages: [
-          {
-            role: "system",
-            content: `
+        instructions: `
               You are a vegetarian recipe agent.
               Given the user request, ask AT MOST ONE follow-up question,
               then provide a complete recipe. Once you have given a recipe, answer
               without asking further questions. Keep your responses concise and focused.
             `,
-          },
-          ...input.messages,
-        ],
-        experimental_telemetry: { isEnabled: true },
+        messages: input.messages,
+        telemetry: { isEnabled: true },
       });
       return response.text;
     },

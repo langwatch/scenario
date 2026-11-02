@@ -1,7 +1,7 @@
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { trace, context } from "@opentelemetry/api";
-import { generateText, stepCountIs, tool } from "ai";
+import { generateText, isStepCount, tool } from "ai";
 import { describe, it, expect } from "vitest";
 import { z } from "zod/v4";
 
@@ -68,17 +68,12 @@ const observableAgent: AgentAdapter = {
       // LLM call with tool usage
       const response = await generateText({
         model: openai("gpt-5-mini"),
-        messages: [
-          {
-            role: "system",
-            content: `You are an order processing assistant.
+        instructions: `You are an order processing assistant.
 When asked about products, use the check_inventory tool.`,
-          },
-          ...input.messages,
-        ],
+        messages: input.messages,
         tools: { check_inventory: checkInventoryTool },
-        experimental_telemetry: { isEnabled: true },
-        stopWhen: stepCountIs(2),
+        telemetry: { isEnabled: true },
+        stopWhen: isStepCount(2),
       });
 
       return response.text;

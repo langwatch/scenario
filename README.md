@@ -103,6 +103,8 @@ uv add langwatch-scenario pytest
 pnpm install @langwatch/scenario vitest
 ```
 
+The TypeScript package targets [AI SDK](https://ai-sdk.dev) 7. If your project is still on AI SDK 6, stay on `@langwatch/scenario` 1.x until you upgrade.
+
 Now create your first scenario, copy the full working example below.
 
 <details>
@@ -198,13 +200,8 @@ describe("Vegetarian Recipe Agent", () => {
     call: async (input) => {
       const response = await generateText({
         model: openai("gpt-4.1-mini"),
-        messages: [
-          {
-            role: "system",
-            content: `You are a vegetarian recipe agent.\nGiven the user request, ask AT MOST ONE follow-up question, then provide a complete recipe. Keep your responses concise and focused.`,
-          },
-          ...input.messages,
-        ],
+        instructions: `You are a vegetarian recipe agent.\nGiven the user request, ask AT MOST ONE follow-up question, then provide a complete recipe. Keep your responses concise and focused.`,
+        messages: input.messages,
       });
       return response.text;
     },

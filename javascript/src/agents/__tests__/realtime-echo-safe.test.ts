@@ -177,11 +177,11 @@ describe("realtime echo-safety (AC-JS1')", () => {
     // red-capable at the JS layer: the realtime turn goes straight through the
     // production reversal, and the parrot sees the agent's transcript verbatim.
     const naiveReversed = messageRoleReversal([
-      { role: "system", content: "you are pretending to be a user" },
       { role: "assistant", content: "Hello, how can I help you today" },
       agentTurn,
     ]);
     const naiveResult = await parrotInvokeLLM({
+      instructions: "you are pretending to be a user",
       messages: naiveReversed,
     } as unknown as InvokeLLMParams);
     const naiveAnswer = naiveResult.text ?? "";

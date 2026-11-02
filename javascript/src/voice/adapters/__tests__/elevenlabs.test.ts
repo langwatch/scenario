@@ -54,8 +54,8 @@ const isUserAudioChunk = (f: Record<string, unknown>): boolean =>
   typeof f.user_audio_chunk === "string";
 
 /**
- * Hand-rolled LanguageModelV3 stub — we only need `doGenerate`. Cast
- * through `unknown` so we don't drag the full LanguageModelV3 type
+ * Hand-rolled LanguageModelV4 stub — we only need `doGenerate`. Cast
+ * through `unknown` so we don't drag the full LanguageModelV4 type
  * surface (and its myriad provider-specific fields) into test code.
  */
 function makeFakeLanguageModel(text: string): {
@@ -64,15 +64,18 @@ function makeFakeLanguageModel(text: string): {
 } {
   const calls = { current: 0 };
   const model = {
-    specificationVersion: "v3" as const,
+    specificationVersion: "v4" as const,
     provider: "fake",
     modelId: "fake-model",
     supportedUrls: {},
     doGenerate: async () => {
       calls.current += 1;
       return {
-        finishReason: "stop",
-        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 1, reasoning: 0 },
+        },
         content: [{ type: "text", text }],
         warnings: [],
       };

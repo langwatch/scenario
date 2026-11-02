@@ -309,16 +309,11 @@ const agent = (): AgentAdapter => ({
   call: async (input) => {
     const response = await generateText({
       model: openai("gpt-4.1-nano"),
-      messages: [
-        {
-          role: "system",
-          content: `
+      instructions: `
             You are a helpful assistant that may help the user with weather information.
             Do not guess the city if they don't provide it.
           `,
-        },
-        ...input.messages,
-      ],
+      messages: input.messages,
       tools: { get_current_weather: getCurrentWeather },
       toolChoice: "auto",
     });
