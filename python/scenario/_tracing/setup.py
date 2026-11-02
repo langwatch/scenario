@@ -10,7 +10,7 @@ Supports:
 
 import logging
 import os
-from typing import List, Optional, Sequence
+from typing import List, Optional, Protocol, Sequence, cast
 
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider, SpanProcessor
@@ -23,6 +23,10 @@ from .filtering_exporter import FilteringSpanExporter
 logger = logging.getLogger("scenario.tracing")
 
 _initialized = False
+
+
+class _SpanProcessorProvider(Protocol):
+    def add_span_processor(self, span_processor: SpanProcessor) -> None: ...
 
 
 def setup_scenario_tracing(
@@ -88,7 +92,7 @@ def ensure_tracing_initialized(observability: Optional[dict] = None) -> None:
     _initialized = True
 
 
-def _get_concrete_provider(provider) -> Optional[TracerProvider]:
+def _get_concrete_provider(provider) -> Optional[_SpanProcessorProvider]:
     """Returns the concrete TracerProvider if one exists.
 
     Checks the provider itself and one level of delegation
@@ -96,6 +100,12 @@ def _get_concrete_provider(provider) -> Optional[TracerProvider]:
     """
     if isinstance(provider, TracerProvider):
         return provider
+
+    # OpenTelemetry's public provider interface does not require an SDK
+    # TracerProvider subclass. Providers such as Temporal's replay-safe wrapper
+    # expose the processor hook directly and are safe to configure in place.
+    if callable(getattr(provider, "add_span_processor", None)):
+        return cast(_SpanProcessorProvider, provider)
 
     # Check delegation pattern
     delegate = None
@@ -122,16 +132,17 @@ def _do_setup(
     concrete = _get_concrete_provider(existing_provider)
 
     if concrete is not None:
-        _attach_to_existing(concrete, span_filter, span_processors, trace_exporter)
+        _attach_to_existing(concrete, span_filter, span_processors, trace_exporter, instrumentors)
     else:
         _full_setup(span_filter, span_processors, trace_exporter, instrumentors)
 
 
 def _attach_to_existing(
-    provider: TracerProvider,
+    provider: _SpanProcessorProvider,
     span_filter: Optional[SpanFilter],
     span_processors: Optional[List[SpanProcessor]],
     trace_exporter: Optional[SpanExporter],
+    instrumentors: Optional[Sequence],
 ) -> None:
     """Attach processors to an existing TracerProvider."""
     provider.add_span_processor(judge_span_collector)
@@ -149,6 +160,10 @@ def _attach_to_existing(
 
     # Add LangWatch exporter
     _add_langwatch_exporter(provider, span_filter)
+
+    if instrumentors:
+        for instrumentor in instrumentors:
+            instrumentor.instrument(tracer_provider=provider)
 
 
 def _full_setup(
