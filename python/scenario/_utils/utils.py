@@ -12,6 +12,7 @@ from typing import (
     Any,
     Iterator,
     Optional,
+    Sequence,
     Union,
     TypeVar,
     Awaitable,
@@ -439,38 +440,166 @@ def check_valid_return_type(return_value: Any, class_name: str) -> None:
     )
 
 
+def _stringify_value(value: Any) -> str:
+    """Convert a value to a string representation for tool summaries.
+
+    Strings are returned as-is. All other values go through json.dumps so that
+    None becomes "null", dicts/lists get JSON notation, and numbers stringify
+    without a Python-specific repr. Non-serializable objects fall back to str().
+    """
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _has_tool_content(message: Any) -> bool:
+    """
+    Checks if a message contains tool-related content (tool_calls, tool role).
+    These messages need to be summarized as plain text rather than role-reversed,
+    because sending raw tool content on a 'user' message breaks both OpenAI and
+    Anthropic APIs.
+    """
+    role = safe_attr_or_key(message, "role")
+    if role == "tool":
+        return True
+    if safe_attr_or_key(message, "tool_calls"):
+        return True
+    return False
+
+
+def _summarize_tool_message(
+    message: Any, tool_call_names: Optional[dict[str, str]] = None
+) -> Optional[str]:
+    """
+    Converts a tool message into a plain-text summary so the user simulator
+    understands what the agent did without receiving raw tool protocol messages.
+
+    Handles OpenAI message format:
+    - Tool results: {"role": "tool", "tool_call_id": "...", "content": "..."}
+    - Tool calls: {"role": "assistant", "tool_calls": [{"function": {"name": "...", "arguments": "..."}}]}
+
+    A standard OpenAI tool-result message carries no "name" field — only
+    tool_call_id. tool_call_names maps tool_call_id -> function name, built by
+    the caller from the tool_calls messages that precede this one, so the
+    summary can name the actual tool instead of always saying "unknown tool".
+
+    Note: when an assistant message has both text content and tool_calls, the text
+    content is intentionally dropped and only the tool calls are summarized. This
+    matches the JS messageRoleReversal() behaviour — the tool-call summary is what
+    the user simulator needs to understand what the agent did.
+    """
+    role = safe_attr_or_key(message, "role")
+
+    # Handle tool result messages (role == "tool")
+    if role == "tool":
+        content = safe_attr_or_key(message, "content")
+        tool_call_id = safe_attr_or_key(message, "tool_call_id")
+        name = (tool_call_names or {}).get(tool_call_id, "unknown tool")
+        return f"[Tool result from {name}: {_stringify_value(content)}]"
+
+    # Handle assistant messages with tool_calls
+    tool_calls = safe_attr_or_key(message, "tool_calls")
+    if tool_calls:
+        summaries = []
+        for tool_call in tool_calls:
+            function = safe_attr_or_key(tool_call, "function")
+            if function:
+                name = safe_attr_or_key(function, "name", "unknown tool")
+                arguments = safe_attr_or_key(function, "arguments", "{}")
+                summaries.append(f"[Called tool {name} with: {arguments}]")
+        return "\n".join(summaries) if summaries else None
+
+    return None
+
+
 def reverse_roles(
-    messages: list[ChatCompletionMessageParam],
+    messages: Sequence[ChatCompletionMessageParam],
 ) -> list[ChatCompletionMessageParam]:
     """
-    Reverses the roles of the messages in the list.
+    Reverses user <-> assistant roles for the user simulator agent.
+
+    Every message is processed individually:
+    1. Tool messages (role 'tool' or containing tool_calls)
+       -> summarized as plain text attributed to 'user' (the agent after reversal)
+    2. User messages -> become 'assistant' (so the LLM generates as "assistant")
+    3. Assistant messages -> become 'user' (the agent's words become context)
+    4. System messages -> preserved unchanged
+
+    This flat per-message approach is correct because every non-tool message must
+    be reversed regardless of whether nearby messages contain tool calls. The old
+    segment-based approach incorrectly left non-tool messages unreversed in segments
+    that contained tools, causing the user simulator to see the wrong roles and
+    respond as an assistant instead of simulating a user.
 
     Args:
         messages: The list of messages to reverse the roles of.
     """
 
-    reversed_messages = []
+    role_map = {
+        "user": "assistant",
+        "assistant": "user",
+    }
+
+    # Tool-result messages only carry a tool_call_id, not the tool's name — so
+    # resolve it from the tool_calls entries that precede it, matched by id.
+    tool_call_names: dict[str, str] = {}
+    for message in messages:
+        for tool_call in safe_attr_or_key(message, "tool_calls") or []:
+            call_id = safe_attr_or_key(tool_call, "id")
+            function = safe_attr_or_key(tool_call, "function")
+            name = safe_attr_or_key(function, "name") if function else None
+            if call_id and name:
+                tool_call_names[call_id] = name
+
+    reversed_messages: list[ChatCompletionMessageParam] = []
     for message in messages:
         message = copy.deepcopy(message)
-        # Can't reverse tool calls
-        if not safe_attr_or_key(message, "content") or safe_attr_or_key(
-            message, "tool_calls"
-        ):
-            # If no content nor tool calls, we should skip it entirely, as anthropic may generate some invalid ones e.g. pure {"role": "assistant"}
-            if safe_attr_or_key(message, "tool_calls"):
-                reversed_messages.append(message)
+
+        if _has_tool_content(message):
+            summary = _summarize_tool_message(message, tool_call_names)
+            if summary is None:
+                continue
+            reversed_messages.append({"role": "user", "content": summary})
             continue
 
-        if type(message) == dict:
-            if message["role"] == "user":
-                message["role"] = "assistant"
-            elif message["role"] == "assistant":
-                message["role"] = "user"
+        role = safe_attr_or_key(message, "role")
+        new_role = role_map.get(role)
+        if not new_role:
+            # Preserve system and other messages unchanged
+            reversed_messages.append(message)
+            continue
+
+        # Skip messages with nothing to say: either the content key is absent
+        # entirely, or present but explicitly None. Some models (notably
+        # Anthropic) occasionally emit {"role": "assistant"} with no content
+        # field, or with content=None and no tool_calls (tool_calls-bearing
+        # messages are already diverted above, so None here is never "valid
+        # because tool_calls is present"). Passing either through would flip
+        # to {"role": "user", "content": None}, which OpenAI and Anthropic
+        # both reject — user messages require non-null content.
+        has_content_key = (
+            "content" in message
+            if isinstance(message, dict)
+            else hasattr(message, "content")
+        )
+        if not has_content_key:
+            continue
+
+        content_value = (
+            message.get("content")
+            if isinstance(message, dict)
+            else getattr(message, "content", None)
+        )
+        if content_value is None:
+            continue
+
+        if isinstance(message, dict):
+            message["role"] = new_role  # type: ignore[reportGeneralTypeIssues]  # new_role is always "user" or "assistant" from role_map, but pyright can't narrow a TypedDict's literal "role" field from a runtime str
         else:
-            if getattr(message, "role", None) == "user":
-                message.role = "assistant"  # type: ignore
-            elif getattr(message, "role", None) == "assistant":
-                message.role = "user"  # type: ignore
+            message.role = new_role
 
         reversed_messages.append(message)
 
