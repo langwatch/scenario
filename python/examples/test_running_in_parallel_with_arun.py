@@ -79,7 +79,16 @@ async def test_vegetarian_recipe_agent_via_arun():
                 ]
             ),
         ],
-        max_turns=12,
+        # Fixed user lines and two agent turns, as in the hungry-user test: over
+        # twelve free-form turns the agent closes with "would you like a dessert
+        # idea?" and the judge counts a third follow-up question.
+        script=[
+            scenario.user("What should I make for dinner tonight?"),
+            scenario.agent(),
+            scenario.user("Sounds good, can you share the full recipe?"),
+            scenario.agent(),
+            scenario.judge(),
+        ],
         set_id="python-examples",
     )
     assert result.success
