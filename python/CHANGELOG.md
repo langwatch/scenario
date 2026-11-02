@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/langwatch/scenario/compare/python/v1.6.0...python/v1.6.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** allow langwatch 2.x in the python package ([#1040](https://github.com/langwatch/scenario/issues/1040)) ([9eda75c](https://github.com/langwatch/scenario/commit/9eda75cf467e223f597276d14193997fe358ad70))
+
 ## [1.6.0](https://github.com/langwatch/scenario/compare/python/v1.5.0...python/v1.6.0) (2026-10-07)
 
 
