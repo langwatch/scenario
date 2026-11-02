@@ -23,6 +23,7 @@ from typing import Optional
 from .audio_chunk import AudioChunk
 from .recording import AudioSegment, VoiceRecording
 from .stt import STTProvider, get_stt_provider
+from ._telemetry import voice_span
 
 logger = logging.getLogger("scenario.voice")
 
@@ -31,6 +32,7 @@ async def transcribe_segments(
     recording: VoiceRecording,
     provider: Optional[STTProvider] = None,
     only_missing: bool = True,
+    telemetry_scope: Optional[str] = None,
 ) -> None:
     """
     Run STT over recording.segments, mutating .transcript in place.
@@ -42,6 +44,9 @@ async def transcribe_segments(
         only_missing: If True (default), skip segments whose transcript is
             already set. If False, re-transcribe everything (e.g. to overwrite
             adapter-side STT with a different provider).
+        telemetry_scope: When set, emit a ``voice.stt.transcribe`` span for
+            each provider call using this scope. Public callers are
+            uninstrumented by default; the judge path opts in with ``judge``.
 
     Concurrency: transcribes segments concurrently with asyncio.gather. Each
     segment's STT call is independent. Empty-data segments are skipped.
@@ -55,12 +60,13 @@ async def transcribe_segments(
     if p is None:
         return  # already warned
     targets = [
-        s for s in recording.segments
+        s
+        for s in recording.segments
         if s.audio and (not only_missing or s.transcript is None)
     ]
     if not targets:
         return
-    await asyncio.gather(*(_transcribe_one(p, s) for s in targets))
+    await asyncio.gather(*(_transcribe_one(p, s, telemetry_scope) for s in targets))
 
 
 def _try_get_provider() -> Optional[STTProvider]:
@@ -76,10 +82,37 @@ def _try_get_provider() -> Optional[STTProvider]:
         return None
 
 
-async def _transcribe_one(provider: STTProvider, segment: AudioSegment) -> None:
+async def _transcribe_one(
+    provider: STTProvider,
+    segment: AudioSegment,
+    telemetry_scope: Optional[str],
+) -> None:
     try:
-        text = await provider.transcribe(AudioChunk(data=segment.audio))
-        segment.transcript = text or None
+        if telemetry_scope is None:
+            text = await provider.transcribe(AudioChunk(data=segment.audio))
+            segment.transcript = text or None
+            return
+
+        with voice_span(
+            "voice.stt.transcribe",
+            {
+                "voice.stt.scope": telemetry_scope,
+                "voice.stt.speaker": segment.speaker,
+                "voice.stt.audio_bytes": len(segment.audio),
+            },
+        ) as stt_span:
+            try:
+                text = await provider.transcribe(AudioChunk(data=segment.audio))
+            except Exception as exc:
+                # Provider SDK errors can include response bodies and key fragments.
+                # Record only a provider-agnostic exception, matching the #783
+                # STT guard, so logs and telemetry expose the same safe detail.
+                raise RuntimeError(
+                    f"STT provider failed: {type(exc).__name__}"
+                ) from None
+            segment.transcript = text or None
+            if text:
+                stt_span.set_attribute("voice.stt.transcript_chars", len(text))
     except Exception as e:
         logger.warning(
             "scenario.voice.transcribe: STT failed for %s segment at %.2fs: %s",
