@@ -290,6 +290,47 @@ class InlineCriteriaMockJudgeAgent(JudgeAgent):
 
 
 @pytest.mark.asyncio
+async def test_evaluation_score_is_fraction_of_criteria_passed(monkeypatch):
+    """The score reported for a judgment is the fraction of its criteria that
+    passed. Dividing by the failure count instead made every verdict with as
+    many passes as failures score 1.0 — identical to a flawless one."""
+    import langwatch.telemetry.span as lwspan
+
+    scores = []
+    monkeypatch.setattr(
+        lwspan.LangWatchSpan,
+        "add_evaluation",
+        lambda self, **kw: scores.append(kw.get("score")),
+    )
+
+    async def score_for(*criteria: str) -> float:
+        scores.clear()
+        await ScenarioExecutor(
+            name="evaluation score",
+            description="test",
+            agents=[
+                MockAgent(),
+                MockUserSimulatorAgent(model="none"),
+                InlineCriteriaMockJudgeAgent(model="none", criteria=list(criteria)),
+            ],
+            script=[user("hello"), agent(), judge()],
+        ).run()
+        return scores[0]
+
+    assert await score_for("a", "b", "c") == 1.0
+    assert await score_for("a", "b", "c", "x fail") == 0.75
+    assert await score_for("a", "b", "c", "x fail", "y fail", "z fail") == 0.5
+    assert await score_for("x fail", "y fail", "z fail") == 0.0
+
+    # The collision this guards: half-failing must not equal flawless.
+    assert await score_for("a", "x fail") != await score_for("a")
+
+    # A judgment with no criteria at all keeps the existing guard — dividing by
+    # the total would be 0/0 here.
+    assert await score_for() == 1.0
+
+
+@pytest.mark.asyncio
 async def test_inline_criteria_checkpoint_pass_continues():
     """When inline criteria pass, the script should continue past the judge step."""
     call_count = {"agent": 0}
