@@ -224,7 +224,7 @@ class TestRealRoute:
                 await asyncio.sleep(0.05)
                 # 160 bytes µ-law (~20ms) is under the 100ms batch threshold, so
                 # the "stop" flush is what enqueues it: the trailing-audio path.
-                await client.send(build_media_frame(STREAM_SID, bytes([0x7F]) * 160))
+                await client.send(build_media_frame(STREAM_SID, bytes([0x90]) * 160))
                 await client.send(_stop_frame())
                 merged = await asyncio.wait_for(drain, timeout=ROUTE_CEILING)
 
@@ -307,7 +307,7 @@ class TestRealRoute:
                     await asyncio.sleep(speak_after)
                     # 800 bytes µ-law == the 100ms flush threshold, so the media
                     # branch flushes immediately — no stop frame needed.
-                    await second.send(build_media_frame("MZ695b", bytes([0x7F]) * 800))
+                    await second.send(build_media_frame("MZ695b", bytes([0x90]) * 800))
 
                 speaker = asyncio.create_task(_slow_agent())
                 merged = await asyncio.wait_for(drain, timeout=ROUTE_CEILING)
@@ -333,7 +333,7 @@ class TestRealRoute:
                 await asyncio.wait_for(
                     route_adapter._stream_connected.wait(), timeout=ROUTE_CEILING
                 )
-                await client.send(build_media_frame(STREAM_SID, bytes([0x7F]) * 160))
+                await client.send(build_media_frame(STREAM_SID, bytes([0x90]) * 160))
                 await client.send(_stop_frame())
             await wait_for_twilio_stream_teardown(route_adapter)
 
@@ -448,7 +448,7 @@ async def test_normal_audio_turn_still_drains_through_production_teardown():
     adapter = make_connected_twilio_adapter()
     # 160 bytes of µ-law (~20ms). Under the 100ms batch threshold, so the
     # "stop" flush is what enqueues it — exactly the trailing-audio path.
-    mulaw = bytes([0x7F]) * 160
+    mulaw = bytes([0x90]) * 160
     ws = _ScriptedWS(
         [_start_frame(), build_media_frame(STREAM_SID, mulaw), _stop_frame()]
     )
@@ -539,7 +539,7 @@ async def test_second_session_stale_flag_does_not_truncate_first_turn():
     await asyncio.sleep(0.05)
     # 800 bytes µ-law == the 100ms flush threshold, so the media branch flushes
     # immediately — no stop frame needed for the audio to land.
-    ws2.push(build_media_frame("MZ695b", bytes([0x7F]) * 800))
+    ws2.push(build_media_frame("MZ695b", bytes([0x90]) * 800))
     audio = await asyncio.wait_for(recv, timeout=OUTER_CEILING)
     assert len(audio.data) > 0  # real audio, not a synthesized end-of-call sentinel
 

@@ -10,6 +10,7 @@ constructor parameters that don't fit cleanly on a generic class.
 from __future__ import annotations
 
 from ._stub import PendingTransportError
+from ._twilio_speech_gate import TwilioSpeechGateOptions
 from .composable import ComposableVoiceAgent, ElevenLabsVoiceAgent
 from .elevenlabs import ElevenLabsAgentAdapter
 from .gemini_live import GeminiLiveAgentAdapter
@@ -34,6 +35,7 @@ __all__ = [
     "TunnelNotReadyError",
     "TunnelReadiness",
     "TwilioAgentAdapter",
+    "TwilioSpeechGateOptions",
     "VapiAgentAdapter",
     "WebRTCAgentAdapter",
     "WebSocketAgentAdapter",
