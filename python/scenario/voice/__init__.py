@@ -44,6 +44,14 @@ from .adapters import (
 )
 from .audio_chunk import AudioChunk, silent_chunk
 from .capabilities import AdapterCapabilities, UnsupportedCapabilityError
+from .config import (
+    ResolvedVoiceConfig,
+    SttConfig,
+    TtsConfig,
+    VoiceConfig,
+    resolve_stt_provider,
+    resolve_voice_config,
+)
 from .interruption import CONTEXTUAL_PROMPT, InterruptionConfig
 from .messages import create_audio_message, extract_audio, message_has_audio
 from .recording import AudioSegment, LatencyMetrics, VoiceEvent, VoiceRecording
@@ -86,6 +94,10 @@ __all__ = [
     "UnsupportedCapabilityError",
     "VapiAgentAdapter",
     "VoiceAgentAdapter",
+    "ResolvedVoiceConfig",
+    "SttConfig",
+    "TtsConfig",
+    "VoiceConfig",
     "VoiceEvent",
     "VoiceRecording",
     "WebRTCAgentAdapter",
@@ -99,6 +111,8 @@ __all__ = [
     "ModalityNegotiationError",
     "ModalityTier",
     "register_tts_provider",
+    "resolve_stt_provider",
+    "resolve_voice_config",
     "resolve_modality",
     "set_stt_provider",
     "silent_chunk",

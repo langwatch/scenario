@@ -29,11 +29,13 @@ from opentelemetry.context import Context
 logger = logging.getLogger("scenario.voice")
 
 from ..agent_adapter import AgentAdapter
+from ..config import ScenarioConfig
 from ..types import AgentInput, AgentReturnTypes, AgentRole
 from .audio_chunk import AudioChunk
 from .capabilities import AdapterCapabilities
+from .config import resolve_voice_config
 from .messages import create_audio_message, extract_audio
-from .stt import transcribe
+from .stt import STTProvider, transcribe
 from .recording import AudioSegment, VoiceEvent
 from ._telemetry import voice_span
 
@@ -370,11 +372,29 @@ class VoiceAgentAdapter(AgentAdapter):
                 _turn_span.set_attribute(
                     "voice.turn.agent_audio_bytes", len(merged.data)
                 )
-            merged = await self._ensure_transcript(merged)
+            merged = await self._ensure_transcript(
+                merged, stt=self._resolve_turn_stt(input)
+            )
             recorder.record_agent(merged)
             return create_audio_message(merged, role="assistant")
 
-    async def _ensure_transcript(self, merged: AudioChunk) -> AudioChunk:
+    @staticmethod
+    def _resolve_turn_stt(input: AgentInput) -> Optional[STTProvider]:
+        """The run's own STT provider for this turn, or ``None`` for the legacy global.
+
+        Mirrors the judge's missing-transcript backfill (``judge_agent.py``):
+        a ``ScenarioConfig`` run resolves its configured provider so per-turn
+        STT and the judge use one provider, and agent audio never reaches the
+        process-global default a run did not select.
+        """
+        config = getattr(getattr(input, "scenario_state", None), "config", None)
+        if isinstance(config, ScenarioConfig):
+            return resolve_voice_config(scenario_level=config.voice).stt
+        return None
+
+    async def _ensure_transcript(
+        self, merged: AudioChunk, stt: Optional[STTProvider] = None
+    ) -> AudioChunk:
         """Best-effort runtime STT for adapters whose transport carries no text.
 
         The assistant message built from this chunk feeds the conversation
@@ -391,6 +411,8 @@ class VoiceAgentAdapter(AgentAdapter):
         APIs) return them merged — ``merged.transcript`` is set and this is
         a no-op. STT failures are logged and the audio-only chunk is
         returned unchanged, same contract as ``transcribe_segments``.
+        ``stt`` is the run-resolved provider (``_resolve_turn_stt``);
+        ``None`` keeps the legacy process-global ``transcribe()``.
         """
         if not merged.data or merged.transcript:
             return merged
@@ -415,7 +437,10 @@ class VoiceAgentAdapter(AgentAdapter):
                 },
             ) as stt_span:
                 try:
-                    text = await transcribe(merged)
+                    if stt is not None:
+                        text = await stt.transcribe(merged)
+                    else:
+                        text = await transcribe(merged)
                 except Exception as exc:
                     # Sanitize BEFORE the span records it: provider SDK errors
                     # (OpenAI/ElevenLabs) can embed the raw response body — and a
