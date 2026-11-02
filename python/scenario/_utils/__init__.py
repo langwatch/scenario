@@ -24,9 +24,11 @@ from .utils import (
     check_valid_return_type,
     reverse_roles,
     await_if_awaitable,
+    is_empty_agent_turn,
 )
 
 __all__ = [
+    "is_empty_agent_turn",
     "convert_agent_return_types_to_openai_messages",
     "get_batch_run_id",
     "get_or_create_batch_run_id",  # Backward compatibility

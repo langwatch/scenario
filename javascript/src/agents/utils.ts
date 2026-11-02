@@ -202,3 +202,27 @@ export const criteriaParamNames = ({
     return name;
   });
 };
+
+const isBlankText = (value: unknown): boolean =>
+  value == null || (typeof value === "string" && value.trim() === "");
+
+/**
+ * Whether an agent turn carries nothing: no messages, or only blank ones.
+ *
+ * Tool messages, and any non-text part (tool-call, file, image, reasoning...),
+ * count as content. A bare "-" is content.
+ *
+ * @param messages - The messages the agent returned for its turn
+ * @returns true if the turn should be treated as the agent returning no content
+ */
+export const isEmptyAgentTurn = (messages: ModelMessage[]): boolean =>
+  messages.every((message) => {
+    if (message.role === "tool") return false;
+    const content: unknown = message.content;
+    if (Array.isArray(content)) {
+      return content.every(
+        (part) => part?.type === "text" && isBlankText(part.text)
+      );
+    }
+    return isBlankText(content);
+  });
