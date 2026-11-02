@@ -88,14 +88,14 @@ class OpenAISTTProvider(STTProvider):
 # ---------------------------------------------------------------- ElevenLabs STT
 
 ELEVENLABS_STT_ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text"
-ELEVENLABS_STT_MODEL = "scribe_v1"
+ELEVENLABS_STT_MODEL = "scribe_v2"
 
 
 class ElevenLabsSTTProvider(STTProvider):
     """
     STT implementation backed by the ElevenLabs REST speech-to-text API.
 
-    Uses the ``scribe_v1`` model. Audio is converted from the canonical
+    Uses the ``scribe_v2`` model. Audio is converted from the canonical
     PCM16/24kHz AudioChunk to a WAV byte payload before posting.
 
     Reads ``ELEVENLABS_API_KEY`` from the environment when ``api_key`` is not
