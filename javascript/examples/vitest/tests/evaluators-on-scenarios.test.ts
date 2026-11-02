@@ -91,6 +91,9 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY || !process.env.OPENAI_API_KEY)(
           required: false,
           mappings: { output: (state) => state.toolCalls("run_sql").last?.input },
           settings: {
+            // The evaluator sends max_tokens, which the gpt-5 models refuse, so
+            // pin a model that accepts it rather than the project default.
+            model: "openai/gpt-4.1-mini",
             prompt:
               "Does this SQL group chargebacks by quarter for one merchant? Answer true or false.",
           },
@@ -109,10 +112,12 @@ describe.skipIf(!process.env.LANGWATCH_API_KEY || !process.env.OPENAI_API_KEY)(
     });
 
     expect(result.success, result.reasoning).toBe(true);
-    const statuses = Object.fromEntries(
-      (result.evaluations ?? []).map((evaluation) => [evaluation.evaluatorId, evaluation.status])
+    const evaluations = Object.fromEntries(
+      (result.evaluations ?? []).map((evaluation) => [evaluation.evaluatorId, evaluation])
     );
-    expect(statuses["langevals/exact_match"]).toBe("passed");
-    expect(["passed", "failed"]).toContain(statuses["langevals/llm_boolean"]);
+    const exact = evaluations["langevals/exact_match"];
+    expect(exact?.status, exact?.details).toBe("passed");
+    const llm = evaluations["langevals/llm_boolean"];
+    expect(["passed", "failed"], llm?.details).toContain(llm?.status);
   });
 });

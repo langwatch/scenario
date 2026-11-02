@@ -11,7 +11,7 @@ import { AssistantContent, ToolContent, ModelMessage } from "ai";
 import { Subscription } from "rxjs";
 import { resolveAgents } from "../agents/connected-agent";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
-import { getEnv } from "../config";
+import { getEnv, resolveSendGranularEvents } from "../config";
 import { getProjectConfig } from "../config/get-project-config";
 import {
   allAgentRoles,
@@ -52,6 +52,17 @@ export interface RunOptions {
    * inside `call()`.
    */
   voice?: VoiceConfig;
+
+  /**
+   * Report each message once, as TEXT_MESSAGE_START and TEXT_MESSAGE_END,
+   * instead of a full MESSAGE_SNAPSHOT after every message, and let agents
+   * report live progress through `AgentInput.stream`. Wins over the
+   * SCENARIO_SEND_GRANULAR_EVENTS environment variable; off when neither is set.
+   *
+   * The built-in user simulator and judge do not stream: their messages are
+   * reported whole when they are complete.
+   */
+  sendGranularEvents?: boolean;
 }
 
 /**
@@ -148,7 +159,9 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
   const steps = cfg.script || [proceed()];
 
   const batchRunId = options?.batchRunId ?? getBatchRunId();
-  const execution = new ScenarioExecution(cfg, steps, batchRunId, options?.runId);
+  const execution = new ScenarioExecution(cfg, steps, batchRunId, options?.runId, {
+    sendGranularEvents: resolveSendGranularEvents(options?.sendGranularEvents),
+  });
 
   let eventBus: EventBus | null = null;
   let subscription: Subscription | null = null;

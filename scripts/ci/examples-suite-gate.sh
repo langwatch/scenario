@@ -103,6 +103,20 @@ fi
 
 verdict="$(python3 "$SCRIPT_DIR/classify-examples-failures.py" "$EXAMPLES_REPORT")"
 
+# The JUnit reporter writes failure text only to the report, so print it here:
+# otherwise a red gate says which test failed but never why (#1010).
+python3 - "$EXAMPLES_REPORT" <<'EOF' || true
+import sys
+import xml.etree.ElementTree as ET
+
+for case in ET.parse(sys.argv[1]).getroot().iter("testcase"):
+    for problem in list(case.findall("failure")) + list(case.findall("error")):
+        print(f"::group::FAILED {case.get('classname', '')}::{case.get('name', '')}")
+        print(problem.get("message", ""))
+        print((problem.text or "")[:8000])
+        print("::endgroup::")
+EOF
+
 case "$verdict" in
   "budget "*) ;;
   "mixed "*)
