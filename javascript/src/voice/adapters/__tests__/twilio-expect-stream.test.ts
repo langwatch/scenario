@@ -15,7 +15,15 @@ import { Buffer } from "node:buffer";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { TwilioAgentAdapter } from "../twilio";
-import { drive, makeAdapter, scriptedSocket, spyRest, startFrame } from "./a-leg-harness";
+import {
+  drive,
+  makeAdapter,
+  ORIGINATED_CALL_SID,
+  scriptedSocket,
+  spyRest,
+  startALegCall,
+  startFrame,
+} from "./a-leg-harness";
 
 const EXPECTED_NONCE = "a".repeat(32);
 const EXPECTED_CALL_SID = "CA" + "7".repeat(32);
@@ -187,5 +195,54 @@ describe("TwilioAgentAdapter.expectStream", () => {
     await drive(adapter, attacker);
     expect(adapter._framesReceivedForTest).toBe(0);
     expect(adapter._streamWsForServer).toBeNull();
+  });
+
+  it("rejects an empty nonce — an empty nonce would otherwise leave the gate unarmed and fail open", async () => {
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+
+    expect(() => adapter.expectStream({ nonce: "", callSid: EXPECTED_CALL_SID })).toThrow(
+      /non-empty nonce/,
+    );
+    expect(adapter._streamNonceForServer).toBeUndefined();
+  });
+
+  it("reserves call mode, so a later waitForCall cannot pass its idle check and evict the armed socket", async () => {
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: EXPECTED_CALL_SID });
+
+    await expect(adapter.waitForCall()).rejects.toThrow(/already in 'call' mode/);
+    // The armed gate must survive the rejected waitForCall call untouched.
+    expect(adapter._streamNonceForServer).toBe(EXPECTED_NONCE);
+  });
+
+  it("refuses while this adapter's own a-leg placeCall dial is still awaiting its stream", async () => {
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    openAdapter = adapter;
+    await adapter.connect();
+
+    const { nonce, call } = await startALegCall(adapter, rest);
+
+    expect(() =>
+      adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: EXPECTED_CALL_SID }),
+    ).toThrow(/still waiting for its stream/);
+
+    // Let the in-flight dial's own genuine socket connect, so the dial
+    // settles cleanly instead of running out its 10s timeout.
+    const genuine = scriptedSocket([
+      startFrame({ nonce, callSid: ORIGINATED_CALL_SID }),
+    ]);
+    await drive(adapter, genuine);
+    await call;
+
+    // Now that the dial has settled, expectStream is no longer blocked.
+    adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: EXPECTED_CALL_SID });
+    expect(adapter._streamNonceForServer).toBe(EXPECTED_NONCE);
   });
 });

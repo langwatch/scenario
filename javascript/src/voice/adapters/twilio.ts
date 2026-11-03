@@ -264,6 +264,17 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   private _maxDurationGeneration = 0;
   private _maxDurationTimeout: ReturnType<typeof setTimeout> | null = null;
   private _streamConnected = makeDeferred<void>();
+  /**
+   * True from the moment a-leg `placeCall` originates the call until its
+   * stream-connected wait settles (resolves, times out, or throws).
+   * `expectStream` checks this because `_mode` alone cannot: `_mode` stays
+   * `"call"` for the rest of the adapter's life once a dial completes, so it
+   * cannot tell "mid-dial" from "dialed an hour ago". Without this guard,
+   * `expectStream` during an in-flight dial would reset the nonce/callSid the
+   * dial is still waiting on and silently retarget the dial's own abandon
+   * path at whatever call `expectStream` just armed.
+   */
+  private _aLegDialInFlight = false;
   private _inboundQueue: InboundQueue = new InboundQueue();
   // Sits between the media loop and `_inboundQueue` (see `_enqueueInbound`).
   // `null` when constructed with `speechGate: false`. Per-call state is reset
@@ -679,6 +690,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           // Wait for the media stream to reach us — via the callee's rewritten
           // voice_url (b-leg) or our own <Connect><Stream> leg (a-leg). In
           // originator-only mode no stream comes to us; the callee owns it.
+          //
+          // `_aLegDialInFlight` covers only this wait, a-leg only: it is how
+          // `expectStream` tells "this dial's abandon path is still live" from
+          // "this adapter dialed, once, a while ago" — `_mode` cannot, since it
+          // stays `"call"` long after the dial settles.
+          if (mode === "a-leg") this._aLegDialInFlight = true;
           const dialWaitStarted = performance.now(); // monotonic
           try {
             await this._streamConnected.promiseWithTimeout(timeoutMs);
@@ -702,6 +719,8 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
               }
             }
             throw err;
+          } finally {
+            if (mode === "a-leg") this._aLegDialInFlight = false;
           }
           setSpanAttributes(span, {
             "voice.twilio.stream_connect_latency_ms": Math.round(
@@ -866,9 +885,41 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * so a socket already adopted un-gated — before this call expected anything
    * — is evicted rather than grandfathered in, the same CWE-306 arming-race
    * guard `placeCall`/`waitForCall` rely on.
+   *
+   * Reserves `"call"` mode first, same as `placeCall`'s a-leg path: without
+   * it, `_mode` stays `"idle"` and a later `waitForCall()` on this same
+   * adapter would pass its own mode check and reset away the socket this
+   * just armed.
+   *
+   * Refuses while an a-leg `placeCall` dial on this adapter is still waiting
+   * on its own stream: that dial's abandon-on-timeout path reads `_callSid`
+   * after the wait, so resetting it here would redirect that dial's REST
+   * hangup at whatever call `expectStream` just armed instead of its own.
+   *
+   * @param args.nonce - Nonce the `start` frame must present; rejected if empty.
+   * @param args.callSid - Call SID the `start` frame must present.
+   * @throws Error if `connect()` has not completed, if an a-leg dial on this
+   *   adapter is still awaiting its stream, or if `nonce` is empty (an empty
+   *   nonce would otherwise leave the per-frame gate unarmed and fail open).
+   * @example
+   * ```ts
+   * adapter.expectStream({ nonce: mintedNonce, callSid: originatedCallSid });
+   * ```
    */
   expectStream(args: { nonce: string; callSid: string }): void {
     this._assertConnected();
+    if (this._aLegDialInFlight) {
+      throw new Error(
+        "TwilioAgentAdapter: expectStream called while this adapter's own " +
+          "a-leg placeCall is still waiting for its stream to connect; " +
+          "resetting connection state now would redirect that dial's " +
+          "timeout/abandon path at the wrong call.",
+      );
+    }
+    if (!args.nonce) {
+      throw new Error("TwilioAgentAdapter: expectStream requires a non-empty nonce");
+    }
+    this._enterMode("call");
     this._resetConnectionStateForDial();
     this._streamNonce = args.nonce;
     this._callSid = args.callSid;
