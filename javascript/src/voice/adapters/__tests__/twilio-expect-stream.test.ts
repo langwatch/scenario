@@ -209,6 +209,18 @@ describe("TwilioAgentAdapter.expectStream", () => {
     expect(adapter._streamNonceForServer).toBeUndefined();
   });
 
+  it("rejects an empty callSid — an empty callSid would otherwise leave every real start frame unmatched", async () => {
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+
+    expect(() => adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: "" })).toThrow(
+      /non-empty callSid/,
+    );
+    expect(adapter._streamNonceForServer).toBeUndefined();
+  });
+
   it("keeps an already-armed expectation when a later empty nonce is rejected", async () => {
     const rest = spyRest();
     const adapter = makeAdapter(rest);
