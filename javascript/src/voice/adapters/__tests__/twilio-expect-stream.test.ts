@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { TwilioAgentAdapter } from "../twilio";
 import {
+  A_LEG_DESTINATION,
   drive,
   makeAdapter,
   ORIGINATED_CALL_SID,
@@ -270,6 +271,43 @@ describe("TwilioAgentAdapter.expectStream", () => {
 
     // Now that the dial has settled, expectStream is no longer blocked.
     adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: EXPECTED_CALL_SID });
+    expect(adapter._streamNonceForServer).toBe(EXPECTED_NONCE);
+  });
+
+  it("refuses a second overlapping a-leg placeCall on the same adapter", async () => {
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    openAdapter = adapter;
+    await adapter.connect();
+
+    const { nonce, call } = await startALegCall(adapter, rest);
+
+    expect(() =>
+      adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" }),
+    ).toThrow(/already in flight/);
+
+    // Let the first dial's own genuine socket connect, so it settles cleanly
+    // instead of running out its 10s timeout.
+    const genuine = scriptedSocket([
+      startFrame({ nonce, callSid: ORIGINATED_CALL_SID }),
+    ]);
+    await drive(adapter, genuine);
+    await call;
+  });
+
+  it("refuses a b-leg placeCall while expectStream has armed the gate", async () => {
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    openAdapter = adapter;
+    await adapter.connect();
+
+    adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: EXPECTED_CALL_SID });
+
+    expect(() =>
+      adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "b-leg" }),
+    ).toThrow(/clobber it/);
+
+    // The armed gate must survive the rejected placeCall untouched.
     expect(adapter._streamNonceForServer).toBe(EXPECTED_NONCE);
   });
 });

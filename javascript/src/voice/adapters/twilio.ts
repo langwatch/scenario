@@ -275,6 +275,15 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * path at whatever call `expectStream` just armed.
    */
   private _aLegDialInFlight = false;
+  /**
+   * True once `expectStream` has armed the per-frame gate and nothing has
+   * since superseded it. A b-leg or originator-only `placeCall` must not
+   * clobber an active arming — unlike an a-leg `placeCall`, which may
+   * legitimately supersede it (same eviction rule as an already-adopted
+   * socket). Cleared by `_resetConnectionStateForDial` itself, since that is
+   * the one function that actually supersedes whatever came before.
+   */
+  private _expectStreamArmed = false;
   private _inboundQueue: InboundQueue = new InboundQueue();
   // Sits between the media loop and `_inboundQueue` (see `_enqueueInbound`).
   // `null` when constructed with `speechGate: false`. Per-call state is reset
@@ -619,7 +628,22 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     // origination itself, must see the same guard as one racing in during the
     // stream-connected wait below — all three windows corrupt the same dial
     // state the same way.
-    if (mode === "a-leg") this._aLegDialInFlight = true;
+    if (mode !== "a-leg" && this._expectStreamArmed) {
+      throw new Error(
+        "TwilioAgentAdapter: expectStream has armed this adapter's stream gate; " +
+          "a b-leg or originator-only placeCall would silently clobber it. Only " +
+          "an a-leg placeCall may supersede an expectStream arming.",
+      );
+    }
+    if (mode === "a-leg") {
+      if (this._aLegDialInFlight) {
+        throw new Error(
+          "TwilioAgentAdapter: an a-leg placeCall is already in flight on this " +
+            "adapter; wait for it to settle before dialing again.",
+        );
+      }
+      this._aLegDialInFlight = true;
+    }
     try {
       // Guardrail (c), second half: a-leg hands Twilio our public URL and Twilio
       // opens the media socket against it seconds later. Probe the edge AFTER the
@@ -916,10 +940,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * frame and ends that call's media stream.
    *
    * @param args.nonce - Nonce the `start` frame must present; rejected if empty.
-   * @param args.callSid - Call SID the `start` frame must present.
+   * @param args.callSid - Call SID the `start` frame must present; rejected if empty.
    * @throws Error if `connect()` has not completed, if an a-leg dial on this
-   *   adapter is still awaiting its stream, or if `nonce` is empty (an empty
-   *   nonce would otherwise leave the per-frame gate unarmed and fail open).
+   *   adapter is still awaiting its stream, if `nonce` is empty (an empty
+   *   nonce would otherwise leave the per-frame gate unarmed and fail open),
+   *   or if `callSid` is empty.
    * @example
    * ```ts
    * adapter.expectStream({ nonce: mintedNonce, callSid: originatedCallSid });
@@ -945,6 +970,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._resetConnectionStateForDial();
     this._streamNonce = args.nonce;
     this._callSid = args.callSid;
+    this._expectStreamArmed = true;
   }
 
   // ------------------------------------------------------- max call duration
@@ -1345,6 +1371,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * the genuine one arrives, so it adopts under the current generation.
    */
   _resetConnectionStateForDial(): void {
+    this._expectStreamArmed = false;
     this._callGeneration += 1;
     this._streamWs = null;
     this._streamSid = undefined;
