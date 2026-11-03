@@ -850,6 +850,30 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._mode = mode;
   }
 
+  /**
+   * Arm the a-leg nonce/callSid gate (#762 guardrail (a), `twilio-server.ts`'s
+   * `authenticate`) without placing an outbound call (#1002 slice 3).
+   *
+   * Worker-side dial: a parent process originates the call with its OWN
+   * adapter (`placeCall`) and hands the nonce + callSid it minted to a
+   * DIFFERENT pod that owns the media-stream socket this call will connect
+   * to. That pod never dials, so it has no `placeCall` to arm enforcement —
+   * this is the arming primitive for it, carrying the SAME security
+   * guarantee: until a `start` frame presents the matching nonce and callSid,
+   * every frame is dropped exactly as it is today.
+   *
+   * Resets connection state the same way a dial does (`_resetConnectionStateForDial`),
+   * so a socket already adopted un-gated — before this call expected anything
+   * — is evicted rather than grandfathered in, the same CWE-306 arming-race
+   * guard `placeCall`/`waitForCall` rely on.
+   */
+  expectStream(args: { nonce: string; callSid: string }): void {
+    this._assertConnected();
+    this._resetConnectionStateForDial();
+    this._streamNonce = args.nonce;
+    this._callSid = args.callSid;
+  }
+
   // ------------------------------------------------------- max call duration
 
   /**
