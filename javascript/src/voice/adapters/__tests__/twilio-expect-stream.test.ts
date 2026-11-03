@@ -209,6 +209,21 @@ describe("TwilioAgentAdapter.expectStream", () => {
     expect(adapter._streamNonceForServer).toBeUndefined();
   });
 
+  it("keeps an already-armed expectation when a later empty nonce is rejected", async () => {
+    const rest = spyRest();
+    const adapter = makeAdapter(rest);
+    await adapter.connect();
+    openAdapter = adapter;
+    adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: EXPECTED_CALL_SID });
+
+    expect(() => adapter.expectStream({ nonce: "", callSid: EXPECTED_CALL_SID })).toThrow(
+      /non-empty nonce/,
+    );
+    // The rejected call must not clear what was already armed.
+    expect(adapter._streamNonceForServer).toBe(EXPECTED_NONCE);
+    expect(adapter._callSidForServer).toBe(EXPECTED_CALL_SID);
+  });
+
   it("reserves call mode, so a later waitForCall cannot pass its idle check and evict the armed socket", async () => {
     const rest = spyRest();
     const adapter = makeAdapter(rest);

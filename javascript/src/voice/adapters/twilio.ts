@@ -881,6 +881,15 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * guarantee: until a `start` frame presents the matching nonce and callSid,
    * every frame is dropped exactly as it is today.
    *
+   * The dialing adapter (the `placeCall` side above) must itself own the
+   * media-stream socket for `attachStream: "a-leg"` to work end to end:
+   * `placeCall` waits on ITS OWN stream-connected signal, which only its own
+   * adopted socket resolves. A socket adopted by a DIFFERENT adapter (the one
+   * that called `expectStream`) resolves that adapter's signal, not the
+   * dialer's — the dialer still times out and `_abandonOriginatedCall` hangs
+   * up the call it placed. Tracked as a real gap, not yet fixed:
+   * https://github.com/langwatch/scenario/issues/1046.
+   *
    * Resets connection state the same way a dial does (`_resetConnectionStateForDial`),
    * so a socket already adopted un-gated — before this call expected anything
    * — is evicted rather than grandfathered in, the same CWE-306 arming-race
