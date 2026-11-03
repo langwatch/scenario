@@ -280,8 +280,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * since superseded it. A b-leg or originator-only `placeCall` must not
    * clobber an active arming — unlike an a-leg `placeCall`, which may
    * legitimately supersede it (same eviction rule as an already-adopted
-   * socket). Cleared by `_resetConnectionStateForDial` itself, since that is
-   * the one function that actually supersedes whatever came before.
+   * socket). Cleared by `_resetConnectionStateForDial` (whatever supersedes the
+   * arming) and by `disconnect()` (so a stale arming from a prior
+   * connection never blocks a later one).
    */
   private _expectStreamArmed = false;
   private _inboundQueue: InboundQueue = new InboundQueue();
@@ -515,6 +516,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._callSid = undefined;
     this._streamWs = null;
     this._streamNonce = undefined;
+    this._expectStreamArmed = false;
     this._cancelMaxDurationTimer();
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
