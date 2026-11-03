@@ -282,9 +282,9 @@ describe("TwilioAgentAdapter.expectStream", () => {
 
     const { nonce, call } = await startALegCall(adapter, rest);
 
-    expect(() =>
+    await expect(
       adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "a-leg" }),
-    ).toThrow(/already in flight/);
+    ).rejects.toThrow(/already in flight/);
 
     // Let the first dial's own genuine socket connect, so it settles cleanly
     // instead of running out its 10s timeout.
@@ -303,9 +303,9 @@ describe("TwilioAgentAdapter.expectStream", () => {
 
     adapter.expectStream({ nonce: EXPECTED_NONCE, callSid: EXPECTED_CALL_SID });
 
-    expect(() =>
+    await expect(
       adapter.placeCall({ to: A_LEG_DESTINATION, attachStream: "b-leg" }),
-    ).toThrow(/clobber it/);
+    ).rejects.toThrow(/clobber it/);
 
     // The armed gate must survive the rejected placeCall untouched.
     expect(adapter._streamNonceForServer).toBe(EXPECTED_NONCE);
