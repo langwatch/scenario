@@ -16,6 +16,11 @@ from typing import Any, List, Optional, Sequence, Union, cast
 import litellm
 from litellm import Choices
 from litellm.files.main import ModelResponse
+from litellm.types.utils import (
+    ChatCompletionMessageCustomToolCall,
+    ChatCompletionMessageToolCall,
+    Message,
+)
 from openai.types.chat import ChatCompletionMessageParam
 
 from scenario.cache import scenario_cache
@@ -134,13 +139,23 @@ def _build_wait_for_traces_tool() -> dict:
     }
 
 
+def _function_tool_calls(message: Message) -> List[ChatCompletionMessageToolCall]:
+    """The function tool calls on a completion message. The judge only offers
+    function tools, so a custom tool call never answers one of them."""
+    return [
+        tc
+        for tc in (message.tool_calls or [])
+        if not isinstance(tc, ChatCompletionMessageCustomToolCall)
+    ]
+
+
 def _response_called_wait_for_traces(response: ModelResponse) -> bool:
     """True when the completion called the wait_for_traces tool."""
     if not hasattr(response, "choices") or len(response.choices) == 0:
         return False
     message = cast(Choices, response.choices[0]).message
     return any(
-        tc.function.name == "wait_for_traces" for tc in (message.tool_calls or [])
+        tc.function.name == "wait_for_traces" for tc in _function_tool_calls(message)
     )
 
 
@@ -926,14 +941,14 @@ Your goal is to decide if the conversation has collected enough information to e
                     f"Unexpected response format from LLM: {response.__repr__()}"
                 )
             message = cast(Choices, response.choices[0]).message
-            if not message.tool_calls:
+            if not _function_tool_calls(message):
                 raise Exception(
                     f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
                 )
             terminal_call = next(
                 (
                     tc
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                     if tc.function.name in _DECISION_TOOL_NAMES
                 ),
                 None,
@@ -959,10 +974,10 @@ Your goal is to decide if the conversation has collected enough information to e
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                 ],
             })
-            for tc in message.tool_calls:
+            for tc in _function_tool_calls(message):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -990,21 +1005,21 @@ Your goal is to decide if the conversation has collected enough information to e
                 f"Unexpected response format from LLM: {response.__repr__()}"
             )
         message = cast(Choices, response.choices[0]).message
-        if not message.tool_calls:
+        if not _function_tool_calls(message):
             raise Exception(
                 f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
             )
         terminal_call = next(
             (
                 tc
-                for tc in message.tool_calls
+                for tc in _function_tool_calls(message)
                 if tc.function.name in _DECISION_TOOL_NAMES
             ),
             None,
         )
         if terminal_call is None:
             raise Exception(
-                f"Invalid tool call from judge agent: {message.tool_calls[0].function.name}"
+                f"Invalid tool call from judge agent: {_function_tool_calls(message)[0].function.name}"
             )
         return (
             "continue"
@@ -1561,7 +1576,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 )
 
             message = cast(Choices, response.choices[0]).message
-            if not message.tool_calls:
+            if not _function_tool_calls(message):
                 # No tool calls - try to parse as a response
                 return self._parse_response(
                     response,
@@ -1572,7 +1587,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 )
 
             if wait_tool_offered and any(
-                tc.function.name == "wait_for_traces" for tc in message.tool_calls
+                tc.function.name == "wait_for_traces" for tc in _function_tool_calls(message)
             ):
                 # The extra wait rebuilds the whole phase: the caller
                 # settle-waits once more and re-enters with a fresh digest
@@ -1580,7 +1595,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 return _WAIT_FOR_TRACES_REQUESTED
 
             terminal_call = next(
-                (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
+                (tc for tc in _function_tool_calls(message) if tc.function.name == "finish_test"),
                 None,
             )
             if terminal_call:
@@ -1606,11 +1621,11 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                 ],
             })
 
-            for tc in message.tool_calls:
+            for tc in _function_tool_calls(message):
                 tool_result = self._execute_discovery_tool(tc, spans, working_messages)
                 messages.append({
                     "role": "tool",
@@ -1762,17 +1777,17 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
 
         message = cast(Choices, response.choices[0]).message
 
-        if not message.tool_calls:
+        if not _function_tool_calls(message):
             raise Exception(
                 f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
             )
 
         # In multi-step mode, find the terminal tool call
         terminal_call = next(
-            (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
+            (tc for tc in _function_tool_calls(message) if tc.function.name == "finish_test"),
             None,
         )
-        tool_call = terminal_call or message.tool_calls[0]
+        tool_call = terminal_call or _function_tool_calls(message)[0]
 
         if tool_call.function.name == "finish_test":
             try:

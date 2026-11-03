@@ -11,7 +11,7 @@ from contextvars import ContextVar
 import inspect
 import os
 from pathlib import Path
-from typing import Callable, TYPE_CHECKING
+from typing import Any, Callable, TypeVar, TYPE_CHECKING, cast
 from joblib import Memory
 
 import json
@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
 
 context_scenario = ContextVar("scenario")
+
+WrappedCallable = TypeVar("WrappedCallable", bound=Callable[..., Any])
 
 
 def get_cache() -> Memory:
@@ -57,7 +59,7 @@ def get_cache() -> Memory:
 memory = get_cache()
 
 
-def scenario_cache(ignore=[]):
+def scenario_cache(ignore: list[str] = []) -> Callable[[WrappedCallable], WrappedCallable]:
     """
     Decorator for caching function calls during scenario execution.
 
@@ -144,7 +146,11 @@ def scenario_cache(ignore=[]):
         else:
             return _cached_call(wrapped, args, kwargs, cache_key=cache_key)
 
-    return wrapper
+    # A wrapt proxy forwards the wrapped callable's signature at runtime, but the
+    # decorator wrapt hands back is typed as taking no arguments, so every
+    # decorated call site would be reported as passing too many. The cast states
+    # what the proxy actually is: the identity on the callable it decorates.
+    return cast(Callable[[WrappedCallable], WrappedCallable], wrapper)
 
 
 @memory.cache(ignore=["func", "args", "kwargs"])
