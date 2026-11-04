@@ -402,7 +402,7 @@ class JudgeAgent(AgentAdapter):
         model: Optional[str] = None,
         api_base: Optional[str] = None,
         api_key: Optional[str] = None,
-        temperature: float = 0.0,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         span_collector: Optional[JudgeSpanCollector] = None,
@@ -480,10 +480,12 @@ class JudgeAgent(AgentAdapter):
             (e.g., headers, timeout, client) for specialized configurations. These are
             experimental and may not be supported in future versions.
         """
+        _temp_was_set = temperature is not None
+
         self.criteria = criteria or []
         self.api_base = api_base
         self.api_key = api_key
-        self.temperature = temperature
+        self.temperature = temperature if _temp_was_set else 0.0
         self.max_tokens = max_tokens
         self.system_prompt = system_prompt
         self._span_collector = span_collector or judge_span_collector
@@ -516,9 +518,10 @@ class JudgeAgent(AgentAdapter):
             self.api_key = (
                 api_key or ScenarioConfig.default_config.default_model.api_key
             )
-            self.temperature = (
-                temperature or ScenarioConfig.default_config.default_model.temperature
-            )
+            if not _temp_was_set:
+                self.temperature = (
+                    ScenarioConfig.default_config.default_model.temperature or 0.0
+                )
             self.max_tokens = (
                 max_tokens or ScenarioConfig.default_config.default_model.max_tokens
             )
