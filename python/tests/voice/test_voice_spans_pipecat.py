@@ -355,5 +355,5 @@ class _AsyncReturn:
     def __init__(self, value):
         self._value = value
 
-    async def __call__(self, _merged):
+    async def __call__(self, _merged, **_kwargs):
         return self._value
