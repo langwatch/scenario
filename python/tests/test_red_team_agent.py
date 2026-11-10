@@ -1991,7 +1991,9 @@ class TestMarathonScriptEarlyExit:
         steps = agent.marathon_script()
         # The 3rd step (index 2) should be the early-exit check
         early_exit_step = steps[2]
-        result = await early_exit_step(mock_state)
+        result = early_exit_step(mock_state)
+        if inspect.isawaitable(result):
+            result = await result
 
         assert isinstance(result, ScenarioResult)
         assert result.success is False
