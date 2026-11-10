@@ -189,8 +189,8 @@ Every technique's `id` appears in the `red_team.chosen_technique_ids` span attri
 | `total_turns` / `totalTurns` | `int` | `30` | Number of attacker turns. |
 | `model` | `str` | `scenario.configure`'s default | Attacker LLM. |
 | `goat_techniques` / `goatTechniques` | `list[Technique]` | 7 defaults above | Override the semantic catalogue the attacker chooses from. |
-| `success_score` / `successScore` | `int \| None` | `9` | Early-exit threshold (0-10). `None` disables. |
-| `success_confirm_turns` / `successConfirmTurns` | `int` | `2` | Consecutive high-score turns before early exit. |
+| `success_score` / `successScore` | `int \| None` | `9` | Early-exit threshold (0-10); reaching it fails the run. `None` disables. |
+| `success_confirm_turns` / `successConfirmTurns` | `int` | `2` | Consecutive high-score turns before the run ends early as a failure. |
 | `injection_probability` / `injectionProbability` | `float` | `0.0` | Per-turn chance of post-hoc encoding (Base64 / ROT13 / …). See below. |
 
 ### `injection_probability` with GOAT
