@@ -126,8 +126,10 @@ function collapseDiscoveryHistory(
 
 import {
   buildFinishTestTool,
+  mergeCriteriaArgs,
   parseCriterionVerdicts,
   PER_CRITERION_RULES,
+  unansweredCriteria,
 } from "./criterion-verdicts";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { JudgeResult } from "./interfaces";
@@ -237,6 +239,13 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
  */
 const REMOTE_TRACE_JUDGING_RULE =
   "Criteria about the agent's internal behavior (tool calls, database writes, API calls, retrievals) must be verified against the <opentelemetry_traces> section, not against claims in the transcript. If a span named langwatch.span_collection.error is present, read its reason: when no agent spans arrived, mark criteria that depend on internal behavior as inconclusive, never passed. When the trace is incomplete, criteria proven by the spans that are present may pass, and criteria whose evidence is missing stay inconclusive. Criteria about the conversation itself are unaffected by missing traces: judge them from the transcript as normal. Never mark internal-behavior criteria as passed based on the transcript alone.";
+
+/**
+ * Re-asks the criteria a finish_test call left without a verdict. The
+ * Python SDK uses the same text; keep them in sync.
+ */
+const MISSING_VERDICT_PROMPT =
+  "Your finish_test call did not give a usable verdict for the criteria below. Call finish_test again with a requirement, a reasoning and a status for every criterion. Pass criteria as an object keyed by criterion, not as a string.";
 
 /**
  * Shown with the evidence when a remote trace stopped changing but has no
@@ -1177,10 +1186,93 @@ export class JudgeAgent extends JudgeAgentAdapter {
         verdictWasForced = true;
       }
 
+      completion = await this.reaskUnanswered({ params, completion, criteria });
+
       return this.parseToolCalls(completion, criteria, {
         verdictForced: verdictIsTerminal || verdictWasForced,
       });
     }
+  }
+
+  /**
+   * When finish_test leaves criteria without a readable verdict (left out,
+   * or malformed), asks once more with those criteria named and merges the
+   * answers. Anything still missing then fails closed in parseToolCalls.
+   */
+  private async reaskUnanswered({
+    params,
+    completion,
+    criteria,
+  }: {
+    params: InvokeLLMParams;
+    completion: InvokeLLMResult;
+    criteria: string[];
+  }): Promise<InvokeLLMResult> {
+    const finishCall = completion.toolCalls?.find(
+      (tc) => tc.toolName === "finish_test"
+    );
+    if (!finishCall) return completion;
+    const firstArgs = (finishCall.input ?? {}) as FinishTestArgs;
+    const missing = unansweredCriteria({
+      criteria,
+      criteriaArgs: firstArgs.criteria,
+    });
+    if (missing.length === 0) return completion;
+
+    this.logger.warn("finish_test left criteria without a verdict; asking once more", {
+      missing,
+    });
+    const {
+      stopWhen: _sw,
+      prompt: _p,
+      toolChoice: _tc,
+      tools: _tools,
+      messages: prevMessages,
+      ...rest
+    } = params;
+    let retry: InvokeLLMResult;
+    try {
+      retry = await this.invokeLLM({
+        ...rest,
+        tools: { finish_test: buildFinishTestTool(criteria) },
+        toolChoice: { type: "tool", toolName: "finish_test" },
+        messages: [
+          ...collapseDiscoveryHistory(prevMessages ?? []),
+          {
+            role: "assistant",
+            content: `My finish_test call: ${JSON.stringify(firstArgs)}`,
+          },
+          {
+            role: "user",
+            content: `${MISSING_VERDICT_PROMPT}\n${buildCriteriaList(missing)}`,
+          },
+        ],
+      });
+    } catch (error) {
+      this.logger.warn("Re-asking the missing criteria failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return completion;
+    }
+    const retryCall = retry.toolCalls?.find((tc) => tc.toolName === "finish_test");
+    if (!retryCall) return completion;
+    const retryArgs = (retryCall.input ?? {}) as FinishTestArgs;
+    return {
+      ...completion,
+      toolCalls: [
+        {
+          ...finishCall,
+          input: {
+            ...firstArgs,
+            criteria: mergeCriteriaArgs({
+              first: firstArgs.criteria,
+              retry: retryArgs.criteria,
+            }),
+            reasoning: firstArgs.reasoning || retryArgs.reasoning,
+          },
+        },
+      ],
+    } as InvokeLLMResult;
   }
 
   /**

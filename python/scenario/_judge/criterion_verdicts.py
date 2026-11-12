@@ -170,6 +170,27 @@ def _read_answer(answer: Any) -> Optional[CriterionResult]:
     return None
 
 
+def unanswered_criteria(criteria: Sequence[str], answers: Any) -> List[str]:
+    """The declared criteria the finish_test answers leave without a verdict."""
+    answer_map = answers if isinstance(answers, dict) else {}
+    return [
+        criterion
+        for criterion, key in zip(criteria, criteria_keys(criteria))
+        if _read_answer(answer_map.get(key)) is None
+    ]
+
+
+def merge_criteria_answers(first: Any, retry: Any) -> dict:
+    """Fills the criteria a first finish_test left unanswered with the
+    answers of a re-asked one. Answers the first call gave are kept."""
+    merged = dict(retry) if isinstance(retry, dict) else {}
+    if isinstance(first, dict):
+        for key, answer in first.items():
+            if _read_answer(answer) is not None:
+                merged[key] = answer
+    return merged
+
+
 def parse_criterion_verdicts(
     criteria: Sequence[str], answers: Any
 ) -> CriterionVerdicts:

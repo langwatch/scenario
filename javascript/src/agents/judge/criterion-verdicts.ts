@@ -133,6 +133,58 @@ function readAnswer(
 }
 
 /**
+ * The finish_test `criteria` argument as an object. Some models (Claude
+ * Haiku among them) intermittently send the nested object as a JSON string;
+ * that string is parsed instead of counting every criterion as unanswered.
+ */
+export function normalizeCriteriaArgs(
+  criteriaArgs: unknown
+): Record<string, unknown> {
+  let value = criteriaArgs;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** The declared criteria the finish_test answers leave without a verdict. */
+export function unansweredCriteria({
+  criteria,
+  criteriaArgs,
+}: {
+  criteria: string[];
+  criteriaArgs: unknown;
+}): string[] {
+  const answers = normalizeCriteriaArgs(criteriaArgs);
+  const paramNames = criteriaParamNames({ criteria });
+  return criteria.filter((_, i) => !readAnswer(answers[paramNames[i]!]));
+}
+
+/**
+ * Fills the criteria a first finish_test left unanswered with the answers of
+ * a re-asked one. Answers the first call gave are kept.
+ */
+export function mergeCriteriaArgs({
+  first,
+  retry,
+}: {
+  first: unknown;
+  retry: unknown;
+}): Record<string, unknown> {
+  const merged = { ...normalizeCriteriaArgs(retry) };
+  for (const [key, answer] of Object.entries(normalizeCriteriaArgs(first))) {
+    if (readAnswer(answer)) merged[key] = answer;
+  }
+  return merged;
+}
+
+/**
  * Maps the finish_test answers back onto the declared criteria, by schema
  * key, and derives the run verdict from them: any failed criterion fails the
  * run, otherwise any inconclusive one makes it inconclusive, otherwise it
@@ -145,10 +197,7 @@ export function parseCriterionVerdicts({
   criteria: string[];
   criteriaArgs: unknown;
 }): CriterionVerdicts {
-  const answers =
-    criteriaArgs && typeof criteriaArgs === "object"
-      ? (criteriaArgs as Record<string, unknown>)
-      : {};
+  const answers = normalizeCriteriaArgs(criteriaArgs);
   const paramNames = criteriaParamNames({ criteria });
 
   const results: CriterionResult[] = criteria.map((criterion, i) => {

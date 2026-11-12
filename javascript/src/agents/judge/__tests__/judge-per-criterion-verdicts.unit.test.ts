@@ -314,11 +314,14 @@ describeFeature(
           agent.invokeLLM = async () => finishWith(["passed", undefined]);
         });
 
-        When("the verdict call answers only the first criterion", async () => {
-          result = await agent.call(
-            createInput({ judgmentRequest: { criteria: CRITERIA } })
-          );
-        });
+        When(
+          "the verdict call answers only the first criterion, also when asked again",
+          async () => {
+            result = await agent.call(
+              createInput({ judgmentRequest: { criteria: CRITERIA } })
+            );
+          }
+        );
 
         Then("the second criterion is listed as unmet", () => {
           expect(result!.unmetCriteria).toEqual([CRITERIA[1]]);
@@ -327,6 +330,99 @@ describeFeature(
 
         And("its entry in the per-criterion result has status failed", () => {
           expect(result!.criteria![1]!.status).toBe("failed");
+        });
+      }
+    );
+
+    Scenario(
+      "A criterion left out of the verdict is asked once more",
+      ({ Given, When, Then, And }) => {
+        const { agent, calls } = makeJudge();
+        let result: Awaited<ReturnType<typeof agent.call>>;
+
+        Given("a judgment request with two criteria", () => {
+          agent.invokeLLM = async (params) => {
+            calls.push(params);
+            return calls.length === 1
+              ? finishWith(["passed", undefined])
+              : finishWith(["failed", "passed"]);
+          };
+        });
+
+        When("the verdict call answers only the first criterion", async () => {
+          result = await agent.call(
+            createInput({ judgmentRequest: { criteria: CRITERIA } })
+          );
+        });
+
+        Then(
+          "the judge is asked once more, pinned to finish_test, naming only the second criterion",
+          () => {
+            expect(calls).toHaveLength(2);
+            expect(calls[1]!.toolChoice).toEqual({
+              type: "tool",
+              toolName: "finish_test",
+            });
+            const last = calls[1]!.messages!.at(-1)!;
+            expect(last.role).toBe("user");
+            expect(String(last.content)).toContain(`1. ${CRITERIA[1]}`);
+            expect(String(last.content)).not.toContain(CRITERIA[0]!);
+          }
+        );
+
+        And(
+          "the second answer fills the missing criterion while the first answer is kept",
+          () => {
+            expect(result!.criteria!.map((c) => c.status)).toEqual([
+              "passed",
+              "passed",
+            ]);
+            expect(result!.success).toBe(true);
+          }
+        );
+      }
+    );
+
+    Scenario(
+      "A verdict that sends the criteria object as a JSON string is read",
+      ({ Given, When, Then, And }) => {
+        const { agent, calls } = makeJudge();
+        let result: Awaited<ReturnType<typeof agent.call>>;
+
+        Given("a judgment request with two criteria", () => {
+          agent.invokeLLM = async (params) => {
+            calls.push(params);
+            const answer = finishWith(["passed", "failed"]);
+            const input = answer.toolCalls![0]!.input as {
+              criteria: unknown;
+              reasoning: string;
+            };
+            return toolCall("finish_test", {
+              ...input,
+              criteria: JSON.stringify(input.criteria),
+            });
+          };
+        });
+
+        When(
+          "the verdict call sends its criteria as a JSON string, as Claude Haiku sometimes does",
+          async () => {
+            result = await agent.call(
+              createInput({ judgmentRequest: { criteria: CRITERIA } })
+            );
+          }
+        );
+
+        Then("both criteria get the status the string holds", () => {
+          expect(result!.criteria!.map((c) => c.status)).toEqual([
+            "passed",
+            "failed",
+          ]);
+          expect(result!.criteria![0]!.reasoning).toBe("Reasoning 1");
+        });
+
+        And("the judge is not asked again", () => {
+          expect(calls).toHaveLength(1);
         });
       }
     );

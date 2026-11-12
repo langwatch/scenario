@@ -26,6 +26,8 @@ from ._error_messages import agent_not_configured_error_message
 from ._utils.provider_compat import ProviderCompat
 from ._judge import JudgeUtils, judge_span_digest_formatter
 from ._judge.criterion_verdicts import (
+    merge_criteria_answers,
+    unanswered_criteria,
     PER_CRITERION_RULES,
     build_finish_test_tool,
     parse_criterion_verdicts,
@@ -82,6 +84,20 @@ DECISION_PHASE_RULE = (
 )
 """Appended to a custom system prompt on decision calls, so custom judge
 personas still drive the argument-free decision tools correctly."""
+
+
+_MISSING_VERDICT_PROMPT = (
+    "Your finish_test call did not give a usable verdict for the criteria "
+    "below. Call finish_test again with a requirement, a reasoning and a "
+    "status for every criterion. Pass criteria as an object keyed by "
+    "criterion, not as a string."
+)
+"""Re-asks the criteria a finish_test call left without a verdict. The JS
+SDK uses the same text; keep them in sync."""
+
+
+def _build_criteria_list(criteria: Sequence[str]) -> str:
+    return "\n".join(f"{idx + 1}. {criterion}" for idx, criterion in enumerate(criteria))
 
 
 REMOTE_TRACES_DECISION_RULE = (
@@ -1741,6 +1757,60 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
         else:
             return f"Unknown tool: {tool_call.function.name}"
 
+    def _reask_unanswered(
+        self,
+        *,
+        messages: List[dict],
+        args: dict,
+        missing: List[str],
+        effective_criteria: List[str],
+    ) -> Optional[dict]:
+        """Asks once more, pinned to finish_test, for the criteria a verdict
+        left without a readable answer (left out, or malformed). Returns the
+        new criteria answers, or None when the re-ask gave nothing usable;
+        whatever is still missing then fails closed."""
+        logger.warning(
+            "finish_test left criteria without a verdict; asking once more: %s",
+            missing,
+        )
+        try:
+            response = self._completion(
+                model=self.model,
+                messages=[
+                    *messages,
+                    {
+                        "role": "assistant",
+                        "content": f"My finish_test call: {json.dumps(args)}",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{_MISSING_VERDICT_PROMPT}\n"
+                        + _build_criteria_list(missing),
+                    },
+                ],
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=[build_finish_test_tool(effective_criteria)],
+                tool_choice={"type": "function", "function": {"name": "finish_test"}},
+                **self._extra_params,
+            )
+            message = cast(Choices, response.choices[0]).message
+            call = next(
+                (tc for tc in message.tool_calls or [] if tc.function.name == "finish_test"),
+                None,
+            )
+            if call is None:
+                return None
+            answers = json.loads(call.function.arguments).get("criteria")
+            if isinstance(answers, str):
+                answers = json.loads(answers)
+            return answers if isinstance(answers, dict) else None
+        except Exception as error:  # noqa: BLE001 - the first verdict stands
+            logger.warning("Re-asking the missing criteria failed: %s", error)
+            return None
+
     def _parse_response(
         self,
         response: Any,
@@ -1802,6 +1872,17 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                     criteria_answers = json.loads(criteria_answers)
                 except (json.JSONDecodeError, ValueError):
                     criteria_answers = None  # unparseable, handled below
+
+            missing = unanswered_criteria(effective_criteria, criteria_answers)
+            if missing:
+                retry_answers = self._reask_unanswered(
+                    messages=messages, args=args, missing=missing,
+                    effective_criteria=effective_criteria,
+                )
+                if retry_answers is not None:
+                    criteria_answers = merge_criteria_answers(
+                        criteria_answers, retry_answers
+                    )
 
             # If the criteria payload is not a usable object, no per-criterion
             # verdict can be trusted. Surface it as an explicit, fail-closed
