@@ -15,7 +15,7 @@ export const REQUIREMENT_DESCRIPTION =
   "This criterion restated as a positive requirement the agent must satisfy. A fail condition such as 'fail if X', 'fail only if X', 'pass unless X' or 'the agent must not X' becomes 'the agent does not X'.";
 
 export const CRITERION_REASONING_DESCRIPTION =
-  "What the conversation and the collected evidence show about this requirement alone, pointing at the moment that decides it. Written before the status. When the status is inconclusive, name the evidence that was missing.";
+  "What the conversation and the collected evidence show about this requirement alone, pointing at the moment that decides it. Written before the status. When the requirement depends on a number, date, count or duration, recompute it here from the evidence step by step and compare it with the agent's answer. When the status is inconclusive, name the evidence that was missing.";
 
 export const STATUS_DESCRIPTION =
   "passed: the agent satisfied the requirement (for a fail condition, the condition did not happen). failed: the agent did not satisfy it (for a fail condition, the condition happened). inconclusive: the evidence to decide is not available.";
@@ -30,6 +30,8 @@ export const SUMMARY_DESCRIPTION =
 export const PER_CRITERION_RULES = [
   "Judge each criterion on its own: restate it as a positive requirement, check the conversation and the collected evidence for that requirement alone, write the reasoning, then choose its status. The outcome of one criterion never decides another.",
   'passed means the agent satisfied the requirement. A criterion phrased as a fail condition ("fail if X", "fail only if X", "pass unless X", "the agent must not X") passes when X did not happen and fails when X happened.',
+  "Before grading a number, date, count or duration, recompute it from the evidence step by step in the reasoning, then compare the result with the agent's answer. A value that differs from the recomputed one fails the criterion, however confident or detailed the answer sounds.",
+  "Be strict about evidence, not wording: an answer that is equivalent to what the criterion asks for, or that follows from the evidence by a correct derivation (the 21st anniversary of an event first held in 1988 is 2009), satisfies it. Checking that arithmetic or derivation is part of judging the criterion.",
   "When the evidence to decide a criterion is not available (the conversation ended before the moment it depends on, or it depends on internal behavior that left no trace), mark it inconclusive and name the missing evidence in its reasoning instead of guessing.",
 ];
 
@@ -131,6 +133,58 @@ function readAnswer(
 }
 
 /**
+ * The finish_test `criteria` argument as an object. Some models (Claude
+ * Haiku among them) intermittently send the nested object as a JSON string;
+ * that string is parsed instead of counting every criterion as unanswered.
+ */
+export function normalizeCriteriaArgs(
+  criteriaArgs: unknown
+): Record<string, unknown> {
+  let value = criteriaArgs;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** The declared criteria the finish_test answers leave without a verdict. */
+export function unansweredCriteria({
+  criteria,
+  criteriaArgs,
+}: {
+  criteria: string[];
+  criteriaArgs: unknown;
+}): string[] {
+  const answers = normalizeCriteriaArgs(criteriaArgs);
+  const paramNames = criteriaParamNames({ criteria });
+  return criteria.filter((_, i) => !readAnswer(answers[paramNames[i] ?? ""]));
+}
+
+/**
+ * Fills the criteria a first finish_test left unanswered with the answers of
+ * a re-asked one. Answers the first call gave are kept.
+ */
+export function mergeCriteriaArgs({
+  first,
+  retry,
+}: {
+  first: unknown;
+  retry: unknown;
+}): Record<string, unknown> {
+  const merged = { ...normalizeCriteriaArgs(retry) };
+  for (const [key, answer] of Object.entries(normalizeCriteriaArgs(first))) {
+    if (readAnswer(answer)) merged[key] = answer;
+  }
+  return merged;
+}
+
+/**
  * Maps the finish_test answers back onto the declared criteria, by schema
  * key, and derives the run verdict from them: any failed criterion fails the
  * run, otherwise any inconclusive one makes it inconclusive, otherwise it
@@ -143,10 +197,7 @@ export function parseCriterionVerdicts({
   criteria: string[];
   criteriaArgs: unknown;
 }): CriterionVerdicts {
-  const answers =
-    criteriaArgs && typeof criteriaArgs === "object"
-      ? (criteriaArgs as Record<string, unknown>)
-      : {};
+  const answers = normalizeCriteriaArgs(criteriaArgs);
   const paramNames = criteriaParamNames({ criteria });
 
   const results: CriterionResult[] = criteria.map((criterion, i) => {

@@ -20,8 +20,10 @@ REQUIREMENT_DESCRIPTION = (
 CRITERION_REASONING_DESCRIPTION = (
     "What the conversation and the collected evidence show about this "
     "requirement alone, pointing at the moment that decides it. Written "
-    "before the status. When the status is inconclusive, name the evidence "
-    "that was missing."
+    "before the status. When the requirement depends on a number, date, "
+    "count or duration, recompute it here from the evidence step by step and "
+    "compare it with the agent's answer. When the status is inconclusive, "
+    "name the evidence that was missing."
 )
 
 STATUS_DESCRIPTION = (
@@ -45,6 +47,15 @@ PER_CRITERION_RULES = [
     'a fail condition ("fail if X", "fail only if X", "pass unless X", "the '
     'agent must not X") passes when X did not happen and fails when X '
     "happened.",
+    "Before grading a number, date, count or duration, recompute it from the "
+    "evidence step by step in the reasoning, then compare the result with the "
+    "agent's answer. A value that differs from the recomputed one fails the "
+    "criterion, however confident or detailed the answer sounds.",
+    "Be strict about evidence, not wording: an answer that is equivalent to "
+    "what the criterion asks for, or that follows from the evidence by a "
+    "correct derivation (the 21st anniversary of an event first held in 1988 "
+    "is 2009), satisfies it. Checking that arithmetic or derivation is part of "
+    "judging the criterion.",
     "When the evidence to decide a criterion is not available (the "
     "conversation ended before the moment it depends on, or it depends on "
     "internal behavior that left no trace), mark it inconclusive and name the "
@@ -157,6 +168,27 @@ def _read_answer(answer: Any) -> Optional[CriterionResult]:
             reasoning=reasoning if isinstance(reasoning, str) else "",
         )
     return None
+
+
+def unanswered_criteria(criteria: Sequence[str], answers: Any) -> List[str]:
+    """The declared criteria the finish_test answers leave without a verdict."""
+    answer_map = answers if isinstance(answers, dict) else {}
+    return [
+        criterion
+        for criterion, key in zip(criteria, criteria_keys(criteria))
+        if _read_answer(answer_map.get(key)) is None
+    ]
+
+
+def merge_criteria_answers(first: Any, retry: Any) -> dict:
+    """Fills the criteria a first finish_test left unanswered with the
+    answers of a re-asked one. Answers the first call gave are kept."""
+    merged = dict(retry) if isinstance(retry, dict) else {}
+    if isinstance(first, dict):
+        for key, answer in first.items():
+            if _read_answer(answer) is not None:
+                merged[key] = answer
+    return merged
 
 
 def parse_criterion_verdicts(

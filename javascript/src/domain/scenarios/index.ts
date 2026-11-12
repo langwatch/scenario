@@ -13,7 +13,11 @@ import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
 export const DEFAULT_TRACE_WAIT_TIMEOUT_MS = 30_000;
-export const DEFAULT_TRACE_QUIET_PERIOD_MS = 2_000;
+/**
+ * OTel BatchSpanProcessor exports every 5s by default (JS, Python, Go, Java,
+ * and the LangWatch SDKs), plus about 2s for ingest and network.
+ */
+export const DEFAULT_TRACE_QUIET_PERIOD_MS = 7_000;
 
 /**
  * Configuration for LangWatch event reporting.
@@ -186,6 +190,9 @@ export interface ScenarioConfig {
    * Can also be set project-wide in `scenario.config.js`; this per-run value
    * wins.
    *
+   * When neither is set, the LangWatch project's recommendation is used
+   * before the default.
+   *
    * @default 30000
    */
   traceWaitTimeoutMs?: number;
@@ -199,6 +206,9 @@ export interface ScenarioConfig {
    *
    * Can also be set project-wide in `scenario.config.js`; this per-run value
    * wins.
+   *
+   * When neither is set, the LangWatch project's recommendation is used
+   * before the default.
    *
    * @default the resolved traceWaitTimeoutMs
    */
@@ -219,9 +229,10 @@ export interface ScenarioConfig {
    * settles on the first poll whose parents all resolve.
    *
    * Can also be set project-wide in `scenario.config.js`; this per-run value
-   * wins.
+   * wins. When neither is set, the LangWatch project's recommendation is used
+   * (derived from its observed span arrival gaps), then the default.
    *
-   * @default 2000
+   * @default 7000
    */
   traceQuietPeriodMs?: number;
 

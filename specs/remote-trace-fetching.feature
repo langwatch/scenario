@@ -158,10 +158,66 @@ Feature: Remote trace fetching for judge evaluation
     And no span collection error span is added
 
   @unit
-  Scenario: The quiet period defaults to two seconds
+  Scenario: The quiet period defaults to seven seconds
     Given a scenario with fetch_remote_traces enabled and no trace_quiet_period configured
     When the judge settle-waits for the remote traces
-    Then the settle-wait quiet period is 2 seconds
+    Then the settle-wait quiet period is 7 seconds
+
+  @unit
+  Scenario: A span exported one batch later still reaches the verdict
+    Given a remote trace whose first span resolves its parent at once
+    And a second span that lands 5.5 seconds later, one exporter batch behind
+    When the judge settle-waits with the default quiet period
+    Then the second span is in the judge's trace digest
+
+  @unit
+  Scenario: A two second quiet period misses a span exported one batch later
+    Given a remote trace whose first span resolves its parent at once
+    And a second span that lands 5.5 seconds later, one exporter batch behind
+    When the judge settle-waits with a quiet period of 2 seconds
+    Then the second span is not in the judge's trace digest
+
+  @unit
+  Scenario: A flat trace that settled on the quiet period alone may still be arriving
+    Given a remote trace whose spans hang straight off the scenario's spans, with no wrapping agent span
+    When the judge issues its verdict
+    Then a wait_for_traces tool is offered alongside finish_test
+    And the judge is told that spans may still be arriving
+
+  @unit
+  Scenario: A trace with a wrapping agent span is complete without the extra wait
+    Given a remote trace whose spans sit under one agent request span
+    When the judge issues its verdict
+    Then the wait_for_traces tool is not offered
+    And the judge is not told that spans may still be arriving
+
+  @unit
+  Scenario: The extra wait re-reads a trace that settled on the quiet period alone
+    Given a flat remote trace settled on the quiet period alone
+    And another span of it arrives afterwards
+    When the judge calls wait_for_traces
+    Then the new span is in the verdict's trace digest
+
+  @unit
+  Scenario: Wait settings come from the LangWatch project when the run sets none
+    Given a LangWatch project that recommends a 12 second wait, a 20 second extension and a 9 second quiet period
+    And a scenario that sets no trace wait settings
+    When the judge settle-waits for the remote traces
+    Then it uses the project's recommended wait, extension and quiet period
+
+  @unit
+  Scenario: Wait settings fall back to the defaults when LangWatch has no recommendation
+    Given a LangWatch endpoint that does not answer the settings request
+    And a scenario that sets no trace wait settings
+    When the judge settle-waits for the remote traces
+    Then it uses a 30 second wait and a 7 second quiet period
+
+  @unit
+  Scenario: Wait settings set on the run win over the project's recommendation
+    Given a scenario that sets its trace wait and quiet period
+    When the judge settle-waits for the remote traces
+    Then it uses the run's settings
+    And it never asks LangWatch for a recommendation
 
   @unit
   Scenario: Remote spans deduplicate against locally collected spans

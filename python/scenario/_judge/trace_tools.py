@@ -32,6 +32,62 @@ TOOL_RESULT_CHAR_BUDGET = TOOL_RESULT_TOKEN_BUDGET * 4
 MAX_GREP_MATCHES = 20
 """Maximum number of grep matches returned."""
 
+GREP_CONTEXT_CHARS = 400
+"""Characters of context kept on each side of a grep match."""
+
+MAX_WINDOWS_PER_LINE = 5
+"""Maximum windows shown per matching line."""
+
+
+def _page_to_char_budget(text: str, offset: int) -> str:
+    """One page of an expand_trace result, starting at ``offset`` characters.
+
+    The footer names the offset of the next page, so content past the budget
+    stays reachable.
+    """
+    start = max(0, min(int(offset), len(text)))
+    if start == 0 and len(text) <= TOOL_RESULT_CHAR_BUDGET:
+        return text
+    end = min(start + TOOL_RESULT_CHAR_BUDGET, len(text))
+    header = f"[Showing characters {start}-{end} of {len(text)}]\n" if start > 0 else ""
+    footer = (
+        f"\n\n[TRUNCATED] Showing characters {start}-{end} of {len(text)}: "
+        f"{len(text) - end} more characters of these spans are not shown, so do "
+        "not conclude that something is absent from them. Call expand_trace "
+        f"with the same span IDs and offset={end} to read on, or "
+        "grep_trace(pattern) to jump to specific content."
+        if end < len(text)
+        else ""
+    )
+    return header + text[start:end] + footer
+
+
+def _match_windows(line: str, regex: "re.Pattern[str]") -> List[str]:
+    """The parts of a long line around each match of ``regex``.
+
+    A match deep inside one long attribute (retrieved documents serialized as
+    one JSON value) is shown instead of being cut off by the result budget.
+    """
+    if len(line) <= GREP_CONTEXT_CHARS * 2:
+        return [line]
+    windows: List[str] = []
+    last_end = -1
+    for match in regex.finditer(line):
+        if len(windows) >= MAX_WINDOWS_PER_LINE:
+            break
+        at = match.start()
+        if at < last_end:
+            continue
+        start = max(0, at - GREP_CONTEXT_CHARS)
+        end = min(len(line), match.end() + GREP_CONTEXT_CHARS)
+        prefix = "..." if start > 0 else ""
+        suffix = "..." if end < len(line) else ""
+        windows.append(
+            f"{prefix}{line[start:end]}{suffix} [match at character {at} of {len(line)}]"
+        )
+        last_end = end
+    return windows
+
 
 @dataclass
 class _IndexedSpan:
@@ -132,6 +188,7 @@ def _span_to_searchable_text(span: ReadableSpan) -> str:
 def expand_trace(
     spans: Sequence[ReadableSpan],
     span_ids: List[str],
+    offset: int = 0,
 ) -> str:
     """
     Expands one or more spans from a trace, returning their full details
@@ -144,9 +201,10 @@ def expand_trace(
     Args:
         spans: The full array of ReadableSpan objects for the trace.
         span_ids: Span IDs (or 8-char prefixes) to expand.
+        offset: Character offset of the page to return, for long spans.
 
     Returns:
-        Formatted string with full span details, truncated to ~4096 tokens.
+        Formatted string with full span details, one ~4096 token page.
     """
     nodes = _index_spans(spans)
 
@@ -176,7 +234,7 @@ def expand_trace(
         lines.extend(span_lines)
         lines.append("")
 
-    return _truncate_to_char_budget("\n".join(lines).rstrip())
+    return _page_to_char_budget("\n".join(lines).rstrip(), offset)
 
 
 def grep_trace(spans: Sequence[ReadableSpan], pattern: str) -> str:
@@ -223,7 +281,8 @@ def grep_trace(spans: Sequence[ReadableSpan], pattern: str) -> str:
             f"--- [{match.span.short_id}] {match.span.span.name} ({format_duration(duration)}) ---"
         )
         for line in match.matching_lines:
-            lines.append(f"  {line}")
+            for window in _match_windows(line, regex):
+                lines.append(f"  {window}")
         lines.append("")
 
     if total_matches > MAX_GREP_MATCHES:

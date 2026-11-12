@@ -205,3 +205,17 @@ Feature: Progressive trace discovery for large OTEL traces
     Given a trace that renders to exactly 8192 estimated tokens
     When the judge formats the trace
     Then it renders inline (threshold is exclusive - must exceed to trigger structure-only)
+
+  @unit
+  Scenario: grep_trace shows the text around a match deep inside a long value
+    Given a span whose retrieved documents hold 40,000 characters with the target sentence at character 30,000
+    When grep_trace searches for a phrase of the target sentence
+    Then the result holds the target sentence and where it sits in the value
+    And the result stays within the tool budget
+
+  @unit
+  Scenario: expand_trace pages through a long span
+    Given a span whose retrieved documents hold 40,000 characters with the target sentence at character 30,000
+    When expand_trace is called with the offset each page names until the span ends
+    Then one of the pages holds the target sentence
+    And the first page says the rest of the span is not shown yet
