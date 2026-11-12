@@ -163,7 +163,7 @@ export function unansweredCriteria({
 }): string[] {
   const answers = normalizeCriteriaArgs(criteriaArgs);
   const paramNames = criteriaParamNames({ criteria });
-  return criteria.filter((_, i) => !readAnswer(answers[paramNames[i]!]));
+  return criteria.filter((_, i) => !readAnswer(answers[paramNames[i] ?? ""]));
 }
 
 /**
