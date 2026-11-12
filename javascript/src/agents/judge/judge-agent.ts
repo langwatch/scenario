@@ -239,6 +239,14 @@ const REMOTE_TRACE_JUDGING_RULE =
   "Criteria about the agent's internal behavior (tool calls, database writes, API calls, retrievals) must be verified against the <opentelemetry_traces> section, not against claims in the transcript. If a span named langwatch.span_collection.error is present, read its reason: when no agent spans arrived, mark criteria that depend on internal behavior as inconclusive, never passed. When the trace is incomplete, criteria proven by the spans that are present may pass, and criteria whose evidence is missing stay inconclusive. Criteria about the conversation itself are unaffected by missing traces: judge them from the transcript as normal. Never mark internal-behavior criteria as passed based on the transcript alone.";
 
 /**
+ * Shown with the evidence when a remote trace stopped changing but has no
+ * wrapping agent span to prove it complete: exporters flush in batches, so a
+ * later batch may still be on its way.
+ */
+const UNCONFIRMED_TRACE_NOTE =
+  "The remote trace stopped changing, but nothing proves it is complete: spans may still be arriving, since exporters send spans in batches every few seconds. If a criterion depends on spans that are not shown, call wait_for_traces once before judging it.";
+
+/**
  * Appended to a custom system prompt on decision calls, so custom judge
  * personas still drive the argument-free decision tools correctly. The
  * Python SDK uses the same text; keep them in sync.
@@ -336,7 +344,7 @@ ${buildCriteriaList(criteria)}
 
 <rules>
 - Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
-- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary. Recomputing a number or following a derivation that a criterion depends on is not an extra judgment call.
 ${PER_CRITERION_RULES.map((rule) => `- ${rule}`).join("\n")}${remoteTraceRule}
 </rules>
 `.trim();
@@ -413,19 +421,25 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
   return {
     expand_trace: tool({
       description:
-        "Expand one or more spans to see their full details (attributes, events, content). Use the span ID shown in brackets in the trace skeleton.",
+        "Expand one or more spans to see their full details (attributes, events, content). Use the span ID shown in brackets in the trace skeleton. Long output comes in pages: pass the offset named at the end of a page to read the next one.",
       inputSchema: z.object({
         span_ids: z
           .array(z.string())
           .describe("Span IDs (or 8-char prefixes) to expand"),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Character offset of the page to read; 0 or omitted for the first page"),
       }),
-      execute: async ({ span_ids }) => {
-        return expandTrace(spans, span_ids);
+      execute: async ({ span_ids, offset }) => {
+        return expandTrace(spans, span_ids, offset ?? 0);
       },
     }),
     grep_trace: tool({
       description:
-        "Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with context.",
+        "Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with the text around each match, even deep inside long values.",
       inputSchema: z.object({
         pattern: z
           .string()
@@ -674,11 +688,24 @@ export class JudgeAgent extends JudgeAgentAdapter {
       input.scenarioConfig.fetchRemoteTraces ??
       projectConfig?.fetchRemoteTraces ??
       false;
+    const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
+    // The LangWatch project's measured recommendation fills what neither the
+    // run nor the project config sets; it is asked once per endpoint and key.
+    const needsRecommendation =
+      fetchRemoteTraces &&
+      [
+        input.scenarioConfig.traceWaitTimeoutMs ?? projectConfig?.traceWaitTimeoutMs,
+        input.scenarioConfig.traceQuietPeriodMs ?? projectConfig?.traceQuietPeriodMs,
+      ].some((value) => value == null);
+    const recommended = needsRecommendation
+      ? await traceFetcher.recommendedSettings(input.scenarioConfig.langwatch)
+      : undefined;
     const traceWaitTimeoutMs = this.resolveWaitBudgetMs({
       field: "traceWaitTimeoutMs",
       values: [
         input.scenarioConfig.traceWaitTimeoutMs,
         projectConfig?.traceWaitTimeoutMs,
+        recommended?.waitTimeoutMs,
       ],
       fallback: DEFAULT_TRACE_WAIT_TIMEOUT_MS,
     });
@@ -690,6 +717,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       values: [
         input.scenarioConfig.traceWaitExtensionMs,
         projectConfig?.traceWaitExtensionMs,
+        recommended?.waitExtensionMs,
       ],
       fallback: traceWaitTimeoutMs,
     });
@@ -700,11 +728,11 @@ export class JudgeAgent extends JudgeAgentAdapter {
       values: [
         input.scenarioConfig.traceQuietPeriodMs,
         projectConfig?.traceQuietPeriodMs,
+        recommended?.quietPeriodMs,
       ],
       fallback: DEFAULT_TRACE_QUIET_PERIOD_MS,
       allowZero: true,
     });
-    const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
 
     // Automatic STT pre-pass (EDR §3.3 / §7.7): when the conversation carries
     // audio, transcribe audio `file` parts to text using the per-run resolved
@@ -976,8 +1004,9 @@ export class JudgeAgent extends JudgeAgentAdapter {
       quietPeriodMs: traceQuietPeriodMs,
     };
     let allSettled = true;
+    let unconfirmed = false;
     if (fetchRemoteTraces && remoteTraceIds.length > 0) {
-      ({ allSettled } = await traceFetcher.settleWait({
+      ({ allSettled, unconfirmed } = await traceFetcher.settleWait({
         ...settleTarget,
         timeoutMs: traceWaitTimeoutMs,
       }));
@@ -995,13 +1024,13 @@ export class JudgeAgent extends JudgeAgentAdapter {
     }
 
     // The judge's one extra wait: offered as a wait_for_traces tool while the
-    // traces are incomplete, consumed at most once, then withdrawn so the
-    // second call must decide. With no trace ids at all there is nothing a
-    // wait could produce, so the tool is never offered.
+    // traces are incomplete or settled on the quiet period alone, consumed at
+    // most once, then withdrawn so the second call must decide. With no trace
+    // ids at all there is nothing a wait could produce.
     let waitExtensionAvailable =
       fetchRemoteTraces &&
       remoteTraceIds.length > 0 &&
-      !allSettled &&
+      (!allSettled || unconfirmed) &&
       traceWaitExtensionMs > 0;
     let waitedOnce = false;
 
@@ -1024,9 +1053,13 @@ export class JudgeAgent extends JudgeAgentAdapter {
       const extraContext =
         input.judgmentRequest?.additionalContext ??
         input.judgmentRequest?.context;
-      const additionalContextSection = extraContext
-        ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
-        : "";
+      const additionalContextSection =
+        (extraContext
+          ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
+          : "") +
+        (waitExtensionAvailable && unconfirmed
+          ? `\n    <trace_status>\n    ${UNCONFIRMED_TRACE_NOTE}\n    </trace_status>`
+          : "");
 
       const contentForJudge = buildJudgeContent({
         transcript,
@@ -1126,10 +1159,10 @@ export class JudgeAgent extends JudgeAgentAdapter {
         );
         waitExtensionAvailable = false;
         waitedOnce = true;
-        await traceFetcher.extendSettle({
+        ({ unconfirmed } = await traceFetcher.extendSettle({
           ...settleTarget,
           timeoutMs: traceWaitExtensionMs,
-        });
+        }));
         continue;
       }
 
@@ -1164,7 +1197,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
     const digest = isLargeTrace
       ? judgeSpanDigestFormatter.formatStructureOnly(spans) +
-        "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
+        "\n\nOnly the span structure is shown above, not the span contents. Before judging a criterion that depends on what a span holds, read it: grep_trace(pattern) finds text anywhere in the spans, even deep inside long values, and expand_trace(span_id) shows a span's details one page at a time. Content you have not read is missing evidence, never evidence that something is absent. Reference spans by the ID shown in brackets."
       : fullDigest;
 
     this.logger.debug("Trace digest built", {

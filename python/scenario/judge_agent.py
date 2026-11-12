@@ -1139,7 +1139,7 @@ Your goal is to deliver the final verdict of the scenario below with the finish_
 
 <rules>
 - Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
-- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary. Recomputing a number or following a derivation that a criterion depends on is not an extra judgment call.
 {per_criterion_rules}{remote_traces_rule}
 </rules>
 """
@@ -1371,7 +1371,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
         if is_large_trace:
             digest = (
                 judge_span_digest_formatter.format_structure_only(spans)
-                + "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
+                + "\n\nOnly the span structure is shown above, not the span contents. Before judging a criterion that depends on what a span holds, read it: grep_trace(pattern) finds text anywhere in the spans, even deep inside long values, and expand_trace(span_id) shows a span's details one page at a time. Content you have not read is missing evidence, never evidence that something is absent. Reference spans by the ID shown in brackets."
             )
         else:
             digest = full_digest
@@ -1401,7 +1401,9 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                     "description": (
                         "Expand one or more spans to see their full details "
                         "(attributes, events, content). Use the span ID shown "
-                        "in brackets in the trace skeleton."
+                        "in brackets in the trace skeleton. Long output comes in "
+                        "pages: pass the offset named at the end of a page to "
+                        "read the next one."
                     ),
                     "parameters": {
                         "type": "object",
@@ -1410,6 +1412,11 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": "Span IDs (or 8-char prefixes) to expand",
+                            },
+                            "offset": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Character offset of the page to read; 0 or omitted for the first page",
                             },
                         },
                         "required": ["span_ids"],
@@ -1423,7 +1430,8 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                     "name": "grep_trace",
                     "description": (
                         "Search across all span attributes, events, and content "
-                        "for a pattern (case-insensitive). Returns matching spans with context."
+                        "for a pattern (case-insensitive). Returns matching spans "
+                        "with the text around each match, even deep inside long values."
                     ),
                     "parameters": {
                         "type": "object",
@@ -1719,6 +1727,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
             return expand_trace(
                 spans,
                 span_ids=args.get("span_ids", []),
+                offset=args.get("offset") or 0,
             )
         elif tool_call.function.name == "grep_trace":
             return grep_trace(spans, args.get("pattern", ""))

@@ -62,6 +62,13 @@ interface TraceFetchState {
   candidateKey?: string;
   /** When {@link candidateKey} was first seen, in epoch milliseconds. */
   candidateSince?: number;
+  /**
+   * The settled span set has a wrapping agent span: every remote span whose
+   * parent is not another remote span has remote children. Ancestors export
+   * after their descendants, so such a trace is complete. Flat spans settle
+   * on the quiet period alone, and a later batch may still be on its way.
+   */
+  wrapped?: boolean;
 }
 
 interface TraceApiAuth {
@@ -91,6 +98,32 @@ interface PollResult {
   parentsResolved: boolean;
   /** The remote span ids of this poll, sorted and joined: the quiet-period key. */
   remoteSpanKey: string;
+  /** See {@link TraceFetchState.wrapped}. */
+  wrapped: boolean;
+}
+
+/**
+ * The wait settings a LangWatch project recommends for remote traces, from
+ * its measured ingest lag and span arrival gaps.
+ */
+export interface RecommendedTraceSettings {
+  waitTimeoutMs?: number;
+  waitExtensionMs?: number;
+  quietPeriodMs?: number;
+}
+
+/** Upper bound for the settings request; the defaults apply after it. */
+const SETTINGS_REQUEST_TIMEOUT_MS = 5_000;
+
+/** Result of a settle-wait. */
+export interface SettleOutcome {
+  /** Every given trace id settled cleanly. */
+  allSettled: boolean;
+  /**
+   * At least one settled trace has no wrapping agent span, so only the quiet
+   * period vouches for it and spans may still be arriving.
+   */
+  unconfirmed: boolean;
 }
 
 /**
@@ -177,6 +210,10 @@ export class RemoteTraceFetcher {
   private readonly fetchFn: typeof fetch;
   private readonly pollIntervalMs: number;
   private readonly registry = new Map<string, Map<string, TraceFetchState>>();
+  private readonly recommendations = new Map<
+    string,
+    Promise<RecommendedTraceSettings | undefined>
+  >();
 
   constructor(options?: { fetchFn?: typeof fetch; pollIntervalMs?: number }) {
     this.fetchFn =
@@ -201,7 +238,7 @@ export class RemoteTraceFetcher {
    */
   async settleWait(
     target: RemoteTraceTarget & { timeoutMs: number }
-  ): Promise<{ allSettled: boolean }> {
+  ): Promise<SettleOutcome> {
     const auth = this.resolveAuth(target.langwatch);
     const deadline = Date.now() + target.timeoutMs;
     // Every trace this wait touches is claimed for the thread, so the
@@ -226,7 +263,7 @@ export class RemoteTraceFetcher {
           } is not configured (set LANGWATCH_API_KEY and LANGWATCH_ENDPOINT, or pass them in the run's langwatch config)`,
         });
       }
-      return { allSettled: false };
+      return { allSettled: false, unconfirmed: false };
     }
 
     const quietPeriodMs = this.resolveQuietPeriodMs(target.quietPeriodMs);
@@ -243,23 +280,30 @@ export class RemoteTraceFetcher {
         })
       )
     );
-    return { allSettled: this.allSettled(target.threadId, target.traceIds) };
+    return this.outcome(target.threadId, target.traceIds);
   }
 
   /**
    * The judge's one extra wait: re-arms every trace that terminally failed
    * the first settle-wait (retracting its synthetic error span from the
-   * collector) and settle-waits once more under `timeoutMs`. A trace that
-   * fails again gets a fresh error span with the new reason. Returns whether
-   * every given trace id is settled cleanly afterwards.
+   * collector) or settled on the quiet period alone, and settle-waits once
+   * more under `timeoutMs`. A trace that fails again gets a fresh error span
+   * with the new reason. Spans that arrive meanwhile join the collector.
    */
   async extendSettle(
     target: RemoteTraceTarget & { timeoutMs: number }
-  ): Promise<{ allSettled: boolean }> {
+  ): Promise<SettleOutcome> {
     const threadStates = this.registry.get(target.threadId);
     for (const traceId of target.traceIds) {
       const state = threadStates?.get(traceId);
-      if (!state?.failed) continue;
+      if (!state) continue;
+      if (state.settled && !state.wrapped) {
+        state.settled = false;
+        state.candidateKey = undefined;
+        state.candidateSince = undefined;
+        continue;
+      }
+      if (!state.failed) continue;
       state.failed = false;
       if (state.errorSpanId) {
         target.collector.removeSpanById(state.errorSpanId);
@@ -290,11 +334,63 @@ export class RemoteTraceFetcher {
     return DEFAULT_TRACE_QUIET_PERIOD_MS;
   }
 
-  private allSettled(threadId: string, traceIds: string[]): boolean {
+  private outcome(threadId: string, traceIds: string[]): SettleOutcome {
     const threadStates = this.registry.get(threadId);
-    return traceIds.every((traceId) =>
-      Boolean(threadStates?.get(traceId)?.settled)
-    );
+    const states = traceIds.map((traceId) => threadStates?.get(traceId));
+    return {
+      allSettled: states.every((state) => Boolean(state?.settled)),
+      unconfirmed: states.some((state) => state?.settled && !state.wrapped),
+    };
+  }
+
+  /**
+   * The remote-trace wait settings the LangWatch project recommends, asked
+   * once per endpoint and key. Undefined when the endpoint is unreachable,
+   * older than the settings route, or answers anything unexpected: the
+   * caller then uses its defaults.
+   */
+  recommendedSettings(
+    langwatch?: LangwatchConfig
+  ): Promise<RecommendedTraceSettings | undefined> {
+    const auth = this.resolveAuth(langwatch);
+    if (!auth.endpoint || !auth.apiKey) return Promise.resolve(undefined);
+    const cacheKey = `${auth.endpoint}\u0000${auth.apiKey}\u0000${auth.projectId ?? ""}`;
+    let pending = this.recommendations.get(cacheKey);
+    if (!pending) {
+      pending = this.fetchRecommendedSettings(auth);
+      this.recommendations.set(cacheKey, pending);
+    }
+    return pending;
+  }
+
+  private async fetchRecommendedSettings(
+    auth: TraceApiAuth
+  ): Promise<RecommendedTraceSettings | undefined> {
+    const url = `${auth.endpoint.replace(/\/$/, "")}/api/traces/settle-settings`;
+    try {
+      const response = await this.fetchFn(url, {
+        headers: this.authHeaders(auth),
+        signal: AbortSignal.timeout(SETTINGS_REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) return undefined;
+      const body = (await response.json()) as Record<string, unknown>;
+      const read = (key: string): number | undefined => {
+        const value = body?.[key];
+        return typeof value === "number" && Number.isFinite(value) && value >= 0
+          ? value
+          : undefined;
+      };
+      return {
+        waitTimeoutMs: read("waitTimeoutMs"),
+        waitExtensionMs: read("waitExtensionMs"),
+        quietPeriodMs: read("quietPeriodMs"),
+      };
+    } catch (error) {
+      this.logger.debug("Trace settle settings unavailable; using defaults", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   /**
@@ -498,7 +594,7 @@ export class RemoteTraceFetcher {
     quietPeriodMs: number;
   }): Promise<number> {
     const spans = await this.fetchTrace({ traceId, auth, deadline });
-    const { remoteSpanCount, parentsResolved, remoteSpanKey } = this.merge({
+    const { remoteSpanCount, parentsResolved, remoteSpanKey, wrapped } = this.merge({
       threadId,
       traceId,
       state,
@@ -518,6 +614,7 @@ export class RemoteTraceFetcher {
       state.candidateKey = remoteSpanKey;
       state.candidateSince = Date.now();
     }
+    state.wrapped = wrapped;
 
     if (Date.now() - (state.candidateSince ?? Date.now()) >= quietPeriodMs) {
       state.settled = true;
@@ -626,10 +723,29 @@ export class RemoteTraceFetcher {
       collector.onEnd(this.tagWithThreadId(readableSpan, threadId));
     }
 
+    const remoteIdSet = new Set(remoteSpanIds);
+    const remoteParents = new Set(
+      spans
+        .filter((s) => s.span_id && remoteIdSet.has(s.span_id) && s.parent_id)
+        .map((s) => s.parent_id as string)
+    );
+    const entrySpanIds = spans
+      .filter(
+        (s) =>
+          s.span_id &&
+          remoteIdSet.has(s.span_id) &&
+          !(s.parent_id && remoteIdSet.has(s.parent_id))
+      )
+      .map((s) => s.span_id as string);
+    const wrapped =
+      entrySpanIds.length > 0 &&
+      entrySpanIds.every((id) => remoteParents.has(id));
+
     return {
       remoteSpanCount,
       parentsResolved,
       remoteSpanKey: remoteSpanIds.sort().join(","),
+      wrapped,
     };
   }
 
@@ -658,19 +774,7 @@ export class RemoteTraceFetcher {
   }): Promise<LangWatchApiSpan[]> {
     const url = `${auth.endpoint.replace(/\/$/, "")}/api/trace/${traceId}`;
 
-    const headers: Record<string, string> = {
-      // Dual-emit auth: /api/trace historically authenticates with
-      // X-Auth-Token, while newer deployments accept a Bearer token.
-      // Sending both keeps the fetch working across LangWatch versions.
-      "X-Auth-Token": auth.apiKey,
-      Authorization: `Bearer ${auth.apiKey}`,
-    };
-    // The Bearer branch resolves first on the platform, and it rejects a PAT
-    // or organization key that is not scoped to a project. The event reporter
-    // sends the same header for the same reason.
-    if (auth.projectId) {
-      headers["X-Project-Id"] = auth.projectId;
-    }
+    const headers = this.authHeaders(auth);
 
     // Two bounds, whichever is nearer: a fixed guard against a hung API, and
     // what is left of the settle loop's shared deadline. Without the second
@@ -732,6 +836,23 @@ export class RemoteTraceFetcher {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private authHeaders(auth: TraceApiAuth): Record<string, string> {
+    const headers: Record<string, string> = {
+      // Dual-emit auth: /api/trace historically authenticates with
+      // X-Auth-Token, while newer deployments accept a Bearer token.
+      // Sending both keeps the fetch working across LangWatch versions.
+      "X-Auth-Token": auth.apiKey,
+      Authorization: `Bearer ${auth.apiKey}`,
+    };
+    // The Bearer branch resolves first on the platform, and it rejects a PAT
+    // or organization key that is not scoped to a project. The event reporter
+    // sends the same header for the same reason.
+    if (auth.projectId) {
+      headers["X-Project-Id"] = auth.projectId;
+    }
+    return headers;
   }
 
   /**
