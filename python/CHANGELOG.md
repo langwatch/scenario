@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/langwatch/scenario/compare/python/v1.6.1...python/v1.7.0) (2026-11-17)
+
+
+### Features
+
+* test any A2A agent from its Agent Card with A2AAgent ([#1055](https://github.com/langwatch/scenario/issues/1055)) ([50abd23](https://github.com/langwatch/scenario/commit/50abd23236e9634481d62d88e5458dc49749ba8a))
+
 ## [1.6.1](https://github.com/langwatch/scenario/compare/python/v1.6.0...python/v1.6.1) (2026-11-02)
 
 
