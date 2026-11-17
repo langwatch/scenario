@@ -33,11 +33,23 @@ class FakeA2AServer:
         binding: str = "JSONRPC",
         name: str = "Fake A2A Agent",
         jsonrpc_error: Optional[Dict[str, Any]] = None,
+        card: Optional[Dict[str, Any]] = None,
+        card_status: int = 200,
+        card_redirect: Optional[str] = None,
+        get_task: Optional[Reply] = None,
+        raw_reply: Optional[bytes] = None,
+        tenant: Optional[str] = None,
     ):
         self.reply = reply
         self.binding = binding
         self.name = name
         self.jsonrpc_error = jsonrpc_error
+        self.card_override = card
+        self.card_status = card_status
+        self.card_redirect = card_redirect
+        self.get_task = get_task
+        self.raw_reply = raw_reply
+        self.tenant = tenant
         self.requests: List[Dict[str, Any]] = []
         self.card_headers: List[Dict[str, str]] = []
         server = self
@@ -55,20 +67,41 @@ class FakeA2AServer:
                 self.wfile.write(body)
 
             def do_GET(self) -> None:
-                server.card_headers.append(dict(self.headers.items()))
-                self._send(server.card())
+                if "/tasks/" in self.path and server.get_task:
+                    headers = {k.lower(): v for k, v in self.headers.items()}
+                    server.requests.append({"path": self.path, "headers": headers, "body": None})
+                    self._send(server.get_task({"id": self.path.rsplit("/", 1)[1]}))
+                    return
+                server.card_headers.append({k.lower(): v for k, v in self.headers.items()})
+                if server.card_redirect:
+                    self.send_response(302)
+                    self.send_header("Location", server.card_redirect)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self._send(server.card(), status=server.card_status)
 
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length))
                 headers = {k.lower(): v for k, v in self.headers.items()}
                 server.requests.append({"path": self.path, "headers": headers, "body": body})
+                if server.raw_reply is not None:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(server.raw_reply)))
+                    self.end_headers()
+                    self.wfile.write(server.raw_reply)
+                    return
                 if server.binding == "HTTP+JSON":
                     reply = server.reply(body)
                     self._send(reply, status=404 if "error" in reply else 200)
                     return
                 if server.jsonrpc_error:
                     self._send({"jsonrpc": "2.0", "id": body["id"], "error": server.jsonrpc_error})
+                    return
+                if body.get("method") == "GetTask" and server.get_task:
+                    self._send({"jsonrpc": "2.0", "id": body["id"], "result": server.get_task(body["params"])})
                     return
                 result = server.reply(body["params"])
                 if "error" in result:
@@ -81,13 +114,20 @@ class FakeA2AServer:
         self.card_url = f"{self.base_url}/.well-known/agent-card.json"
 
     def card(self) -> Dict[str, Any]:
+        if self.card_override is not None:
+            return self.card_override
+        interface: Dict[str, Any] = {
+            "url": f"{self.base_url}/a2a",
+            "protocolBinding": self.binding,
+            "protocolVersion": "1.0",
+        }
+        if self.tenant:
+            interface["tenant"] = self.tenant
         return {
             "name": self.name,
             "description": "A fake agent for tests",
             "version": "1.0.0",
-            "supportedInterfaces": [
-                {"url": f"{self.base_url}/a2a", "protocolBinding": self.binding, "protocolVersion": "1.0"}
-            ],
+            "supportedInterfaces": [interface],
             "capabilities": {"streaming": False},
             "defaultInputModes": ["text/plain"],
             "defaultOutputModes": ["text/plain"],

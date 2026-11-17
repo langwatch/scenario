@@ -194,9 +194,9 @@ async def test_unexpected_404_body_raises_the_http_status_error(error: Any):
     with FakeA2AServer(reply=reply, binding="HTTP+JSON") as server:
         agent = A2AAgent(card_url=server.card_url)
         await agent.call(_input("hi"))
-        with pytest.raises(httpx.HTTPStatusError) as raised:
+        with pytest.raises(A2AError, match="HTTP 404") as raised:
             await agent.call(_input("more"))
-        assert raised.value.response.status_code == 404
+        assert not raised.value.task_not_found
 
 
 @pytest.mark.asyncio
@@ -236,3 +236,154 @@ async def test_auth_reaches_card_and_requests(auth: Any, expected: Any):
         card_headers = {k.lower(): v for k, v in server.card_headers[0].items()}
         assert card_headers[expected[0]] == expected[1]
         assert server.requests[0]["headers"][expected[0]] == expected[1]
+
+
+def _v1_card(url: str, binding: str = "JSONRPC") -> Dict[str, Any]:
+    return {
+        "name": "Other Host Agent",
+        "supportedInterfaces": [{"url": url, "protocolBinding": binding, "protocolVersion": "1.0"}],
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "card",
+    [
+        {"name": "old", "protocolVersion": "0.3.0", "url": "http://x/", "preferredTransport": "JSONRPC"},
+        {"name": "old", "url": "http://x/", "preferredTransport": "HTTP+JSON"},
+    ],
+)
+async def test_refuses_a_v0_3_card_and_names_the_version(card: Dict[str, Any]):
+    with FakeA2AServer(card=card) as server:
+        with pytest.raises(A2AError, match="v1.0 only"):
+            await A2AAgent(card_url=server.card_url).call(_input("hi"))
+        assert server.requests == []
+
+
+@pytest.mark.asyncio
+async def test_skips_v0_interfaces_and_sends_the_tenant():
+    with FakeA2AServer(binding="HTTP+JSON", tenant="acme") as server:
+        card = server.card()
+        card["supportedInterfaces"].insert(
+            0, {"url": f"{server.base_url}/old", "protocolBinding": "JSONRPC", "protocolVersion": "0.3"}
+        )
+        server.card_override = card
+        await A2AAgent(card_url=server.card_url).call(_input("hi"))
+        assert server.requests[0]["path"] == "/a2a/acme/message:send"
+        assert server.requests[0]["body"]["tenant"] == "acme"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"kind": "message", "parts": [{"kind": "text", "text": "REAL ANSWER"}]},
+        {},
+    ],
+)
+async def test_a_result_with_neither_task_nor_message_fails(result: Dict[str, Any]):
+    with FakeA2AServer(reply=lambda _: result) as server:
+        with pytest.raises(A2AError, match="neither a task nor a message"):
+            await A2AAgent(card_url=server.card_url).call(_input("hi"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("binding", ["JSONRPC", "HTTP+JSON"])
+async def test_polls_a_working_task_until_it_completes(binding: str):
+    polls: List[Dict[str, Any]] = []
+
+    def get_task(params: Dict[str, Any]) -> Dict[str, Any]:
+        polls.append(params)
+        state = "TASK_STATE_WORKING" if len(polls) < 2 else "TASK_STATE_COMPLETED"
+        return _task(state, "done", "ctx")["task"]
+
+    with FakeA2AServer(
+        binding=binding, reply=lambda _: _task("TASK_STATE_WORKING", "", "ctx"), get_task=get_task
+    ) as server:
+        agent = A2AAgent(card_url=server.card_url, poll_interval=0.01)
+        assert await agent.call(_input("hi")) == "done"
+        assert [p["id"] for p in polls] == ["task-1", "task-1"]
+
+
+@pytest.mark.asyncio
+async def test_a_task_that_stays_working_fails_after_the_timeout():
+    working = lambda _: _task("TASK_STATE_WORKING", "", "ctx")  # noqa: E731
+    with FakeA2AServer(reply=working, get_task=lambda _: working(_)["task"]) as server:
+        agent = A2AAgent(card_url=server.card_url, poll_interval=0.01, timeout=0.1)
+        with pytest.raises(A2AError, match="still working"):
+            await agent.call(_input("hi"))
+
+
+@pytest.mark.asyncio
+async def test_auth_stays_on_the_card_origin():
+    with FakeA2AServer() as other, FakeA2AServer() as home:
+        home.card_override = _v1_card(f"{other.base_url}/a2a")
+        await A2AAgent(card_url=home.card_url, auth="SECRET").call(_input("hi"))
+        assert home.card_headers[0]["authorization"] == "Bearer SECRET"
+        assert "authorization" not in other.requests[0]["headers"]
+
+        opted_in = A2AAgent(card_url=home.card_url, auth="SECRET", send_auth_to_any_host=True)
+        await opted_in.call(_input("hi"))
+        assert other.requests[1]["headers"]["authorization"] == "Bearer SECRET"
+
+
+@pytest.mark.asyncio
+async def test_a_redirect_is_followed_without_auth_off_the_origin():
+    with FakeA2AServer() as target, FakeA2AServer(card_redirect="") as home:
+        home.card_redirect = target.card_url
+        agent = A2AAgent(card_url=home.card_url, auth={"X-Api-Key": "SECRET"})
+        assert await agent.call(_input("hi")) == "echo: hi"
+        assert home.card_headers[0]["x-api-key"] == "SECRET"
+        assert "x-api-key" not in target.card_headers[0]
+
+
+@pytest.mark.asyncio
+async def test_http_and_body_failures_raise_a2a_error():
+    with FakeA2AServer(card_status=500) as server:
+        with pytest.raises(A2AError, match="HTTP 500"):
+            await A2AAgent(card_url=server.card_url).call(_input("hi"))
+    with FakeA2AServer(raw_reply=b"[]") as server:
+        with pytest.raises(A2AError, match="not a JSON object"):
+            await A2AAgent(card_url=server.card_url).call(_input("hi"))
+    with pytest.raises(A2AError, match="failed"):
+        await A2AAgent(card_url="http://127.0.0.1:1/.well-known/agent-card.json").call(_input("hi"))
+
+
+@pytest.mark.asyncio
+async def test_a_given_name_is_the_name_before_and_after_the_card():
+    with FakeA2AServer() as server:
+        agent = A2AAgent(card_url=server.card_url, name="Refund agent")
+        assert agent.name == "Refund agent"
+        await agent.call(_input("hi"))
+        assert agent.name == "Refund agent"
+
+
+@pytest.mark.asyncio
+async def test_a_turn_without_a_new_user_message_fails_instead_of_resending():
+    with FakeA2AServer() as server:
+        agent = A2AAgent(card_url=server.card_url)
+        turn = AgentInput(
+            thread_id="t",
+            messages=[{"role": "user", "content": "old"}, {"role": "assistant", "content": "reply"}],
+            new_messages=[{"role": "assistant", "content": "reply"}],
+            scenario_state=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(A2AError, match="no new user message"):
+            await agent.call(turn)
+        assert server.requests == []
+
+
+@pytest.mark.asyncio
+async def test_reuses_an_injected_client():
+    sent: List[str] = []
+
+    async def record(request: httpx.Request) -> None:
+        sent.append(request.method)
+
+    with FakeA2AServer() as server:
+        async with httpx.AsyncClient(event_hooks={"request": [record]}) as client:
+            agent = A2AAgent(card_url=server.card_url, client=client)
+            await agent.call(_input("one"))
+            await agent.call(_input("two"))
+            assert not client.is_closed
+    assert sent == ["GET", "POST", "POST"]

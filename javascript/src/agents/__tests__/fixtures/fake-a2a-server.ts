@@ -29,6 +29,12 @@ export class FakeA2AServer {
       binding?: string;
       name?: string;
       jsonrpcError?: { code: number; message: string };
+      card?: unknown;
+      cardStatus?: number;
+      cardRedirect?: string;
+      getTask?: (params: { id: string }) => unknown;
+      rawReply?: string;
+      tenant?: string;
     } = {},
   ) {}
 
@@ -36,14 +42,19 @@ export class FakeA2AServer {
     return `${this.baseUrl}/.well-known/agent-card.json`;
   }
 
-  card() {
+  card(): unknown {
+    if (this.options.card) return this.options.card;
+    const iface: Record<string, string> = {
+      url: `${this.baseUrl}/a2a`,
+      protocolBinding: this.options.binding ?? "JSONRPC",
+      protocolVersion: "1.0",
+    };
+    if (this.options.tenant) iface.tenant = this.options.tenant;
     return {
       name: this.options.name ?? "Fake A2A Agent",
       description: "A fake agent for tests",
       version: "1.0.0",
-      supportedInterfaces: [
-        { url: `${this.baseUrl}/a2a`, protocolBinding: this.options.binding ?? "JSONRPC", protocolVersion: "1.0" },
-      ],
+      supportedInterfaces: [iface],
       capabilities: { streaming: false },
       defaultInputModes: ["text/plain"],
       defaultOutputModes: ["text/plain"],
@@ -57,9 +68,19 @@ export class FakeA2AServer {
         res.writeHead(status, { "Content-Type": "application/json" });
         res.end(JSON.stringify(payload));
       };
+      if (req.method === "GET" && req.url?.includes("/tasks/") && this.options.getTask) {
+        this.requests.push({ path: req.url, headers: req.headers, body: {} as RecordedBody });
+        send(this.options.getTask({ id: req.url.split("/").pop() ?? "" }));
+        return;
+      }
       if (req.method === "GET") {
         this.cardHeaders.push(req.headers);
-        send(this.card());
+        if (this.options.cardRedirect) {
+          res.writeHead(302, { Location: this.options.cardRedirect });
+          res.end();
+          return;
+        }
+        send(this.card(), this.options.cardStatus ?? 200);
         return;
       }
       let raw = "";
@@ -67,6 +88,15 @@ export class FakeA2AServer {
       req.on("end", () => {
         const body = JSON.parse(raw) as RecordedBody;
         this.requests.push({ path: req.url ?? "", headers: req.headers, body });
+        if (this.options.rawReply !== undefined) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(this.options.rawReply);
+          return;
+        }
+        const getTask = this.options.getTask;
+        if (body.method === "GetTask" && getTask) {
+          return send({ jsonrpc: "2.0", id: body.id, result: getTask(body.params as unknown as { id: string }) });
+        }
         const reply = this.options.reply ?? echoReply;
         if (this.options.binding === "HTTP+JSON") {
           const result = reply(body as unknown as SendMessageParams) as { error?: unknown };

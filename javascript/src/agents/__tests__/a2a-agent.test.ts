@@ -324,4 +324,180 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
       expect(server.requests[1]?.headers["x-api-key"]).toBe("k");
     });
   });
+
+  Scenario("An A2A v0.3 Agent Card is refused with an error that names the version", ({ Given, When, Then, And }) => {
+    const servers: FakeA2AServer[] = [];
+    const errors: unknown[] = [];
+    Given('the card has no "supportedInterfaces" and reports protocol version 0.3 or a preferred transport', async () => {
+      for (const card of [
+        { name: "old", protocolVersion: "0.3.0", url: "http://x/", preferredTransport: "JSONRPC" },
+        { name: "old", url: "http://x/", preferredTransport: "HTTP+JSON" },
+      ]) {
+        servers.push(await new FakeA2AServer({ card }).start());
+      }
+    });
+    When("the scenario calls the A2A agent", async () => {
+      for (const s of servers) errors.push(await new A2AAgent({ cardUrl: s.cardUrl }).call(input("hi")).catch((e) => e));
+    });
+    Then("the call fails with an error that says the adapter speaks A2A v1.0 only", () => {
+      for (const error of errors) {
+        expect(error).toBeInstanceOf(A2AError);
+        expect(String(error)).toContain("v1.0 only");
+      }
+    });
+    And("no message is sent", async () => {
+      for (const s of servers) {
+        expect(s.requests).toHaveLength(0);
+        await s.stop();
+      }
+    });
+  });
+
+  Scenario("The adapter skips v0.x interfaces and sends the interface tenant", ({ Given, When, Then }) => {
+    Given("the card lists a v0.3 interface before a v1.0 HTTP+JSON interface with a tenant", async () => {
+      await start({ binding: "HTTP+JSON", tenant: "acme" });
+      const card = server.card() as { supportedInterfaces: unknown[] };
+      card.supportedInterfaces.unshift({ url: `${server.baseUrl}/old`, protocolBinding: "JSONRPC", protocolVersion: "0.3" });
+      server.options.card = card;
+    });
+    When("the scenario calls the A2A agent", async () => {
+      await new A2AAgent({ cardUrl: server.cardUrl }).call(input("hi"));
+    });
+    Then("the turn goes to the v1.0 interface under the tenant path and carries the tenant", () => {
+      expect(server.requests[0]?.path).toBe("/a2a/acme/message:send");
+      expect((server.requests[0]?.body as unknown as { tenant: string }).tenant).toBe("acme");
+    });
+  });
+
+  Scenario("A result with neither a task nor a message fails the turn", ({ When, Then }) => {
+    const errors: unknown[] = [];
+    When("the agent answers with a v0.3 shaped message or an empty result", async () => {
+      for (const result of [{ kind: "message", parts: [{ kind: "text", text: "REAL ANSWER" }] }, {}]) {
+        await start({ reply: () => result });
+        errors.push(await new A2AAgent({ cardUrl: server.cardUrl }).call(input("hi")).catch((e) => e));
+        await server.stop();
+      }
+    });
+    Then("the call fails instead of returning an empty agent message", () => {
+      for (const error of errors) {
+        expect(error).toBeInstanceOf(A2AError);
+        expect(String(error)).toContain("neither a task nor a message");
+      }
+      expect(String(errors[0])).toContain("v0.3");
+    });
+  });
+
+  Scenario("A submitted or working task is polled until it finishes", ({ When, Then, And }) => {
+    const replies: string[] = [];
+    const polls: string[] = [];
+    When('the agent answers with a working task that completes on the second "GetTask"', async () => {
+      for (const binding of ["JSONRPC", "HTTP+JSON"]) {
+        let n = 0;
+        await start({
+          binding,
+          reply: task("TASK_STATE_WORKING", ""),
+          getTask: ({ id }) => {
+            polls.push(id);
+            return task(++n < 2 ? "TASK_STATE_WORKING" : "TASK_STATE_COMPLETED", "done")({ message: { contextId: "ctx" } }).task;
+          },
+        });
+        replies.push(String(await new A2AAgent({ cardUrl: server.cardUrl, pollIntervalMs: 10 }).call(input("hi"))));
+        await server.stop();
+      }
+    });
+    Then("the scenario receives the text of the completed task", () => {
+      expect(replies).toEqual(["done", "done"]);
+      expect(polls).toEqual(["task-1", "task-1", "task-1", "task-1"]);
+    });
+    And("a task that stays working fails the turn after the timeout", async () => {
+      const working = task("TASK_STATE_WORKING", "");
+      await start({ reply: working, getTask: () => working({ message: { contextId: "ctx" } }).task });
+      const agent = new A2AAgent({ cardUrl: server.cardUrl, pollIntervalMs: 10, timeoutMs: 100 });
+      const error = await agent.call(input("hi")).catch((e) => e);
+      expect(error).toBeInstanceOf(A2AError);
+      expect(String(error)).toContain("still working");
+    });
+  });
+
+  Scenario("Auth stays on the card origin", ({ Given, When, Then, And }) => {
+    let other: FakeA2AServer;
+    Given("the card names an interface on another origin", async () => {
+      other = await new FakeA2AServer().start();
+      await start({
+        card: { name: "home", supportedInterfaces: [{ url: `${other.baseUrl}/a2a`, protocolBinding: "JSONRPC", protocolVersion: "1.0" }] },
+      });
+    });
+    When("the adapter sends a turn", async () => {
+      await new A2AAgent({ cardUrl: server.cardUrl, auth: "SECRET" }).call(input("hi"));
+      await new A2AAgent({ cardUrl: server.cardUrl, auth: "SECRET", sendAuthToAnyHost: true }).call(input("hi"));
+    });
+    Then("the other origin receives no auth headers unless the caller opts in", () => {
+      expect(server.cardHeaders[0]?.authorization).toBe("Bearer SECRET");
+      expect(other.requests[0]?.headers.authorization).toBeUndefined();
+      expect(other.requests[1]?.headers.authorization).toBe("Bearer SECRET");
+    });
+    And("a card redirect to another origin is followed without the auth headers", async () => {
+      await server.stop();
+      await start({ cardRedirect: other.cardUrl });
+      const agent = new A2AAgent({ cardUrl: server.cardUrl, auth: { "X-Api-Key": "SECRET" } });
+      expect(await agent.call(input("hi"))).toBe("echo: hi");
+      expect(server.cardHeaders[0]?.["x-api-key"]).toBe("SECRET");
+      expect(other.cardHeaders[0]?.["x-api-key"]).toBeUndefined();
+      await other.stop();
+    });
+  });
+
+  Scenario("HTTP, network and body failures raise the adapter error", ({ When, Then }) => {
+    const errors: unknown[] = [];
+    When("the card fetch fails with HTTP 500, the reply is a JSON array, or the host is unreachable", async () => {
+      for (const options of [{ cardStatus: 500 }, { rawReply: "[]" }]) {
+        await start(options);
+        errors.push(await new A2AAgent({ cardUrl: server.cardUrl }).call(input("hi")).catch((e) => e));
+        await server.stop();
+      }
+      errors.push(
+        await new A2AAgent({ cardUrl: "http://127.0.0.1:1/.well-known/agent-card.json" }).call(input("hi")).catch((e) => e),
+      );
+    });
+    Then("each call raises the adapter error", () => {
+      for (const error of errors) expect(error).toBeInstanceOf(A2AError);
+      expect(String(errors[0])).toContain("HTTP 500");
+      expect(String(errors[1])).toContain("not a JSON object");
+    });
+  });
+
+  Scenario("A name given to the adapter is the agent name from the start", ({ Given, When, Then }) => {
+    let agent: A2AAgent;
+    Given("the adapter is built with a name", async () => {
+      await start();
+      agent = new A2AAgent({ cardUrl: server.cardUrl, name: "Refund agent" });
+      expect(agent.name).toBe("Refund agent");
+    });
+    When("the scenario calls the A2A agent", async () => {
+      await agent.call(input("hi"));
+    });
+    Then("the adapter keeps that name before and after the card is read", () => {
+      expect(agent.name).toBe("Refund agent");
+    });
+  });
+
+  Scenario("A turn without a new user message fails instead of resending old text", ({ Given, When, Then, And }) => {
+    let turn: AgentInput;
+    let error: unknown;
+    Given("the new messages of the turn hold no user message", async () => {
+      await start();
+      const reply: ModelMessage = { role: "assistant", content: "reply" };
+      turn = { threadId: "t", messages: [{ role: "user", content: "old" }, reply], newMessages: [reply] } as unknown as AgentInput;
+    });
+    When("the scenario calls the A2A agent", async () => {
+      error = await new A2AAgent({ cardUrl: server.cardUrl }).call(turn).catch((e) => e);
+    });
+    Then("the call fails with an error that asks for a user turn", () => {
+      expect(error).toBeInstanceOf(A2AError);
+      expect(String(error)).toContain("no new user message");
+    });
+    And("no message is sent", () => {
+      expect(server.requests).toHaveLength(0);
+    });
+  });
 });
