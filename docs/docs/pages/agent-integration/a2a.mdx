@@ -1,0 +1,51 @@
+# A2A agents
+
+`A2AAgent` tests any agent that speaks the [A2A protocol](https://a2a-protocol.org/latest/specification/). You pass the Agent Card URL and nothing else: the adapter reads the card, picks its first `JSONRPC` or `HTTP+JSON` interface and sends each scenario turn as `SendMessage`.
+
+:::code-group
+
+```python [python]
+import scenario
+
+result = await scenario.run(
+    name="refund request",
+    description="A customer asks for a refund on a bike bought two weeks ago",
+    agents=[
+        scenario.A2AAgent(card_url="https://agent.example.com/.well-known/agent-card.json"),
+        scenario.UserSimulatorAgent(),
+        scenario.JudgeAgent(criteria=["The agent says the refund is possible"]),
+    ],
+)
+```
+
+```typescript [typescript]
+import scenario, { A2AAgent } from "@langwatch/scenario";
+
+const result = await scenario.run({
+  name: "refund request",
+  description: "A customer asks for a refund on a bike bought two weeks ago",
+  agents: [
+    new A2AAgent({ cardUrl: "https://agent.example.com/.well-known/agent-card.json" }),
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({ criteria: ["The agent says the refund is possible"] }),
+  ],
+});
+```
+
+:::
+
+## Auth
+
+Pass `auth` as a bearer token string, or as a mapping of headers such as `{"X-Api-Key": "..."}`. The adapter sends the same headers on the card fetch and on every `SendMessage`.
+
+## Conversation and tasks
+
+Each scenario thread gets one `contextId`, so every turn of a run lands in the same A2A conversation. If the agent answers with its own `contextId`, the adapter uses that one from then on. A task in `TASK_STATE_INPUT_REQUIRED` is continued with its `taskId` on the next turn. A task that ends failed, rejected, canceled or auth required fails the turn with an `A2AError`, and so does a JSON-RPC error.
+
+## Tracing
+
+Each turn opens a client span `invoke_agent <card name>` and sends its W3C `traceparent` and `tracestate` headers, plus `A2A-Version: 1.0`. An agent with OpenTelemetry HTTP instrumentation joins the scenario trace with no extra code. The span carries `gen_ai.agent.name` and `a2a.*` attributes (`a2a.method`, `a2a.context.id`, `a2a.task.id`, `a2a.task.state`). The `a2a.*` names follow an OpenTelemetry proposal and can still change.
+
+## Limits
+
+The adapter does not support gRPC, streaming (`SendStreamingMessage`) or push notifications yet. It sends text parts only and reads text parts and artifacts from the reply.
