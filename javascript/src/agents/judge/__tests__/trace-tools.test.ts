@@ -258,3 +258,56 @@ describe("grepTrace", () => {
     });
   });
 });
+
+// Scenarios "grep_trace shows the text around a match deep inside a long
+// value" and "expand_trace pages through a long span" of
+// specs/progressive-trace-discovery.feature.
+describe("long span values", () => {
+  const NEEDLE = "The attendance record fell on its 21st anniversary.";
+  const filler = "The regional council discussed road maintenance budgets. ";
+
+  function longRetrievalSpan(): ReadableSpan {
+    const documents =
+      filler.repeat(Math.ceil(30_000 / filler.length)) +
+      NEEDLE +
+      " " +
+      filler.repeat(Math.ceil(10_000 / filler.length));
+    return createSpan({
+      spanId: "a1b2c3d4e5f60718",
+      name: "retrieve_documents",
+      startTime: [1700000000, 0],
+      endTime: [1700000000, 300_000_000],
+      attributes: { "retrieval.documents": documents },
+    });
+  }
+
+  it("grep_trace returns the window around a match 30k characters in", () => {
+    const result = grepTrace([longRetrievalSpan()], "21st anniversary");
+    expect(result).toContain(NEEDLE);
+    expect(result).toMatch(/\[match at character 3\d{4} of \d+\]/);
+    expect(result.length).toBeLessThan(4_000);
+  });
+
+  it("expand_trace pages through the span using the offset each page names", () => {
+    const spans = [longRetrievalSpan()];
+    const pages: string[] = [];
+    let offset = 0;
+    for (let i = 0; i < 10; i++) {
+      const page = expandTrace(spans, ["a1b2c3d4"], offset);
+      pages.push(page);
+      const next = /offset=(\d+)/.exec(page);
+      if (!next) break;
+      offset = Number(next[1]);
+    }
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages[0]).not.toContain(NEEDLE);
+    expect(pages[0]).toContain("do not conclude that something is absent");
+    expect(pages.some((page) => page.includes(NEEDLE))).toBe(true);
+    expect(pages[1]).toMatch(/^\[Showing characters \d+-\d+ of \d+\]/);
+  });
+
+  it("expand_trace ignores an offset past the end", () => {
+    const page = expandTrace([longRetrievalSpan()], ["a1b2c3d4"], 10_000_000);
+    expect(page).toMatch(/^\[Showing characters \d+-\d+ of \d+\]/);
+  });
+});

@@ -34,9 +34,23 @@ Feature: Per-criterion judge verdicts
   @unit
   Scenario: A criterion the judge left out fails closed
     Given a judgment request with two criteria
-    When the verdict call answers only the first criterion
+    When the verdict call answers only the first criterion, also when asked again
     Then the second criterion is listed as unmet
     And its entry in the per-criterion result has status failed
+
+  @unit
+  Scenario: A criterion left out of the verdict is asked once more
+    Given a judgment request with two criteria
+    When the verdict call answers only the first criterion
+    Then the judge is asked once more, pinned to finish_test, naming only the second criterion
+    And the second answer fills the missing criterion while the first answer is kept
+
+  @unit
+  Scenario: A verdict that sends the criteria object as a JSON string is read
+    Given a judgment request with two criteria
+    When the verdict call sends its criteria as a JSON string, as Claude Haiku sometimes does
+    Then both criteria get the status the string holds
+    And the judge is not asked again
 
   @unit
   Scenario: A voluntary verdict with an undecided criterion continues the conversation
