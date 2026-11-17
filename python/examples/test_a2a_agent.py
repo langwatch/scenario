@@ -88,6 +88,7 @@ async def a2a_server():
 @pytest.mark.asyncio
 async def test_a2a_agent_from_card(a2a_server: str):
     server_spans.clear()
+    histories.clear()
     result = await scenario.run(
         name="A2A refund request",
         description="A customer bought a bike two weeks ago and asks for a refund",
@@ -109,7 +110,7 @@ async def test_a2a_agent_from_card(a2a_server: str):
     for turn in server_spans:
         print(f"A2A server span: traceparent={turn['traceparent']} server_trace_id={turn['server_trace_id']}")
     assert len(server_spans) == 2
-    assert len(histories) >= 1 and any(len(h) == 5 for h in histories.values())
+    assert len(histories) == 1 and len(next(iter(histories.values()))) == 5
     for turn in server_spans:
         assert turn["traceparent"].split("-")[1] == turn["server_trace_id"]
     assert result.success, result.reasoning

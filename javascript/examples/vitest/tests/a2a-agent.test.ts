@@ -135,6 +135,7 @@ afterAll(async () => {
 describe("Testing an A2A agent", () => {
   it("drives the agent from its Agent Card and propagates the trace", async () => {
     serverSpans.length = 0;
+    histories.clear();
     const result = await scenario.run({
       name: "A2A refund request",
       description: "A customer bought a bike two weeks ago and asks for a refund",
@@ -160,7 +161,7 @@ describe("Testing an A2A agent", () => {
       console.log(`A2A server span: traceparent=${turn.traceparent} server_trace_id=${turn.serverTraceId}`);
     }
     expect(serverSpans).toHaveLength(2);
-    expect([...histories.values()].some((h) => h.length === 4)).toBe(true);
+    expect([...histories.values()].map((h) => h.length)).toEqual([4]);
     for (const turn of serverSpans) {
       expect(turn.traceparent.split("-")[1]).toBe(turn.serverTraceId);
     }

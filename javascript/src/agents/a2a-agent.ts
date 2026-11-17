@@ -52,6 +52,8 @@ export interface A2AAgentOptions {
   cardUrl: string;
   /** A bearer token, or headers sent on the card fetch and on every request. */
   auth?: string | Record<string, string>;
+  /** Timeout for the card fetch and each request, in milliseconds. Defaults to 120000. */
+  timeoutMs?: number;
 }
 
 const partsText = (message?: { parts?: Part[] }): string =>
@@ -88,16 +90,21 @@ export class A2AAgent extends AgentAdapter {
   private readonly authHeaders: Record<string, string>;
   private readonly contexts = new Map<string, string>();
   private readonly openTasks = new Map<string, string>();
+  private readonly timeoutMs: number;
 
-  constructor({ cardUrl, auth }: A2AAgentOptions) {
+  constructor({ cardUrl, auth, timeoutMs = 120_000 }: A2AAgentOptions) {
     super();
     this.cardUrl = cardUrl;
+    this.timeoutMs = timeoutMs;
     this.authHeaders = typeof auth === "string" ? { Authorization: `Bearer ${auth}` } : { ...auth };
   }
 
   private async loadCard(): Promise<AgentCard> {
     if (!this.card) {
-      const response = await fetch(this.cardUrl, { headers: this.authHeaders });
+      const response = await fetch(this.cardUrl, {
+        headers: this.authHeaders,
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
       if (!response.ok) throw new A2AError(`Agent Card fetch failed with HTTP ${response.status}`);
       this.card = (await response.json()) as AgentCard;
       this.name = this.card.name ?? "A2AAgent";
@@ -106,8 +113,9 @@ export class A2AAgent extends AgentAdapter {
   }
 
   private pickInterface(card: AgentCard): AgentInterface {
+    const listed = card.supportedInterfaces ?? [];
     const interfaces =
-      card.supportedInterfaces ?? (card.url ? [{ url: card.url, protocolBinding: "JSONRPC" }] : []);
+      listed.length > 0 ? listed : card.url ? [{ url: card.url, protocolBinding: "JSONRPC" }] : [];
     const found = interfaces.find((i) =>
       (SUPPORTED_BINDINGS as readonly string[]).includes(i.protocolBinding),
     );
@@ -130,6 +138,7 @@ export class A2AAgent extends AgentAdapter {
       ? request
       : { jsonrpc: "2.0", id: randomUUID(), method: "SendMessage", params: request };
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(this.timeoutMs),
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
