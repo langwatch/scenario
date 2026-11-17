@@ -102,3 +102,11 @@ class TestGivenAPipecatReceiveFailure:
         # context manager swallowing the exception.
         with pytest.raises(scenario.AgentStreamEndedError, match="transport closed"):
             raise scenario.PipecatRecvError("transport closed")
+
+
+class TestGivenTheA2AAdapterError:
+    def test_reaches_the_package_root_as_the_class_the_adapter_raises(self) -> None:
+        from scenario.a2a_agent import A2AError
+
+        assert scenario.A2AError is A2AError
+        assert "A2AError" in scenario.__all__

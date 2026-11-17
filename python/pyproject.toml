@@ -78,6 +78,7 @@ dev = [
     "function-schema",
     "pdoc3",
     "respx",
+    "aiohttp",
 ]
 # Install with `pip install 'langwatch-scenario[report]'` to use
 # `scenario redteam-report`.
@@ -127,6 +128,7 @@ dev = [
     "pytest-asyncio-concurrent>=0.4.1",
     "pdoc3>=0.11.6",
     "respx>=0.22.0",
+    "aiohttp>=3.9",
     # Guard the suite against individual hangs — any test taking longer
     # than `timeout` in pytest.ini_options below fails fast instead of
     # pinning the CI runner. Set per-test; global suite has no limit.
