@@ -24,9 +24,9 @@ let server: Server;
 let baseUrl = "";
 
 const readJson = async (req: IncomingMessage) => {
-  let body = "";
-  for await (const chunk of req) body += chunk.toString();
-  return JSON.parse(body);
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.from(chunk));
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 };
 
 /** Continues the caller's trace from the W3C `traceparent` header. */
@@ -119,10 +119,10 @@ beforeAll(async () => {
     }
   });
   await new Promise<void>((resolve) => {
-    server.listen(0, () => {
+    server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" ? address?.port : 3000;
-      baseUrl = `http://localhost:${port}`;
+      baseUrl = `http://127.0.0.1:${port}`;
       resolve();
     });
   });

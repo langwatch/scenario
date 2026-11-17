@@ -171,7 +171,6 @@ export class A2AAgent extends AgentAdapter {
     const openTask = this.openTasks.get(input.threadId);
     if (openTask) {
       message.taskId = openTask;
-      this.openTasks.delete(input.threadId);
     }
 
     const tracer = trace.getTracer("scenario.a2a");
@@ -196,6 +195,7 @@ export class A2AAgent extends AgentAdapter {
           };
           propagation.inject(context.active(), headers);
           const result = await this.post(iface, { message }, headers);
+          this.openTasks.delete(input.threadId);
           const replyContext = result.task?.contextId ?? result.message?.contextId;
           if (replyContext) this.contexts.set(input.threadId, replyContext);
           if (result.task) {

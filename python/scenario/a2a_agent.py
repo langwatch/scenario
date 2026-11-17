@@ -180,7 +180,7 @@ class A2AAgent(AgentAdapter):
                 "parts": [{"text": _last_user_text(input)}],
             }
             if input.thread_id in self._open_tasks:
-                message["taskId"] = self._open_tasks.pop(input.thread_id)
+                message["taskId"] = self._open_tasks[input.thread_id]
 
             with _tracer.start_as_current_span(
                 f"invoke_agent {self.name}", kind=SpanKind.CLIENT
@@ -203,6 +203,7 @@ class A2AAgent(AgentAdapter):
                 }
                 propagate.inject(headers)
                 result = await self._post(client, interface, {"message": message}, headers)
+                self._open_tasks.pop(input.thread_id, None)
 
                 task = result.get("task")
                 if isinstance(task, Mapping):
