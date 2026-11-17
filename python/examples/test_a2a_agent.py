@@ -4,7 +4,8 @@ Example: test an A2A agent from nothing but its Agent Card URL.
 A small A2A agent runs locally (an Agent Card plus JSON-RPC ``SendMessage``,
 backed by a real model). ``scenario.A2AAgent`` reads the card and drives the
 conversation; every request carries ``traceparent``, so the server's spans
-join the scenario trace of each turn.
+join the scenario trace of each turn. The server exports under its own OTel
+resource (``service.name=acme-partner-agent``), like a partner's agent would.
 """
 
 import os
@@ -15,13 +16,36 @@ import pytest
 import pytest_asyncio
 from aiohttp import web
 from opentelemetry import propagate
-from opentelemetry import trace as otel_trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import SpanKind
 
 import scenario
 
 MODEL = os.getenv("SCENARIO_EXAMPLE_MODEL", "openai/gpt-5-mini")
 SYSTEM = "You are a support agent for ACME bikes. Refunds are allowed within 30 days of purchase. Be brief."
 
+AGENT_NAME = "ACME Support Agent"
+SERVICE_NAME = "acme-partner-agent"
+
+
+def partner_tracer_provider() -> TracerProvider:
+    """The A2A server's own OTel setup, separate from the scenario side."""
+    provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
+    api_key = os.getenv("LANGWATCH_API_KEY")
+    if api_key:
+        endpoint = os.getenv("LANGWATCH_ENDPOINT", "https://app.langwatch.ai")
+        exporter = OTLPSpanExporter(
+            endpoint=f"{endpoint}/api/otel/v1/traces",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+    return provider
+
+
+partner_provider = partner_tracer_provider()
 histories: Dict[str, List[Dict[str, Any]]] = {}
 server_spans: List[Dict[str, str]] = []
 base_url = ""
@@ -30,7 +54,7 @@ base_url = ""
 async def card_handler(request: web.Request) -> web.Response:
     return web.json_response(
         {
-            "name": "ACME Support Agent",
+            "name": AGENT_NAME,
             "description": "Answers questions about ACME bike orders and refunds",
             "version": "1.0.0",
             "supportedInterfaces": [
@@ -52,15 +76,32 @@ async def a2a_handler(request: web.Request) -> web.Response:
     history = histories.setdefault(context_id, [{"role": "system", "content": SYSTEM}])
     history.append({"role": "user", "content": message["parts"][0]["text"]})
 
-    tracer = otel_trace.get_tracer("acme-support-agent")
+    tracer = partner_provider.get_tracer(SERVICE_NAME)
     parent = propagate.extract(dict(request.headers))
-    with tracer.start_as_current_span("a2a.server SendMessage", context=parent) as span:
-        response = await litellm.acompletion(model=MODEL, messages=history)
-        text = response.choices[0].message.content or ""  # type: ignore[union-attr]
+    with tracer.start_as_current_span(
+        f"invoke_agent {AGENT_NAME}",
+        context=parent,
+        kind=SpanKind.SERVER,
+        attributes={"gen_ai.operation.name": "invoke_agent", "gen_ai.agent.name": AGENT_NAME},
+    ) as agent_span:
+        with tracer.start_as_current_span(
+            f"chat {MODEL}",
+            kind=SpanKind.CLIENT,
+            attributes={"gen_ai.operation.name": "chat", "gen_ai.request.model": MODEL},
+        ) as llm_span:
+            response = await litellm.acompletion(model=MODEL, messages=history)
+            text = response.choices[0].message.content or ""  # type: ignore[union-attr]
+            usage = getattr(response, "usage", None)
+            if usage:
+                llm_span.set_attribute("gen_ai.usage.input_tokens", usage.prompt_tokens)
+                llm_span.set_attribute("gen_ai.usage.output_tokens", usage.completion_tokens)
+            llm_parent = llm_span.parent  # type: ignore[attr-defined]
         server_spans.append(
             {
                 "traceparent": request.headers.get("traceparent", ""),
-                "server_trace_id": format(span.get_span_context().trace_id, "032x"),
+                "server_trace_id": format(agent_span.get_span_context().trace_id, "032x"),
+                "agent_span_id": format(agent_span.get_span_context().span_id, "016x"),
+                "llm_parent_id": format(llm_parent.span_id, "016x") if llm_parent else "",
             }
         )
     history.append({"role": "assistant", "content": text})
@@ -82,6 +123,7 @@ async def a2a_server():
     base_url = f"http://localhost:{port}"
     yield f"{base_url}/.well-known/agent-card.json"
     await runner.cleanup()
+    partner_provider.force_flush()
 
 
 @pytest.mark.flaky(reruns=2)
@@ -113,4 +155,6 @@ async def test_a2a_agent_from_card(a2a_server: str):
     assert len(histories) == 1 and len(next(iter(histories.values()))) == 5
     for turn in server_spans:
         assert turn["traceparent"].split("-")[1] == turn["server_trace_id"]
+        assert turn["llm_parent_id"] == turn["agent_span_id"]
+    assert partner_provider.resource.attributes["service.name"] == SERVICE_NAME
     assert result.success, result.reasoning
