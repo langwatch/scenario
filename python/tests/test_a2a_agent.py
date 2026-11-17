@@ -2,13 +2,14 @@
 
 from typing import Any, Dict, List
 
+import httpx
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import scenario
-from scenario.a2a_agent import A2AAgent, A2AError
+from scenario.a2a_agent import A2AAgent, A2AError, _is_rest_task_not_found
 from scenario.types import AgentInput
 
 from tests.helpers.fake_a2a_server import FakeA2AServer, text_message
@@ -169,6 +170,33 @@ async def test_plain_http_404_keeps_the_open_task():
         assert not getattr(raised.value, "task_not_found", False)
         await agent.call(_input("retry"))
         assert server.requests[2]["body"]["message"]["taskId"] == "task-1"
+
+
+@pytest.mark.parametrize(
+    "body", [{"error": "Not Found"}, [{"error": {}}], {"error": {"details": 5}}, "Not Found"]
+)
+def test_unexpected_404_body_is_not_task_not_found(body: Any):
+    request = httpx.Request("POST", "http://agent/message:send")
+    assert not _is_rest_task_not_found(httpx.Response(404, json=body, request=request))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", ["Not Found", {"details": 5}])
+async def test_unexpected_404_body_raises_the_http_status_error(error: Any):
+    calls = {"n": 0}
+
+    def reply(req: Dict[str, Any]) -> Dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return {"error": error}
+        return _task("TASK_STATE_INPUT_REQUIRED", "need more", req["message"]["contextId"])
+
+    with FakeA2AServer(reply=reply, binding="HTTP+JSON") as server:
+        agent = A2AAgent(card_url=server.card_url)
+        await agent.call(_input("hi"))
+        with pytest.raises(httpx.HTTPStatusError) as raised:
+            await agent.call(_input("more"))
+        assert raised.value.response.status_code == 404
 
 
 @pytest.mark.asyncio

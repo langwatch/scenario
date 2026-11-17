@@ -51,6 +51,11 @@ Feature: Test any A2A agent from its Agent Card
     When the HTTP+JSON agent answers the continuation with a 404 that has no TASK_NOT_FOUND detail
     Then the next turn still continues the open task
 
+  Scenario: A 404 body of an unexpected shape fails with the HTTP status
+    Given the agent answered the last turn with an input-required task
+    When the HTTP+JSON agent answers the continuation with a 404 whose error is a plain string
+    Then the call fails with the HTTP 404 status and is not marked task-not-found
+
   @unit
   Scenario: A failed or rejected task fails the turn
     When the agent answers with a task in state "TASK_STATE_FAILED" or "TASK_STATE_REJECTED"

@@ -54,14 +54,16 @@ TASK_NOT_FOUND_CODE = -32001
 def _is_rest_task_not_found(response: httpx.Response) -> bool:
     """An HTTP+JSON 404 means task-not-found only when its ErrorInfo says so."""
     try:
-        error = (response.json() or {}).get("error") or {}
+        body = response.json()
     except ValueError:
         return False
-    return any(
+    error = body.get("error") if isinstance(body, dict) else None
+    details = error.get("details") if isinstance(error, dict) else None
+    return isinstance(details, list) and any(
         isinstance(detail, dict)
         and detail.get("reason") == "TASK_NOT_FOUND"
         and detail.get("domain") == "a2a-protocol.org"
-        for detail in error.get("details") or []
+        for detail in details
     )
 
 

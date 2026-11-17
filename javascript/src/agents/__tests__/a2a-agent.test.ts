@@ -225,6 +225,28 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     });
   });
 
+  Scenario("A 404 body of an unexpected shape fails with the HTTP status", ({ Given, When, Then }) => {
+    let calls = 0;
+    let agent: A2AAgent;
+    let error: unknown;
+    Given("the agent answered the last turn with an input-required task", async () => {
+      await start({
+        binding: "HTTP+JSON",
+        reply: (p) =>
+          ++calls === 2 ? { error: "Not Found" } : task("TASK_STATE_INPUT_REQUIRED", "need more")(p),
+      });
+      agent = new A2AAgent({ cardUrl: server.cardUrl });
+      await agent.call(input("hi"));
+    });
+    When("the HTTP+JSON agent answers the continuation with a 404 whose error is a plain string", async () => {
+      error = await agent.call(input("more")).catch((e) => e);
+    });
+    Then("the call fails with the HTTP 404 status and is not marked task-not-found", () => {
+      expect(String(error)).toMatch(/HTTP 404/);
+      expect((error as A2AError).taskNotFound).toBe(false);
+    });
+  });
+
   Scenario("A failed or rejected task fails the turn", ({ When, Then }) => {
     const errors: unknown[] = [];
     When(
