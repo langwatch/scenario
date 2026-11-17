@@ -41,7 +41,8 @@ const userDataAgent: AgentAdapter = {
       toolChoice: "auto",
       experimental_telemetry: { isEnabled: true },
     });
-    return response.text;
+    // Returning only text drops a tool-only step, which fails as an empty reply
+    return response.response.messages;
   },
 };
 

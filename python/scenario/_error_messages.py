@@ -102,3 +102,7 @@ def agent_response_not_awaitable(class_name: str):
 
             return response.output_text
 """
+
+
+def agent_returned_no_content(turn: int) -> str:
+    return f"agent returned no content on turn {turn}"
