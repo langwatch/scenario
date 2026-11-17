@@ -123,6 +123,7 @@ from .scenario_state import ScenarioState
 from ._state_views import ToolCall, ToolCalls, TraceView, TurnView
 from .agent_adapter import AgentAdapter
 from .connected_agent import ConnectedAgentAdapter, ConnectedAgentCall
+from .a2a_agent import A2AAgent, A2AError
 from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
@@ -294,6 +295,8 @@ __all__ = [
     # Classes
     "ScenarioState",
     "AgentAdapter",
+    "A2AAgent",
+    "A2AError",
     "ConnectedAgentAdapter",
     "ConnectedAgentCall",
     "UserSimulatorAgent",
