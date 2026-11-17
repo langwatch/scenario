@@ -133,7 +133,19 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     const errors: unknown[] = [];
     const expiring: Reply = (p) =>
       p.message.taskId
-        ? { error: { code: -32001, message: "Task not found" } }
+        ? {
+            error: {
+              code: -32001,
+              message: "Task not found",
+              details: [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  reason: "TASK_NOT_FOUND",
+                  domain: "a2a-protocol.org",
+                },
+              ],
+            },
+          }
         : task("TASK_STATE_INPUT_REQUIRED", "need more")(p);
     const agents: A2AAgent[] = [];
     const servers: FakeA2AServer[] = [];
@@ -185,6 +197,31 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     Then("the next turn still continues the open task", async () => {
       await agent.call(input("retry"));
       expect(server.requests[2]?.body.params.message.taskId).toBe("task-1");
+    });
+  });
+
+  Scenario("A plain HTTP 404 keeps the open task for a retry", ({ Given, When, Then }) => {
+    let calls = 0;
+    let agent: A2AAgent;
+    Given("the agent answered the last turn with an input-required task", async () => {
+      await start({
+        binding: "HTTP+JSON",
+        reply: (p) =>
+          ++calls === 2
+            ? { error: { code: 404, message: "Not Found" } }
+            : task("TASK_STATE_INPUT_REQUIRED", "need more")(p),
+      });
+      agent = new A2AAgent({ cardUrl: server.cardUrl });
+      await agent.call(input("hi"));
+    });
+    When("the HTTP+JSON agent answers the continuation with a 404 that has no TASK_NOT_FOUND detail", async () => {
+      const error = await agent.call(input("more")).catch((e) => e);
+      expect((error as A2AError).taskNotFound).toBe(false);
+    });
+    Then("the next turn still continues the open task", async () => {
+      await agent.call(input("retry"));
+      const body = server.requests[2]!.body;
+      expect((body.params ?? body).message.taskId).toBe("task-1");
     });
   });
 

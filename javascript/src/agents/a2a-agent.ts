@@ -57,6 +57,18 @@ export class A2AError extends Error {
 
 const TASK_NOT_FOUND_CODE = -32001;
 
+/** An HTTP+JSON 404 means task-not-found only when its ErrorInfo says so. */
+async function isRestTaskNotFound(response: Response): Promise<boolean> {
+  const payload = (await response.json().catch(() => undefined)) as
+    | { error?: { details?: { reason?: string; domain?: string }[] } }
+    | undefined;
+  const details = payload?.error?.details;
+  return (
+    Array.isArray(details) &&
+    details.some((d) => d?.reason === "TASK_NOT_FOUND" && d?.domain === "a2a-protocol.org")
+  );
+}
+
 export interface A2AAgentOptions {
   /** URL of the Agent Card, usually `https://host/.well-known/agent-card.json`. */
   cardUrl: string;
@@ -154,7 +166,12 @@ export class A2AAgent extends AgentAdapter {
       body: JSON.stringify(body),
     });
     if (isRest && response.status === 404 && request.message.taskId) {
-      throw new A2AError(`A2A task ${request.message.taskId} was not found`, { taskNotFound: true });
+      if (await isRestTaskNotFound(response)) {
+        throw new A2AError(`A2A task ${request.message.taskId} was not found`, {
+          taskNotFound: true,
+        });
+      }
+      throw new A2AError(`A2A agent answered HTTP ${response.status}`);
     }
     if (!response.ok) throw new A2AError(`A2A agent answered HTTP ${response.status}`);
     const payload = (await response.json()) as {

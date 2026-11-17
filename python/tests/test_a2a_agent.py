@@ -105,10 +105,17 @@ async def test_jsonrpc_error_fails_the_turn():
             await A2AAgent(card_url=server.card_url).call(_input("hi"))
 
 
+TASK_NOT_FOUND_INFO = {
+    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+    "reason": "TASK_NOT_FOUND",
+    "domain": "a2a-protocol.org",
+}
+
+
 def _expiring_task(req: Dict[str, Any]) -> Dict[str, Any]:
     """Asks for input, then forgets the task: every continuation is task-not-found."""
     if req["message"].get("taskId"):
-        return {"error": {"code": -32001, "message": "Task not found"}}
+        return {"error": {"code": -32001, "message": "Task not found", "details": [TASK_NOT_FOUND_INFO]}}
     return _task("TASK_STATE_INPUT_REQUIRED", "need more", req["message"]["contextId"])
 
 
@@ -142,6 +149,26 @@ async def test_other_errors_keep_the_open_task():
             await agent.call(_input("more"))
         await agent.call(_input("retry"))
         assert server.requests[2]["body"]["params"]["message"]["taskId"] == "task-1"
+
+
+@pytest.mark.asyncio
+async def test_plain_http_404_keeps_the_open_task():
+    calls = {"n": 0}
+
+    def reply(req: Dict[str, Any]) -> Dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return {"error": {"code": 404, "message": "Not Found"}}
+        return _task("TASK_STATE_INPUT_REQUIRED", "need more", req["message"]["contextId"])
+
+    with FakeA2AServer(reply=reply, binding="HTTP+JSON") as server:
+        agent = A2AAgent(card_url=server.card_url)
+        await agent.call(_input("hi"))
+        with pytest.raises(Exception) as raised:
+            await agent.call(_input("more"))
+        assert not getattr(raised.value, "task_not_found", False)
+        await agent.call(_input("retry"))
+        assert server.requests[2]["body"]["message"]["taskId"] == "task-1"
 
 
 @pytest.mark.asyncio

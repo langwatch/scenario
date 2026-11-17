@@ -51,6 +51,20 @@ class A2AError(Exception):
 TASK_NOT_FOUND_CODE = -32001
 
 
+def _is_rest_task_not_found(response: httpx.Response) -> bool:
+    """An HTTP+JSON 404 means task-not-found only when its ErrorInfo says so."""
+    try:
+        error = (response.json() or {}).get("error") or {}
+    except ValueError:
+        return False
+    return any(
+        isinstance(detail, dict)
+        and detail.get("reason") == "TASK_NOT_FOUND"
+        and detail.get("domain") == "a2a-protocol.org"
+        for detail in error.get("details") or []
+    )
+
+
 def _task_state(task: Mapping[str, Any]) -> str:
     """The task state as a short lowercase name: ``completed``, ``input_required``."""
     state = str((task.get("status") or {}).get("state") or "")
@@ -162,7 +176,11 @@ class A2AAgent(AgentAdapter):
             response = await client.post(
                 url.rstrip("/") + "/message:send", json=request, headers=headers
             )
-            if response.status_code == 404 and request["message"].get("taskId"):
+            if (
+                response.status_code == 404
+                and request["message"].get("taskId")
+                and _is_rest_task_not_found(response)
+            ):
                 raise A2AError(
                     f"A2A task {request['message']['taskId']} was not found",
                     task_not_found=True,

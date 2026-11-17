@@ -46,6 +46,12 @@ Feature: Test any A2A agent from its Agent Card
     Then the next turn still continues the open task
 
   @unit
+  Scenario: A plain HTTP 404 keeps the open task for a retry
+    Given the agent answered the last turn with an input-required task
+    When the HTTP+JSON agent answers the continuation with a 404 that has no TASK_NOT_FOUND detail
+    Then the next turn still continues the open task
+
+  @unit
   Scenario: A failed or rejected task fails the turn
     When the agent answers with a task in state "TASK_STATE_FAILED" or "TASK_STATE_REJECTED"
     Then the call raises an error that carries the task state and the status message text
