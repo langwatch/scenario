@@ -46,6 +46,10 @@ Each scenario thread gets one `contextId`, so every turn of a run lands in the s
 
 Each turn opens a client span `invoke_agent <card name>` and sends its W3C `traceparent` and `tracestate` headers, plus `A2A-Version: 1.0`. An agent with OpenTelemetry HTTP instrumentation joins the scenario trace with no extra code. The span carries `gen_ai.agent.name` and `a2a.*` attributes (`a2a.method`, `a2a.context.id`, `a2a.task.id`, `a2a.task.state`). The `a2a.*` names follow an OpenTelemetry proposal and can still change.
 
+## Examples
+
+Both examples run a small A2A agent locally and test it through `A2AAgent`: [Python](https://github.com/langwatch/scenario/blob/main/python/examples/test_a2a_agent.py) and [TypeScript](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/a2a-agent.test.ts). The server continues the trace from `traceparent`, so its spans sit under the scenario trace.
+
 ## Limits
 
 The adapter does not support gRPC, streaming (`SendStreamingMessage`) or push notifications yet. It sends text parts only and reads text parts and artifacts from the reply.
