@@ -45,7 +45,17 @@ export type AgentCard = {
 /** An A2A agent refused or failed a turn. */
 export class A2AError extends Error {
   override name = "A2AError";
+
+  /** The agent no longer knows the task the turn continued, for example after it expired. */
+  readonly taskNotFound: boolean;
+
+  constructor(message: string, options: { taskNotFound?: boolean } = {}) {
+    super(message);
+    this.taskNotFound = options.taskNotFound ?? false;
+  }
 }
+
+const TASK_NOT_FOUND_CODE = -32001;
 
 export interface A2AAgentOptions {
   /** URL of the Agent Card, usually `https://host/.well-known/agent-card.json`. */
@@ -143,6 +153,9 @@ export class A2AAgent extends AgentAdapter {
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
     });
+    if (isRest && response.status === 404 && request.message.taskId) {
+      throw new A2AError(`A2A task ${request.message.taskId} was not found`, { taskNotFound: true });
+    }
     if (!response.ok) throw new A2AError(`A2A agent answered HTTP ${response.status}`);
     const payload = (await response.json()) as {
       result?: SendMessageResult;
@@ -152,6 +165,7 @@ export class A2AAgent extends AgentAdapter {
     if (payload.error) {
       throw new A2AError(
         `A2A agent returned JSON-RPC error ${payload.error.code}: ${payload.error.message}`,
+        { taskNotFound: payload.error.code === TASK_NOT_FOUND_CODE },
       );
     }
     return payload.result ?? {};
@@ -215,6 +229,7 @@ export class A2AAgent extends AgentAdapter {
           }
           return replyText(result);
         } catch (error) {
+          if (error instanceof A2AError && error.taskNotFound) this.openTasks.delete(input.threadId);
           span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
           throw error;
         } finally {

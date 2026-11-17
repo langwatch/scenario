@@ -43,6 +43,13 @@ _tracer = trace.get_tracer("scenario.a2a")
 class A2AError(Exception):
     """An A2A agent refused or failed a turn."""
 
+    def __init__(self, message: str, task_not_found: bool = False):
+        super().__init__(message)
+        self.task_not_found = task_not_found
+
+
+TASK_NOT_FOUND_CODE = -32001
+
 
 def _task_state(task: Mapping[str, Any]) -> str:
     """The task state as a short lowercase name: ``completed``, ``input_required``."""
@@ -155,6 +162,11 @@ class A2AAgent(AgentAdapter):
             response = await client.post(
                 url.rstrip("/") + "/message:send", json=request, headers=headers
             )
+            if response.status_code == 404 and request["message"].get("taskId"):
+                raise A2AError(
+                    f"A2A task {request['message']['taskId']} was not found",
+                    task_not_found=True,
+                )
             response.raise_for_status()
             return response.json()
         body = {"jsonrpc": "2.0", "id": str(uuid.uuid4()), "method": "SendMessage"}
@@ -164,7 +176,8 @@ class A2AAgent(AgentAdapter):
         if "error" in payload:
             error = payload["error"] or {}
             raise A2AError(
-                f"A2A agent returned JSON-RPC error {error.get('code')}: {error.get('message')}"
+                f"A2A agent returned JSON-RPC error {error.get('code')}: {error.get('message')}",
+                task_not_found=error.get("code") == TASK_NOT_FOUND_CODE,
             )
         return payload.get("result") or {}
 
@@ -202,7 +215,12 @@ class A2AAgent(AgentAdapter):
                     "A2A-Version": A2A_PROTOCOL_VERSION,
                 }
                 propagate.inject(headers)
-                result = await self._post(client, interface, {"message": message}, headers)
+                try:
+                    result = await self._post(client, interface, {"message": message}, headers)
+                except A2AError as error:
+                    if error.task_not_found:
+                        self._open_tasks.pop(input.thread_id, None)
+                    raise
                 self._open_tasks.pop(input.thread_id, None)
 
                 task = result.get("task")

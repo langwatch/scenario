@@ -53,8 +53,8 @@ export class FakeA2AServer {
 
   async start(): Promise<this> {
     this.server = createServer((req, res) => {
-      const send = (payload: unknown) => {
-        res.writeHead(200, { "Content-Type": "application/json" });
+      const send = (payload: unknown, status = 200) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
         res.end(JSON.stringify(payload));
       };
       if (req.method === "GET") {
@@ -68,11 +68,16 @@ export class FakeA2AServer {
         const body = JSON.parse(raw) as RecordedBody;
         this.requests.push({ path: req.url ?? "", headers: req.headers, body });
         const reply = this.options.reply ?? echoReply;
-        if (this.options.binding === "HTTP+JSON") return send(reply(body as unknown as SendMessageParams));
+        if (this.options.binding === "HTTP+JSON") {
+          const result = reply(body as unknown as SendMessageParams) as { error?: unknown };
+          return send(result, result.error ? 404 : 200);
+        }
         if (this.options.jsonrpcError) {
           return send({ jsonrpc: "2.0", id: body.id, error: this.options.jsonrpcError });
         }
-        send({ jsonrpc: "2.0", id: body.id, result: reply(body.params) });
+        const result = reply(body.params) as { error?: unknown };
+        if (result.error) return send({ jsonrpc: "2.0", id: body.id, error: result.error });
+        send({ jsonrpc: "2.0", id: body.id, result });
       });
     });
     await new Promise<void>((resolve) => this.server!.listen(0, "127.0.0.1", resolve));

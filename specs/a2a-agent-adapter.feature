@@ -33,6 +33,19 @@ Feature: Test any A2A agent from its Agent Card
     Then the scenario receives the text parts of the reply as the agent message
 
   @unit
+  Scenario: An expired task is dropped so the next turn starts fresh
+    Given the agent answered the last turn with an input-required task
+    When the agent answers the continuation with a task-not-found error
+    Then the call raises an error marked as task not found
+    And the next turn is sent without a taskId
+
+  @unit
+  Scenario: Other errors keep the open task for a retry
+    Given the agent answered the last turn with an input-required task
+    When the agent answers the continuation with a JSON-RPC internal error
+    Then the next turn still continues the open task
+
+  @unit
   Scenario: A failed or rejected task fails the turn
     When the agent answers with a task in state "TASK_STATE_FAILED" or "TASK_STATE_REJECTED"
     Then the call raises an error that carries the task state and the status message text

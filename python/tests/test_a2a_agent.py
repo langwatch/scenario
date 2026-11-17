@@ -105,6 +105,45 @@ async def test_jsonrpc_error_fails_the_turn():
             await A2AAgent(card_url=server.card_url).call(_input("hi"))
 
 
+def _expiring_task(req: Dict[str, Any]) -> Dict[str, Any]:
+    """Asks for input, then forgets the task: every continuation is task-not-found."""
+    if req["message"].get("taskId"):
+        return {"error": {"code": -32001, "message": "Task not found"}}
+    return _task("TASK_STATE_INPUT_REQUIRED", "need more", req["message"]["contextId"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("binding", ["JSONRPC", "HTTP+JSON"])
+async def test_task_not_found_drops_the_open_task(binding: str):
+    with FakeA2AServer(reply=_expiring_task, binding=binding) as server:
+        agent = A2AAgent(card_url=server.card_url)
+        assert await agent.call(_input("hi")) == "need more"
+        with pytest.raises(A2AError) as raised:
+            await agent.call(_input("more"))
+        assert raised.value.task_not_found
+        await agent.call(_input("again"))
+        assert "taskId" not in server.requests[2]["body"].get("params", server.requests[2]["body"])["message"]
+
+
+@pytest.mark.asyncio
+async def test_other_errors_keep_the_open_task():
+    calls = {"n": 0}
+
+    def reply(req: Dict[str, Any]) -> Dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return {"error": {"code": -32603, "message": "Internal error"}}
+        return _task("TASK_STATE_INPUT_REQUIRED", "need more", req["message"]["contextId"])
+
+    with FakeA2AServer(reply=reply) as server:
+        agent = A2AAgent(card_url=server.card_url)
+        await agent.call(_input("hi"))
+        with pytest.raises(A2AError, match="-32603"):
+            await agent.call(_input("more"))
+        await agent.call(_input("retry"))
+        assert server.requests[2]["body"]["params"]["message"]["taskId"] == "task-1"
+
+
 @pytest.mark.asyncio
 async def test_http_json_binding_posts_to_message_send():
     reply = lambda req: text_message("rest", req["message"]["contextId"])  # noqa: E731

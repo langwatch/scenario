@@ -46,9 +46,9 @@ class FakeA2AServer:
             def log_message(self, *args: Any) -> None:
                 return None
 
-            def _send(self, payload: Dict[str, Any]) -> None:
+            def _send(self, payload: Dict[str, Any], status: int = 200) -> None:
                 body = json.dumps(payload).encode()
-                self.send_response(200)
+                self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -64,12 +64,16 @@ class FakeA2AServer:
                 headers = {k.lower(): v for k, v in self.headers.items()}
                 server.requests.append({"path": self.path, "headers": headers, "body": body})
                 if server.binding == "HTTP+JSON":
-                    self._send(server.reply(body))
+                    reply = server.reply(body)
+                    self._send(reply, status=404 if "error" in reply else 200)
                     return
                 if server.jsonrpc_error:
                     self._send({"jsonrpc": "2.0", "id": body["id"], "error": server.jsonrpc_error})
                     return
                 result = server.reply(body["params"])
+                if "error" in result:
+                    self._send({"jsonrpc": "2.0", "id": body["id"], "error": result["error"]})
+                    return
                 self._send({"jsonrpc": "2.0", "id": body["id"], "result": result})
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

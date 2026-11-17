@@ -129,6 +129,65 @@ describeFeature(feature, ({ Background, Scenario, AfterEachScenario }) => {
     });
   });
 
+  Scenario("An expired task is dropped so the next turn starts fresh", ({ Given, When, Then, And }) => {
+    const errors: unknown[] = [];
+    const expiring: Reply = (p) =>
+      p.message.taskId
+        ? { error: { code: -32001, message: "Task not found" } }
+        : task("TASK_STATE_INPUT_REQUIRED", "need more")(p);
+    const agents: A2AAgent[] = [];
+    const servers: FakeA2AServer[] = [];
+    Given("the agent answered the last turn with an input-required task", async () => {
+      for (const binding of ["JSONRPC", "HTTP+JSON"]) {
+        const s = await new FakeA2AServer({ reply: expiring, binding }).start();
+        const agent = new A2AAgent({ cardUrl: s.cardUrl });
+        await agent.call(input("hi"));
+        servers.push(s);
+        agents.push(agent);
+      }
+    });
+    When("the agent answers the continuation with a task-not-found error", async () => {
+      for (const agent of agents) errors.push(await agent.call(input("more")).catch((e) => e));
+    });
+    Then("the call raises an error marked as task not found", () => {
+      for (const error of errors) {
+        expect(error).toBeInstanceOf(A2AError);
+        expect((error as A2AError).taskNotFound).toBe(true);
+      }
+    });
+    And("the next turn is sent without a taskId", async () => {
+      for (const [i, agent] of agents.entries()) {
+        await agent.call(input("again"));
+        const body = servers[i]!.requests[2]!.body;
+        expect((body.params ?? body).message.taskId).toBeUndefined();
+        await servers[i]!.stop();
+      }
+    });
+  });
+
+  Scenario("Other errors keep the open task for a retry", ({ Given, When, Then }) => {
+    let calls = 0;
+    let agent: A2AAgent;
+    Given("the agent answered the last turn with an input-required task", async () => {
+      await start({
+        reply: (p) =>
+          ++calls === 2
+            ? { error: { code: -32603, message: "Internal error" } }
+            : task("TASK_STATE_INPUT_REQUIRED", "need more")(p),
+      });
+      agent = new A2AAgent({ cardUrl: server.cardUrl });
+      await agent.call(input("hi"));
+    });
+    When("the agent answers the continuation with a JSON-RPC internal error", async () => {
+      const error = await agent.call(input("more")).catch((e) => e);
+      expect((error as A2AError).taskNotFound).toBe(false);
+    });
+    Then("the next turn still continues the open task", async () => {
+      await agent.call(input("retry"));
+      expect(server.requests[2]?.body.params.message.taskId).toBe("task-1");
+    });
+  });
+
   Scenario("A failed or rejected task fails the turn", ({ When, Then }) => {
     const errors: unknown[] = [];
     When(
