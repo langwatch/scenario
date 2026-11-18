@@ -24,12 +24,7 @@ import { Buffer } from "node:buffer";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-  type ReadableSpan,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, type ReadableSpan, TracerProvider } from "@opentelemetry/sdk-trace";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 
 // Register a context manager ONCE so context.with propagates across awaits — the
@@ -157,13 +152,13 @@ async function connectAdapter(init?: {
 
 describe("voice.gemini.* span instrumentation (GeminiLiveAgentAdapter)", () => {
   let exporter: InMemorySpanExporter;
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
 
   beforeEach(() => {
     captured.last = null;
     exporter = new InMemorySpanExporter();
-    provider = new NodeTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter })],
     });
     trace.setGlobalTracerProvider(provider);
   });

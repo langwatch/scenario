@@ -1,4 +1,4 @@
-import { SpanProcessor, ReadableSpan, Span } from "@opentelemetry/sdk-trace-base";
+import { SpanProcessor, ReadableSpan, Span } from "@opentelemetry/sdk-trace";
 import { attributes } from "langwatch/observability";
 
 /**

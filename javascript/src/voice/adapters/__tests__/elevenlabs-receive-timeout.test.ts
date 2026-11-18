@@ -18,7 +18,7 @@ import { Buffer } from "node:buffer";
 
 import { context, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import { BasicTracerProvider, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { TracerProvider, type ReadableSpan } from "@opentelemetry/sdk-trace";
 import { describe, it, expect, vi } from "vitest";
 
 import { AudioChunk } from "../../audio-chunk";
@@ -398,7 +398,7 @@ describe("tail probe after the agent has spoken", () => {
     await withFakeClock(async ({ adapter, socket }) => {
       await agentSpeaks(adapter, socket);
 
-      const span = new BasicTracerProvider().getTracer("test").startSpan("voice.audio.receive");
+      const span = new TracerProvider().getTracer("test").startSpan("voice.audio.receive");
       const probe = context.with(trace.setSpan(context.active(), span), () => adapter.receiveAudio(0.6));
       const settled = track(probe);
       await streamFor(socket, QUIET_AGENT_FRAMES[0]![1], 200, 1_000);
