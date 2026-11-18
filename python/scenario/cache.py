@@ -114,11 +114,9 @@ def scenario_cache(ignore=[]):
             return wrapped(*args, **kwargs)
 
         sig = inspect.signature(wrapped)
-        parameters = list(sig.parameters.values())
-
-        all_args = {
-            str(parameter.name): value for parameter, value in zip(parameters, args)
-        }
+        bound_args = sig.bind(*args, **kwargs)
+        bound_args.apply_defaults()
+        all_args = dict(bound_args.arguments)
         for arg in ["self"] + ignore:
             if arg in all_args:
                 del all_args[arg]
