@@ -1,4 +1,4 @@
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import { AssistantModelMessage, ModelMessage, ToolModelMessage } from "ai";
 import { Observable, Subject } from "rxjs";
 import {

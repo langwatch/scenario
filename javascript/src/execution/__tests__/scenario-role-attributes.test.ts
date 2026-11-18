@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { trace } from "@opentelemetry/api";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 import {
   AgentRole,
   AgentAdapter,
@@ -49,19 +45,12 @@ function agentCallSpans(exporter: InMemorySpanExporter) {
 
 describe("scenario.role attribute", () => {
   let exporter: InMemorySpanExporter;
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    provider = new NodeTracerProvider({
-      // Multiple @opentelemetry/sdk-trace-base copies coexist in the tree, so
-      // SimpleSpanProcessor and NodeTracerProvider's expected SpanProcessor can
-      // resolve to different copies. Cast to the type the provider expects.
-      spanProcessors: [
-        new SimpleSpanProcessor(exporter),
-      ] as unknown as NonNullable<
-        ConstructorParameters<typeof NodeTracerProvider>[0]
-      >["spanProcessors"],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter })],
     });
     trace.setGlobalTracerProvider(provider);
   });
@@ -183,19 +172,12 @@ describe("scenario.role attribute", () => {
 
 describe("scenario.run_id attribute", () => {
   let exporter: InMemorySpanExporter;
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    provider = new NodeTracerProvider({
-      // Multiple @opentelemetry/sdk-trace-base copies coexist in the tree, so
-      // SimpleSpanProcessor and NodeTracerProvider's expected SpanProcessor can
-      // resolve to different copies. Cast to the type the provider expects.
-      spanProcessors: [
-        new SimpleSpanProcessor(exporter),
-      ] as unknown as NonNullable<
-        ConstructorParameters<typeof NodeTracerProvider>[0]
-      >["spanProcessors"],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter })],
     });
     trace.setGlobalTracerProvider(provider);
   });

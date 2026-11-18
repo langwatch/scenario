@@ -6,7 +6,7 @@
  * Every view reports what it read to a {@link StateReadReporter}, so the
  * evaluator runner knows when a mapping read the trace and what it missed.
  */
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import type { ModelMessage } from "ai";
 
 /** One call of a tool during the run. */

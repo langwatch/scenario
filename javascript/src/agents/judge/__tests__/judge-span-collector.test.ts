@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { JudgeSpanCollector } from "../judge-span-collector";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 
 function createSpan({
   spanId,

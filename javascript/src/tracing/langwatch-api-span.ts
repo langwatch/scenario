@@ -1,6 +1,6 @@
 import type { Attributes, HrTime, SpanContext, SpanStatus } from "@opentelemetry/api";
 import { SpanKind, SpanStatusCode, TraceFlags } from "@opentelemetry/api";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 
 /**
  * A span as returned by the LangWatch trace API (`GET /api/trace/{traceId}`).

@@ -4,12 +4,7 @@ import scenario from "@langwatch/scenario";
 import { context, SpanKind, trace, TraceFlags } from "@opentelemetry/api";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import {
-  BasicTracerProvider,
-  BatchSpanProcessor,
-  ReadableSpan,
-  SpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+import { TracerProvider, BatchSpanProcessor, ReadableSpan, SpanProcessor } from "@opentelemetry/sdk-trace";
 import { generateText, ModelMessage } from "ai";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
@@ -39,11 +34,11 @@ const partnerSpanProcessors = (): SpanProcessor[] => {
     url: `${endpoint}/api/otel/v1/traces`,
     headers: { Authorization: `Bearer ${apiKey}` },
   });
-  return [new BatchSpanProcessor(exporter)];
+  return [new BatchSpanProcessor({ exporter })];
 };
 
 const finishedSpans: ReadableSpan[] = [];
-const partnerProvider = new BasicTracerProvider({
+const partnerProvider = new TracerProvider({
   resource: resourceFromAttributes({ "service.name": SERVICE_NAME }),
   spanProcessors: [
     ...partnerSpanProcessors(),

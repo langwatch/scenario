@@ -20,7 +20,7 @@ process.chdir(path.join(__dirname, "with-config-file"));
 console.log(`Working directory: ${process.cwd()}`);
 
 import { trace } from "@opentelemetry/api";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import { run, AgentRole, user, agent, succeed } from "@langwatch/scenario";
 
 function getScopeName(span: ReadableSpan): string {

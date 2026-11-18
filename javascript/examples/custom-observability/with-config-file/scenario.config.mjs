@@ -9,10 +9,7 @@
  * which spans were collected.
  */
 import { defineConfig, scenarioOnly } from "@langwatch/scenario";
-import {
-  SimpleSpanProcessor,
-  InMemorySpanExporter,
-} from "@opentelemetry/sdk-trace-base";
+import { SimpleSpanProcessor, InMemorySpanExporter } from "@opentelemetry/sdk-trace";
 import { LangWatchTraceExporter } from "langwatch/observability";
 
 // A test exporter to verify which spans the LangWatchTraceExporter would send.
@@ -27,7 +24,7 @@ export default defineConfig({
       filters: scenarioOnly,
     }),
     // Extra processor for test verification
-    spanProcessors: [new SimpleSpanProcessor(testExporter)],
+    spanProcessors: [new SimpleSpanProcessor({ exporter: testExporter })],
     // Disable auto-instrumentation of HTTP, middleware, etc.
     instrumentations: [],
   },

@@ -5,11 +5,7 @@
  * and only wants scenario-scoped spans, not HTTP/middleware noise.
  */
 import { trace } from "@opentelemetry/api";
-import {
-  SimpleSpanProcessor,
-  InMemorySpanExporter,
-} from "@opentelemetry/sdk-trace-base";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { SimpleSpanProcessor, InMemorySpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace";
 import {
   run,
   AgentRole,
@@ -35,7 +31,7 @@ function getScopeName(span: ReadableSpan): string {
 
 // --- Step 1: Set up a custom InMemorySpanExporter to capture what gets collected ---
 const memoryExporter = new InMemorySpanExporter();
-const collectorProcessor = new SimpleSpanProcessor(memoryExporter);
+const collectorProcessor = new SimpleSpanProcessor({ exporter: memoryExporter });
 
 // --- Step 2: Initialize scenario tracing with custom config ---
 setupScenarioTracing({

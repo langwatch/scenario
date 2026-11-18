@@ -23,11 +23,7 @@ import { Buffer } from "node:buffer";
 
 import { context, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AudioChunk } from "../../audio-chunk";
@@ -65,8 +61,8 @@ function metadataFrame(conversationId: string): Record<string, unknown> {
 // per-test would leave every test after the first emitting into the first
 // test's already-shut-down exporter and silently observing no spans at all.
 const exporter = new InMemorySpanExporter();
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+const provider = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter })],
 });
 trace.setGlobalTracerProvider(provider);
 

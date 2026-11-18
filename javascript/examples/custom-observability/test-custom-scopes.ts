@@ -5,11 +5,7 @@
  * instrumented code (e.g., database calls) alongside scenario spans.
  */
 import { trace } from "@opentelemetry/api";
-import {
-  SimpleSpanProcessor,
-  InMemorySpanExporter,
-} from "@opentelemetry/sdk-trace-base";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { SimpleSpanProcessor, InMemorySpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace";
 import {
   run,
   AgentRole,
@@ -35,7 +31,7 @@ function getScopeName(span: ReadableSpan): string {
 
 // --- Step 1: Set up span collection ---
 const memoryExporter = new InMemorySpanExporter();
-const collectorProcessor = new SimpleSpanProcessor(memoryExporter);
+const collectorProcessor = new SimpleSpanProcessor({ exporter: memoryExporter });
 
 setupScenarioTracing({
   instrumentations: [],
