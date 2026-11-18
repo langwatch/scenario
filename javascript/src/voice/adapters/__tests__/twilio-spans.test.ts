@@ -38,11 +38,7 @@
  */
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import WebSocket from "ws";
 
@@ -254,13 +250,13 @@ async function dialAndConnect(
 
 describe("voice.twilio.* span instrumentation (#775)", () => {
   let exporter: InMemorySpanExporter;
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
   const tracked: TwilioAgentAdapter[] = [];
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    provider = new NodeTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter })],
     });
     trace.setGlobalTracerProvider(provider);
   });
@@ -737,8 +733,8 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
         await provider.shutdown();
         trace.disable();
         exporter = new InMemorySpanExporter();
-        provider = new NodeTracerProvider({
-          spanProcessors: [new SimpleSpanProcessor(exporter)],
+        provider = new TracerProvider({
+          spanProcessors: [new SimpleSpanProcessor({ exporter })],
         });
         trace.setGlobalTracerProvider(provider);
 

@@ -2,11 +2,7 @@ import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
 import { context, propagation, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
-import {
-  BasicTracerProvider,
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+import { TracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace";
 import type { ModelMessage } from "ai";
 import { expect } from "vitest";
 import { A2A_AGENT_ADAPTER_FEATURE } from "../../__tests__/features";
@@ -17,7 +13,7 @@ import { FakeA2AServer, textMessage, type Reply } from "./fixtures/fake-a2a-serv
 const feature = await loadFeature(A2A_AGENT_ADAPTER_FEATURE);
 
 const exporter = new InMemorySpanExporter();
-const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+const provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
 context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
 propagation.setGlobalPropagator(new W3CTraceContextPropagator());
 trace.setGlobalTracerProvider(provider);

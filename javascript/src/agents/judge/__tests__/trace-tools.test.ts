@@ -1,4 +1,4 @@
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import { describe, it, expect } from "vitest";
 import { expandTrace, grepTrace } from "../trace-tools";
 import { createSpan } from "./helpers/create-span";

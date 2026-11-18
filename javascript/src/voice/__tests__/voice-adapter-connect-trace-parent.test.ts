@@ -11,11 +11,7 @@
  */
 import { context, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const _ctxManager = new AsyncLocalStorageContextManager();
@@ -51,12 +47,12 @@ class PassingJudge extends JudgeAgentAdapter {
 
 describe("voice.adapter.connect trace parenting", () => {
   let exporter: InMemorySpanExporter;
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    provider = new NodeTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter })],
     });
     trace.setGlobalTracerProvider(provider);
   });

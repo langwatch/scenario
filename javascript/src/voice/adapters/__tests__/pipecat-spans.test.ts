@@ -20,12 +20,7 @@ import { Buffer } from "node:buffer";
 
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-  type ReadableSpan,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, type ReadableSpan, TracerProvider } from "@opentelemetry/sdk-trace";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Register a context manager ONCE so context.with propagates across awaits (the
@@ -144,12 +139,12 @@ function makeAdapter(socketRef: { ws?: FakeWebSocket }): PipecatAgentAdapter {
 
 describe("Pipecat voice.* span instrumentation (#774)", () => {
   let exporter: InMemorySpanExporter;
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    provider = new NodeTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter })],
     });
     trace.setGlobalTracerProvider(provider);
   });

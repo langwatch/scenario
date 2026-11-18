@@ -35,10 +35,10 @@ vi.mock("langwatch/observability", () => ({
   },
 }));
 
-vi.mock("@opentelemetry/sdk-trace-base", () => ({
+vi.mock("@opentelemetry/sdk-trace", () => ({
   SimpleSpanProcessor: class MockSimpleSpanProcessor {
     exporter: unknown;
-    constructor(exporter: unknown) {
+    constructor({ exporter }: { exporter: unknown }) {
       this.exporter = exporter;
     }
     onStart = vi.fn();

@@ -2,7 +2,7 @@
  * Builds a scenario execution state for tests: messages stamped with a turn
  * and a trace id, fields, judge criteria and the spans the state reads.
  */
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import type { ModelMessage } from "ai";
 import {
   AgentRole,

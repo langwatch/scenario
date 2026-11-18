@@ -15,8 +15,7 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { context, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import { SimpleSpanProcessor, InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { SimpleSpanProcessor, InMemorySpanExporter, TracerProvider } from "@opentelemetry/sdk-trace";
 import { expect } from "vitest";
 
 // Register a context manager ONCE so context.with propagates across awaits.
@@ -86,7 +85,7 @@ describeFeature(
       ({ Given, When, Then }) => {
         let server: Server;
         let serverUrl: string;
-        let provider: NodeTracerProvider;
+        let provider: TracerProvider;
         let collector: JudgeSpanCollector;
         let capturedParams: InvokeLLMParams | undefined;
         let result: ScenarioResult;
@@ -133,15 +132,8 @@ describeFeature(
             });
 
             collector = new JudgeSpanCollector();
-            provider = new NodeTracerProvider({
-              // Multiple @opentelemetry/sdk-trace-base copies coexist in the
-              // tree; cast to the type the provider expects.
-              spanProcessors: [
-                collector,
-                new SimpleSpanProcessor(new InMemorySpanExporter()),
-              ] as unknown as NonNullable<
-                ConstructorParameters<typeof NodeTracerProvider>[0]
-              >["spanProcessors"],
+            provider = new TracerProvider({
+              spanProcessors: [collector, new SimpleSpanProcessor({ exporter: new InMemorySpanExporter() })],
             });
             trace.setGlobalTracerProvider(provider);
           }
