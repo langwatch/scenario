@@ -11,6 +11,12 @@ Verifies:
 """
 
 import hashlib
+import io
+import struct
+import sys
+import wave
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -106,3 +112,41 @@ async def test_synthesize_attaches_transcript_for_judge():
     assert chunk.transcript == "hello world"
     assert isinstance(chunk, AudioChunk)
     assert chunk.sample_rate == 24000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra_metadata", [False, True])
+async def test_google_tts_extracts_pcm_frames_before_caching(
+    monkeypatch: pytest.MonkeyPatch, extra_metadata: bool
+) -> None:
+    """Google LINEAR16 includes a WAV container, not just audio samples."""
+    pcm = b"\x01\x00" * 240
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(24000)
+        wav.writeframes(pcm)
+    payload = buffer.getvalue()
+    if extra_metadata:
+        # A WAV header is not necessarily 44 bytes long.
+        body = payload[8:12] + b"JUNK\x04\x00\x00\x00test" + payload[12:]
+        payload = b"RIFF" + struct.pack("<I", len(body)) + body
+
+    request = AsyncMock(return_value=SimpleNamespace(audio_content=payload))
+    sdk = SimpleNamespace(
+        TextToSpeechAsyncClient=lambda: SimpleNamespace(synthesize_speech=request),
+        SynthesisInput=SimpleNamespace,
+        VoiceSelectionParams=SimpleNamespace,
+        AudioConfig=SimpleNamespace,
+        AudioEncoding=SimpleNamespace(LINEAR16=1),
+    )
+    monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(texttospeech=sdk))
+
+    first = await synthesize("hello", "google/en-US-Standard-A")
+    cached = await synthesize("hello", "google/en-US-Standard-A")
+
+    assert first.data == cached.data == pcm
+    assert first.duration_seconds == cached.duration_seconds == pytest.approx(0.01)
+    assert first.transcript == cached.transcript == "hello"
+    request.assert_awaited_once()
