@@ -20,6 +20,7 @@ Google / Cartesia only when their provider prefix is actually used.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections import OrderedDict
 from typing import Awaitable, Callable, Dict, Tuple
 
@@ -141,17 +142,21 @@ async def _cartesia_tts(text: str, voice: str) -> bytes:
         raise ImportError(
             "cartesia provider requires `pip install cartesia`"
         ) from exc
-    client = AsyncCartesia()
-    return await client.tts.bytes(
-        model_id="sonic-english",
+    # Current cartesia SDKs (4.x) don't read CARTESIA_API_KEY by themselves, and
+    # tts.bytes() no longer takes voice_id and streams chunks: pass the key, then
+    # generate() the audio and read it whole.
+    client = AsyncCartesia(api_key=os.environ.get("CARTESIA_API_KEY"))
+    response = await client.tts.generate(
+        model_id="sonic-3.6",
         transcript=text,
-        voice_id=voice,
+        voice=voice,
         output_format={
             "container": "raw",
             "encoding": "pcm_s16le",
             "sample_rate": PCM16_SAMPLE_RATE,
         },
     )
+    return await response.read()
 
 
 register_tts_provider("openai", _openai_tts)
