@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, List, Optional, Sequence, Union, cast
+from typing import Any, Final, List, Optional, Sequence, Union, cast
 
 import litellm
 from litellm import Choices
@@ -82,6 +82,19 @@ DECISION_PHASE_RULE = (
 )
 """Appended to a custom system prompt on decision calls, so custom judge
 personas still drive the argument-free decision tools correctly."""
+
+
+UNMET_CRITERION_DECISION_RULE: Final[str] = (
+    "A criterion the agent has not met yet is not a reason to end the "
+    "conversation: continue while the conversation can still get there. End "
+    "it over an unmet criterion only when something in the conversation rules "
+    "that criterion out, such as a refusal, an error the agent does not "
+    "recover from, a reply that contradicts the criterion, or the user leaving."
+)
+"""Decision-phase rule separating a criterion that has not been reached yet
+from one the conversation has ruled out, so an unfinished conversation is not
+ended as a failure (#980). Used by both the built-in and the custom decision
+prompt."""
 
 
 REMOTE_TRACES_DECISION_RULE = (
@@ -773,7 +786,13 @@ class JudgeAgent(AgentAdapter):
         evidence.
         """
         if self.system_prompt:
-            content = self.system_prompt + "\n\n" + DECISION_PHASE_RULE
+            content = (
+                self.system_prompt
+                + "\n\n"
+                + DECISION_PHASE_RULE
+                + "\n\n"
+                + UNMET_CRITERION_DECISION_RULE
+            )
             if fetch_remote_traces:
                 content += "\n\n" + REMOTE_TRACES_DECISION_RULE
             return content
@@ -803,6 +822,7 @@ Your goal is to decide if the conversation has collected enough information to e
 
 <rules>
 - Call make_verdict as soon as the agent has clearly broken one of the "do not" or "should not" criteria; more conversation cannot repair a violation.
+- {UNMET_CRITERION_DECISION_RULE}
 - Scenario simulations exist to exercise multi-turn conversations: while the conversation is still short, lean towards continuing, and end it only when more turns would clearly add no information for the criteria.{remote_rule}
 </rules>
 """
