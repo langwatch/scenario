@@ -310,3 +310,52 @@ class TestGrepTraceEmpty:
     def test_returns_no_spans_message(self) -> None:
         result = grep_trace([], "anything")
         assert result == "No spans recorded."
+
+
+def _long_retrieval_span(needle: str):
+    filler = "The regional council discussed road maintenance budgets. "
+    documents = (
+        filler * (30_000 // len(filler) + 1)
+        + needle
+        + " "
+        + filler * (10_000 // len(filler) + 1)
+    )
+    return create_mock_span(
+        span_id=0xA1B2C3D4E5F60718,
+        name="retrieve_documents",
+        start_time=1700000000_000_000_000,
+        end_time=1700000000_300_000_000,
+        attributes={"retrieval.documents": documents},
+    )
+
+
+class TestLongSpans:
+    """A passage deep inside a 40k-character span stays reachable."""
+
+    NEEDLE = "The attendance record fell on its 21st anniversary."
+
+    def test_grep_returns_the_text_around_a_match_deep_in_a_long_value(self):
+        result = grep_trace([_long_retrieval_span(self.NEEDLE)], "21st anniversary")
+        assert self.NEEDLE in result
+        assert "[match at character" in result
+        assert len(result) < 4_000
+
+    def test_expand_pages_through_a_long_span(self):
+        spans = [_long_retrieval_span(self.NEEDLE)]
+        pages = []
+        offset = 0
+        for _ in range(10):
+            page = expand_trace(spans, ["a1b2c3d4"], offset=offset)
+            pages.append(page)
+            marker = "offset="
+            if marker not in page:
+                break
+            offset = int(page.rsplit(marker, 1)[1].split(" ")[0])
+        assert len(pages) > 1
+        assert any(self.NEEDLE in page for page in pages)
+        assert "[Showing characters" in pages[1]
+
+    def test_first_page_alone_does_not_hold_the_needle(self):
+        page = expand_trace([_long_retrieval_span(self.NEEDLE)], ["a1b2c3d4"])
+        assert self.NEEDLE not in page
+        assert "do not conclude that something is absent" in page
