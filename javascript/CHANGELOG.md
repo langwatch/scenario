@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0](https://github.com/langwatch/scenario/compare/javascript/v1.7.0...javascript/v1.8.0) (2026-11-21)
+
+
+### Features
+
+* test any A2A agent from its Agent Card with A2AAgent ([#1055](https://github.com/langwatch/scenario/issues/1055)) ([50abd23](https://github.com/langwatch/scenario/commit/50abd23236e9634481d62d88e5458dc49749ba8a))
+
+
+### Bug Fixes
+
+* **judge:** recompute numbers, reach deep trace text and wait out exporter batches ([#1054](https://github.com/langwatch/scenario/issues/1054)) ([9047e7f](https://github.com/langwatch/scenario/commit/9047e7fae71ff97292523e8611996f99896c9482))
+
 ## [1.7.0](https://github.com/langwatch/scenario/compare/javascript/v1.6.0...javascript/v1.7.0) (2026-10-07)
 
 
