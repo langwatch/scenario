@@ -3,7 +3,7 @@
  *
  * Binds the @integration scenarios of `specs/judge-derived-answers.feature`.
  * Opt-in: SCENARIO_JUDGE_EVAL=1 with OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY
- * (set SCENARIO_JUDGE_EVAL_MODEL to a Gemini model), or with
+ * (with SCENARIO_JUDGE_EVAL_MODEL naming a Gemini model), or with
  * AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY (deployment named after the
  * model). Prints the status counts per case for before and after comparisons.
  */
@@ -17,7 +17,7 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import type { LanguageModel, ModelMessage } from "ai";
 import { attributes } from "langwatch/observability";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type TestContext, vi } from "vitest";
 
 import { AgentRole, type AgentInput } from "../../../domain";
 import { judgeAgent as currentJudgeAgent } from "../judge-agent";
@@ -42,7 +42,11 @@ vi.mock("../../../config", () => ({
 
 const env = process.env;
 const AZURE = Boolean(env.AZURE_OPENAI_ENDPOINT && env.AZURE_OPENAI_API_KEY);
-const GOOGLE = !AZURE && Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
+// Gemini runs only when no OpenAI key is set and a Gemini model is named.
+const GOOGLE =
+  !AZURE &&
+  !env.OPENAI_API_KEY &&
+  Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY && env.SCENARIO_JUDGE_EVAL_MODEL);
 const ENABLED =
   env.SCENARIO_JUDGE_EVAL === "1" &&
   (AZURE || GOOGLE || Boolean(env.OPENAI_API_KEY));
@@ -83,6 +87,12 @@ const QUESTIONS: Record<string, string> = {
 QUESTIONS["merger in long trace"] = QUESTIONS["merger in trace"]!;
 QUESTIONS["festival in long trace"] = QUESTIONS["festival in trace"]!;
 QUESTIONS["festival in one-line prompt"] = QUESTIONS["festival in trace"]!;
+const unknownTopics = TOPICS?.filter((topic) => !(topic in QUESTIONS)) ?? [];
+if (unknownTopics.length > 0) {
+  throw new Error(
+    `SCENARIO_JUDGE_EVAL_TOPICS names unknown topics: ${unknownTopics.join(", ")}`,
+  );
+}
 
 /** Retrieved articles, recorded as a retrieval span the judge reads. */
 const DOCUMENTS: Record<string, string> = {
@@ -227,8 +237,8 @@ if (!ENABLED) {
           And('the criterion "<criterion>"', () => undefined);
           And('an agent that answers "<answer>"', () => undefined);
 
-          When("gpt-5-mini delivers the verdict <runs> times", async () => {
-            if (TOPICS && !TOPICS.includes(variables.topic)) return;
+          When("gpt-5-mini delivers the verdict <runs> times", async (ctx: TestContext) => {
+            if (TOPICS && !TOPICS.includes(variables.topic)) ctx.skip();
             statuses = await Promise.all(
               Array.from({ length: Number(variables.runs) }, () =>
                 judgeOnce({
@@ -242,8 +252,8 @@ if (!ENABLED) {
 
           Then(
             "the criterion's status is <status> in at least <minimum> of the runs",
-            () => {
-              if (TOPICS && !TOPICS.includes(variables.topic)) return;
+            (ctx: TestContext) => {
+              if (TOPICS && !TOPICS.includes(variables.topic)) ctx.skip();
               const hits = statuses.filter(
                 (s) => s === variables.status,
               ).length;
