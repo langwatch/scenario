@@ -11,6 +11,7 @@ Feature: The judge checks numbers and accepts correctly derived answers
     When the verdict call is built
     Then its rules tell the judge to recompute any number, date, count or duration from the evidence step by step
     And its rules say an equivalent or correctly derived answer satisfies a criterion
+    And its rules count a standard unit conversion as a derivation, not outside knowledge
     And its rules still require clear evidence for a pass
 
   @unit
@@ -39,3 +40,6 @@ Feature: The judge checks numbers and accepts correctly derived answers
       | merger            | The answer is 15 years                                                        | A decade and a half passed between the founding and the merger.                                            | passed | 10   | 9       |
       | merger in long trace   | The agent answers the question correctly according to the retrieved documents | 20 years passed between the founding and the merger.                                                  | failed | 10   | 8       |
       | festival in long trace | The agent answers the question correctly according to the retrieved documents | 2009.                                                                                                 | passed | 10   | 8       |
+      | festival in one-line prompt | The agent answers the question correctly according to the retrieved documents | 2009.                                                                                            | passed | 10   | 8       |
+      | statue                 | The agent answers the question correctly according to the article             | The statue is about 6.56 feet tall.                                                                   | passed | 10   | 9       |
+      | statue                 | The agent answers the question correctly according to the article             | The statue is about 7.5 feet tall.                                                                    | failed | 10   | 9       |

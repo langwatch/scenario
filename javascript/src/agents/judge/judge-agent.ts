@@ -448,14 +448,20 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
     }),
     grep_trace: tool({
       description:
-        "Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with the text around each match, even deep inside long values.",
+        "Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with the text around each match, even deep inside long values. A long line shows at most 5 matches; when it has more, the result names the skip value that shows the next ones.",
       inputSchema: z.object({
         pattern: z
           .string()
           .describe("Search pattern (case-insensitive)"),
+        skip: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Matches to pass over in each long line, to see the ones after the first 5; 0 or omitted to start at the first match"),
       }),
-      execute: async ({ pattern }) => {
-        return grepTrace(spans, pattern);
+      execute: async ({ pattern, skip }) => {
+        return grepTrace(spans, pattern, skip ?? 0);
       },
     }),
   };

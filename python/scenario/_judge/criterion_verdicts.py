@@ -54,8 +54,9 @@ PER_CRITERION_RULES = [
     "Be strict about evidence, not wording: an answer that is equivalent to "
     "what the criterion asks for, or that follows from the evidence by a "
     "correct derivation (the 21st anniversary of an event first held in 1988 "
-    "is 2009), satisfies it. Checking that arithmetic or derivation is part of "
-    "judging the criterion.",
+    "is 2009), satisfies it. A standard unit conversion (2 m is 6.56 ft) is "
+    "such a derivation, not outside knowledge. Checking that arithmetic or "
+    "derivation is part of judging the criterion.",
     "When the evidence to decide a criterion is not available (the "
     "conversation ended before the moment it depends on, or it depends on "
     "internal behavior that left no trace), mark it inconclusive and name the "

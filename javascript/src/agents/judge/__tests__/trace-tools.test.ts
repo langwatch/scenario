@@ -311,3 +311,63 @@ describe("long span values", () => {
     expect(page).toMatch(/^\[Showing characters \d+-\d+ of \d+\]/);
   });
 });
+
+// Scenario "grep_trace pages through more matches than one line shows" of
+// specs/progressive-trace-discovery.feature.
+describe("a long line with more matches than one result shows", () => {
+  const NEEDLE =
+    "Sources: the Cliffside Festival attendance record fell on its 21st anniversary.";
+  const filler = "The regional council discussed road maintenance budgets. ";
+
+  function oneLinePromptSpan(): ReadableSpan {
+    const entity = JSON.stringify({
+      name: "Cliffside Festival",
+      type: "event",
+      note: filler.repeat(16),
+    });
+    const prompt = JSON.stringify({
+      entities: Array.from({ length: 30 }, () => entity).join(","),
+      sources: NEEDLE,
+    });
+    return createSpan({
+      spanId: "a1b2c3d4e5f60718",
+      name: "llm.call",
+      startTime: [1700000000, 0],
+      endTime: [1700000000, 300_000_000],
+      attributes: { "gen_ai.prompt": prompt },
+    });
+  }
+
+  it("says how many matches were cut and the skip that shows the next ones", () => {
+    const result = grepTrace([oneLinePromptSpan()], "Cliffside Festival");
+    expect(result).not.toContain(NEEDLE);
+    expect(result.match(/\[match at character/g)).toHaveLength(5);
+    expect(result).toMatch(
+      /\[26 more matches in this line; next at character \d+\. Call grep_trace again with the same pattern and skip=5 to see them\.\]/
+    );
+  });
+
+  it("reaches the match after them by following the skip each result names", () => {
+    const spans = [oneLinePromptSpan()];
+    const pages: string[] = [];
+    let skip = 0;
+    for (let i = 0; i < 10; i++) {
+      const page = grepTrace(spans, "Cliffside Festival", skip);
+      pages.push(page);
+      expect(page.length).toBeLessThan(4096 * 4);
+      const next = /skip=(\d+) to see them/.exec(page);
+      if (!next) break;
+      skip = Number(next[1]);
+    }
+    expect(pages.length).toBe(7);
+    expect(pages.at(-1)).toContain(NEEDLE);
+    expect(pages.slice(0, -1).some((page) => page.includes(NEEDLE))).toBe(false);
+  });
+
+  it("says when skip passes every match in the line", () => {
+    const result = grepTrace([oneLinePromptSpan()], "Cliffside Festival", 100);
+    expect(result).toContain(
+      "[All 31 matches in this line come before skip=100; call grep_trace with a lower skip to see them.]"
+    );
+  });
+});

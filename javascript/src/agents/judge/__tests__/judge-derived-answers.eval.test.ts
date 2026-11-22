@@ -70,9 +70,12 @@ const QUESTIONS: Record<string, string> = {
     "How many years passed between the founding of Norvik Shipping and its merger with its rival?",
   "festival in trace":
     "In which year did the Cliffside Festival's attendance record fall?",
+  statue:
+    "According to the article: 'The bronze statue in the harbour stands 2 m tall.' How tall is the statue in feet?",
 };
 QUESTIONS["merger in long trace"] = QUESTIONS["merger in trace"]!;
 QUESTIONS["festival in long trace"] = QUESTIONS["festival in trace"]!;
+QUESTIONS["festival in one-line prompt"] = QUESTIONS["festival in trace"]!;
 
 /** Retrieved articles, recorded as a retrieval span the judge reads. */
 const DOCUMENTS: Record<string, string> = {
@@ -94,6 +97,28 @@ DOCUMENTS["merger in long trace"] = longDocuments(
   DOCUMENTS["merger in trace"]!,
 );
 DOCUMENTS["festival in long trace"] = longDocuments(
+  DOCUMENTS["festival in trace"]!,
+);
+
+/**
+ * A prompt on one JSON line where the festival's name appears 30 times in an
+ * entities block before the source that holds the answer.
+ */
+function entitiesBeforeSource(article: string): string {
+  const entity = JSON.stringify({
+    name: "Cliffside Festival",
+    type: "event",
+    summary:
+      "The Cliffside Festival is a summer music event on the north coast. Visitors ask every year when its attendance record will fall. ".repeat(
+        8,
+      ),
+  });
+  return JSON.stringify({
+    entities: Array.from({ length: 30 }, () => entity).join(","),
+    sources: article,
+  });
+}
+DOCUMENTS["festival in one-line prompt"] = entitiesBeforeSource(
   DOCUMENTS["festival in trace"]!,
 );
 

@@ -1447,7 +1447,9 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                     "description": (
                         "Search across all span attributes, events, and content "
                         "for a pattern (case-insensitive). Returns matching spans "
-                        "with the text around each match, even deep inside long values."
+                        "with the text around each match, even deep inside long values. "
+                        "A long line shows at most 5 matches; when it has more, the "
+                        "result names the skip value that shows the next ones."
                     ),
                     "parameters": {
                         "type": "object",
@@ -1455,6 +1457,15 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                             "pattern": {
                                 "type": "string",
                                 "description": "Search pattern (case-insensitive)",
+                            },
+                            "skip": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": (
+                                    "Matches to pass over in each long line, to see "
+                                    "the ones after the first 5; 0 or omitted to "
+                                    "start at the first match"
+                                ),
                             },
                         },
                         "required": ["pattern"],
@@ -1746,7 +1757,11 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 offset=args.get("offset") or 0,
             )
         elif tool_call.function.name == "grep_trace":
-            return grep_trace(spans, args.get("pattern", ""))
+            return grep_trace(
+                spans,
+                args.get("pattern", ""),
+                skip=args.get("skip") or 0,
+            )
         elif tool_call.function.name == "expand_transcript":
             return expand_transcript(
                 working_messages,
