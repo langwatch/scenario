@@ -52,7 +52,9 @@ const ENABLED =
   (AZURE || GOOGLE || Boolean(env.OPENAI_API_KEY));
 const MODEL = env.SCENARIO_JUDGE_EVAL_MODEL ?? "gpt-5-mini";
 // Comma-separated topics to run, e.g. "statue,festival in long trace"; all when unset.
-const TOPICS = env.SCENARIO_JUDGE_EVAL_TOPICS?.split(",").map((t) => t.trim());
+const TOPICS = env.SCENARIO_JUDGE_EVAL_TOPICS
+  ? env.SCENARIO_JUDGE_EVAL_TOPICS.split(",").map((t) => t.trim())
+  : undefined;
 
 // SCENARIO_JUDGE_EVAL_SDK points at another build's dist/index.js, so the
 // same cases can run against a released judge for a baseline.
@@ -88,7 +90,7 @@ QUESTIONS["merger in long trace"] = QUESTIONS["merger in trace"]!;
 QUESTIONS["festival in long trace"] = QUESTIONS["festival in trace"]!;
 QUESTIONS["festival in one-line prompt"] = QUESTIONS["festival in trace"]!;
 const unknownTopics = TOPICS?.filter((topic) => !(topic in QUESTIONS)) ?? [];
-if (unknownTopics.length > 0) {
+if (ENABLED && unknownTopics.length > 0) {
   throw new Error(
     `SCENARIO_JUDGE_EVAL_TOPICS names unknown topics: ${unknownTopics.join(", ")}`,
   );
