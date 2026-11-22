@@ -49,8 +49,9 @@ class VegetarianRecipeAgentAdapter(AgentAdapter):
 
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent")
 async def test_vegetarian_recipe_agent():
-    # No ``flaky`` marker: reruns declared on a test that
-    # pytest-asyncio-concurrent owns never happen. See test_user_is_hungry.
+    # A fixed two-turn script: a free-form 12-turn chat left the agent room to
+    # ask the third follow-up question criterion 5 forbids. No ``flaky`` marker:
+    # pytest-asyncio-concurrent owns this test, so reruns would never happen.
     result = await scenario.run(
         name="dinner idea",
         description="User is looking for a dinner idea",
@@ -67,13 +68,10 @@ async def test_vegetarian_recipe_agent():
                 ]
             ),
         ],
-        # Fixed user lines and two agent turns, as in the hungry-user test: over
-        # twelve free-form turns the agent closes with "would you like a dessert
-        # idea?" and the judge counts a third follow-up question.
         script=[
-            scenario.user("What should I make for dinner tonight?"),
+            scenario.user("What could I cook for dinner tonight?"),
             scenario.agent(),
-            scenario.user("Sounds good, can you share the full recipe?"),
+            scenario.user("Sounds good, please share the full recipe."),
             scenario.agent(),
             scenario.judge(),
         ],

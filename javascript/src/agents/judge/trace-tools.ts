@@ -17,6 +17,10 @@ const TOOL_RESULT_TOKEN_BUDGET = 4096;
 const TOOL_RESULT_CHAR_BUDGET = TOOL_RESULT_TOKEN_BUDGET * 4;
 /** Maximum number of grep matches returned. */
 const MAX_GREP_MATCHES = 20;
+/** Characters of context kept on each side of a grep match. */
+const GREP_CONTEXT_CHARS = 400;
+/** Maximum windows shown per matching line. */
+const MAX_WINDOWS_PER_LINE = 5;
 
 // ─── Internal helpers ────────────────────────────────────────────────
 
@@ -69,6 +73,67 @@ function truncateToCharBudget(text: string): string {
 }
 
 /**
+ * One page of an expand_trace result, starting at `offset` characters. The
+ * footer names the offset of the next page, so content past the budget stays
+ * reachable.
+ */
+function pageToCharBudget(text: string, offset: number): string {
+  const start = Math.max(0, Math.min(Math.floor(offset), text.length));
+  if (start === 0 && text.length <= TOOL_RESULT_CHAR_BUDGET) return text;
+  const end = Math.min(start + TOOL_RESULT_CHAR_BUDGET, text.length);
+  const header =
+    start > 0 ? `[Showing characters ${start}-${end} of ${text.length}]\n` : "";
+  const footer =
+    end < text.length
+      ? `\n\n[TRUNCATED] Showing characters ${start}-${end} of ${text.length}: ${text.length - end} more characters of these spans are not shown, so do not conclude that something is absent from them. Call expand_trace with the same span IDs and offset=${end} to read on, or grep_trace(pattern) to jump to specific content.`
+      : "";
+  return header + text.slice(start, end) + footer;
+}
+
+/**
+ * The parts of a long line around each match of `regex`, so a match deep
+ * inside one long attribute (retrieved documents serialized as one JSON
+ * value) is shown instead of being cut off by the result budget. The first
+ * `skip` matches are passed over, and a note says how to page to the rest.
+ */
+function matchWindows(line: string, regex: RegExp, skip: number): string[] {
+  if (line.length <= GREP_CONTEXT_CHARS * 2) return [line];
+  const global = new RegExp(regex.source, "gi");
+  const first = Math.max(0, Math.floor(skip));
+  const windows: string[] = [];
+  let lastEnd = -1;
+  let count = 0;
+  let next: { index: number; at: number } | undefined;
+  for (const match of line.matchAll(global)) {
+    const i = count++;
+    if (i < first || next) continue;
+    const at = match.index ?? 0;
+    if (at < lastEnd) continue;
+    if (windows.length >= MAX_WINDOWS_PER_LINE) {
+      next = { index: i, at };
+      continue;
+    }
+    const start = Math.max(0, at - GREP_CONTEXT_CHARS);
+    const end = Math.min(line.length, at + match[0].length + GREP_CONTEXT_CHARS);
+    windows.push(
+      `${start > 0 ? "..." : ""}${line.slice(start, end)}${end < line.length ? "..." : ""} [match at character ${at} of ${line.length}]`
+    );
+    lastEnd = end;
+  }
+  if (first >= count) {
+    return [
+      `[All ${count} matches in this line come before skip=${first}; call grep_trace with a lower skip to see them.]`,
+    ];
+  }
+  if (next) {
+    windows.push(
+      `[${count - next.index} more matches in this line; next at character ${next.at}. Call grep_trace again with the same pattern and skip=${next.index} to see them.]`
+    );
+  }
+  return windows;
+}
+
+/**
  * Serializes a span to a single searchable string for grep matching.
  */
 function spanToSearchableText(span: ReadableSpan): string {
@@ -104,11 +169,13 @@ function spanToSearchableText(span: ReadableSpan): string {
  *
  * @param spans - The full array of ReadableSpan objects for the trace
  * @param spanIds - Span IDs or prefixes to expand
- * @returns Formatted string with full span details, truncated to ~4096 tokens
+ * @param offset - Character offset of the page to return, for long spans
+ * @returns Formatted string with full span details, one ~4096 token page
  */
 export function expandTrace(
   spans: ReadableSpan[],
-  spanIds: string[]
+  spanIds: string[],
+  offset = 0
 ): string {
   const nodes = indexSpans(spans);
 
@@ -138,7 +205,7 @@ export function expandTrace(
     lines.push("");
   }
 
-  return truncateToCharBudget(lines.join("\n").trimEnd());
+  return pageToCharBudget(lines.join("\n").trimEnd(), offset);
 }
 
 /**
@@ -147,9 +214,14 @@ export function expandTrace(
  *
  * @param spans - The full array of ReadableSpan objects for the trace
  * @param pattern - Case-insensitive search pattern
+ * @param skip - Matches to pass over in each long line, to page past the first ones shown
  * @returns Formatted string with matches, limited to 20 results and ~4000 tokens
  */
-export function grepTrace(spans: ReadableSpan[], pattern: string): string {
+export function grepTrace(
+  spans: ReadableSpan[],
+  pattern: string,
+  skip = 0
+): string {
   const nodes = indexSpans(spans);
 
   if (nodes.length === 0) {
@@ -184,7 +256,9 @@ export function grepTrace(spans: ReadableSpan[], pattern: string): string {
       `--- [${node.shortId}] ${node.span.name} (${formatDuration(duration)}) ---`
     );
     for (const line of matchingLines) {
-      lines.push(`  ${line}`);
+      for (const window of matchWindows(line, regex, skip)) {
+        lines.push(`  ${window}`);
+      }
     }
     lines.push("");
   }
