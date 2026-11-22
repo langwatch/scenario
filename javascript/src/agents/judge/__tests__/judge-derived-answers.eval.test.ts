@@ -2,7 +2,8 @@
  * Real-model eval of the judge on numbers and derived answers.
  *
  * Binds the @integration scenarios of `specs/judge-derived-answers.feature`.
- * Opt-in: SCENARIO_JUDGE_EVAL=1 with OPENAI_API_KEY, or with
+ * Opt-in: SCENARIO_JUDGE_EVAL=1 with OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY
+ * (set SCENARIO_JUDGE_EVAL_MODEL to a Gemini model), or with
  * AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY (deployment named after the
  * model). Prints the status counts per case for before and after comparisons.
  */
@@ -10,6 +11,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
@@ -40,9 +42,13 @@ vi.mock("../../../config", () => ({
 
 const env = process.env;
 const AZURE = Boolean(env.AZURE_OPENAI_ENDPOINT && env.AZURE_OPENAI_API_KEY);
+const GOOGLE = !AZURE && Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
 const ENABLED =
-  env.SCENARIO_JUDGE_EVAL === "1" && (AZURE || Boolean(env.OPENAI_API_KEY));
+  env.SCENARIO_JUDGE_EVAL === "1" &&
+  (AZURE || GOOGLE || Boolean(env.OPENAI_API_KEY));
 const MODEL = env.SCENARIO_JUDGE_EVAL_MODEL ?? "gpt-5-mini";
+// Comma-separated topics to run, e.g. "statue,festival in long trace"; all when unset.
+const TOPICS = env.SCENARIO_JUDGE_EVAL_TOPICS?.split(",").map((t) => t.trim());
 
 // SCENARIO_JUDGE_EVAL_SDK points at another build's dist/index.js, so the
 // same cases can run against a released judge for a baseline.
@@ -51,6 +57,7 @@ const judgeAgent: typeof currentJudgeAgent = env.SCENARIO_JUDGE_EVAL_SDK
   : currentJudgeAgent;
 
 function evalModel(): LanguageModel {
+  if (GOOGLE) return createGoogleGenerativeAI()(MODEL);
   if (!AZURE) return createOpenAI()(MODEL);
   return createOpenAI({
     baseURL: `${env.AZURE_OPENAI_ENDPOINT!.replace(/\/$/, "")}/openai/v1`,
@@ -221,6 +228,7 @@ if (!ENABLED) {
           And('an agent that answers "<answer>"', () => undefined);
 
           When("gpt-5-mini delivers the verdict <runs> times", async () => {
+            if (TOPICS && !TOPICS.includes(variables.topic)) return;
             statuses = await Promise.all(
               Array.from({ length: Number(variables.runs) }, () =>
                 judgeOnce({
@@ -235,6 +243,7 @@ if (!ENABLED) {
           Then(
             "the criterion's status is <status> in at least <minimum> of the runs",
             () => {
+              if (TOPICS && !TOPICS.includes(variables.topic)) return;
               const hits = statuses.filter(
                 (s) => s === variables.status,
               ).length;

@@ -420,3 +420,29 @@ class TestGrepTracePagesThroughOneLine:
             "[All 31 matches in this line come before skip=100; call grep_trace "
             "with a lower skip to see them.]"
         ) in result
+
+
+class TestGrepTraceSkipArgument:
+    """The judge refuses a skip that is not a non-negative integer."""
+
+    def _call(self, arguments: str) -> str:
+        from scenario import JudgeAgent
+
+        tool_call = MagicMock()
+        tool_call.function.name = "grep_trace"
+        tool_call.function.arguments = arguments
+        judge = JudgeAgent(criteria=["x"], model="openai/gpt-5-mini")
+        return judge._execute_discovery_tool(  # pyright: ignore[reportPrivateUsage]
+            tool_call,
+            [_one_line_prompt_span("Sources: the Cliffside Festival needle.")],
+            [],
+        )
+
+    def test_rejects_a_skip_that_is_not_an_integer(self):
+        for bad in ('"next"', "-1", "2.5", "true"):
+            result = self._call(f'{{"pattern": "Cliffside Festival", "skip": {bad}}}')
+            assert result.startswith("Error: skip must be a non-negative integer")
+
+    def test_passes_a_valid_skip_through(self):
+        result = self._call('{"pattern": "Cliffside Festival", "skip": 30}')
+        assert "Sources: the Cliffside Festival needle." in result

@@ -1757,11 +1757,10 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 offset=args.get("offset") or 0,
             )
         elif tool_call.function.name == "grep_trace":
-            return grep_trace(
-                spans,
-                args.get("pattern", ""),
-                skip=args.get("skip") or 0,
-            )
+            skip = args.get("skip") or 0
+            if isinstance(skip, bool) or not isinstance(skip, int) or skip < 0:
+                return f"Error: skip must be a non-negative integer, got {skip!r}"
+            return grep_trace(spans, args.get("pattern", ""), skip=skip)
         elif tool_call.function.name == "expand_transcript":
             return expand_transcript(
                 working_messages,

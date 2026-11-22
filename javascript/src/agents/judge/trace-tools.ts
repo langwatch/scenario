@@ -99,24 +99,19 @@ function pageToCharBudget(text: string, offset: number): string {
 function matchWindows(line: string, regex: RegExp, skip: number): string[] {
   if (line.length <= GREP_CONTEXT_CHARS * 2) return [line];
   const global = new RegExp(regex.source, "gi");
-  const all = Array.from(line.matchAll(global));
   const first = Math.max(0, Math.floor(skip));
-  if (first >= all.length) {
-    return [
-      `[All ${all.length} matches in this line come before skip=${first}; call grep_trace with a lower skip to see them.]`,
-    ];
-  }
   const windows: string[] = [];
   let lastEnd = -1;
-  for (const [i, match] of all.entries()) {
-    if (i < first) continue;
+  let count = 0;
+  let next: { index: number; at: number } | undefined;
+  for (const match of line.matchAll(global)) {
+    const i = count++;
+    if (i < first || next) continue;
     const at = match.index ?? 0;
     if (at < lastEnd) continue;
     if (windows.length >= MAX_WINDOWS_PER_LINE) {
-      windows.push(
-        `[${all.length - i} more matches in this line; next at character ${at}. Call grep_trace again with the same pattern and skip=${i} to see them.]`
-      );
-      break;
+      next = { index: i, at };
+      continue;
     }
     const start = Math.max(0, at - GREP_CONTEXT_CHARS);
     const end = Math.min(line.length, at + match[0].length + GREP_CONTEXT_CHARS);
@@ -124,6 +119,16 @@ function matchWindows(line: string, regex: RegExp, skip: number): string[] {
       `${start > 0 ? "..." : ""}${line.slice(start, end)}${end < line.length ? "..." : ""} [match at character ${at} of ${line.length}]`
     );
     lastEnd = end;
+  }
+  if (first >= count) {
+    return [
+      `[All ${count} matches in this line come before skip=${first}; call grep_trace with a lower skip to see them.]`,
+    ];
+  }
+  if (next) {
+    windows.push(
+      `[${count - next.index} more matches in this line; next at character ${next.at}. Call grep_trace again with the same pattern and skip=${next.index} to see them.]`
+    );
   }
   return windows;
 }

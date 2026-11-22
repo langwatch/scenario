@@ -10,7 +10,7 @@ also available as standalone utilities.
 import json
 import re
 from dataclasses import dataclass
-from typing import List, NamedTuple, Sequence
+from typing import List, NamedTuple, Optional, Sequence, Tuple
 
 from opentelemetry.sdk.trace import ReadableSpan
 
@@ -72,27 +72,21 @@ def _match_windows(line: str, regex: "re.Pattern[str]", skip: int) -> List[str]:
     """
     if len(line) <= GREP_CONTEXT_CHARS * 2:
         return [line]
-    found = list(regex.finditer(line))
     first = max(0, int(skip))
-    if first >= len(found):
-        return [
-            f"[All {len(found)} matches in this line come before skip={first}; "
-            "call grep_trace with a lower skip to see them.]"
-        ]
     windows: List[str] = []
     last_end = -1
-    for i in range(first, len(found)):
-        match = found[i]
+    count = 0
+    next_match: Optional[Tuple[int, int]] = None
+    for i, match in enumerate(regex.finditer(line)):
+        count = i + 1
+        if i < first or next_match:
+            continue
         at = match.start()
         if at < last_end:
             continue
         if len(windows) >= MAX_WINDOWS_PER_LINE:
-            windows.append(
-                f"[{len(found) - i} more matches in this line; next at character "
-                f"{at}. Call grep_trace again with the same pattern and skip={i} "
-                "to see them.]"
-            )
-            break
+            next_match = (i, at)
+            continue
         start = max(0, at - GREP_CONTEXT_CHARS)
         end = min(len(line), match.end() + GREP_CONTEXT_CHARS)
         prefix = "..." if start > 0 else ""
@@ -101,6 +95,18 @@ def _match_windows(line: str, regex: "re.Pattern[str]", skip: int) -> List[str]:
             f"{prefix}{line[start:end]}{suffix} [match at character {at} of {len(line)}]"
         )
         last_end = end
+    if first >= count:
+        return [
+            f"[All {count} matches in this line come before skip={first}; "
+            "call grep_trace with a lower skip to see them.]"
+        ]
+    if next_match:
+        index, at = next_match
+        windows.append(
+            f"[{count - index} more matches in this line; next at character "
+            f"{at}. Call grep_trace again with the same pattern and skip={index} "
+            "to see them.]"
+        )
     return windows
 
 
