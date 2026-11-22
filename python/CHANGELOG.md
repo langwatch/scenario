@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/langwatch/scenario/compare/python/v1.7.0...python/v1.7.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **judge:** grep_trace pages past the first 5 matches in a long line ([#1061](https://github.com/langwatch/scenario/issues/1061)) ([e94e913](https://github.com/langwatch/scenario/commit/e94e9135f8cac6e8314372fa8a5724762cb3fa66))
+
 ## [1.7.0](https://github.com/langwatch/scenario/compare/python/v1.6.1...python/v1.7.0) (2026-11-21)
 
 
