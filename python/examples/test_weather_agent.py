@@ -113,6 +113,8 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
         tools_by_name = {tool.__name__: tool for tool in tools}
         tool_responses = []
         for tool_call in message.tool_calls:
+            if tool_call.type != "function":
+                continue
             tool_call_name = tool_call.function.name
             tool_call_args = json.loads(tool_call.function.arguments)
             if tool_call_name in tools_by_name:

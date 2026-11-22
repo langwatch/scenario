@@ -939,9 +939,10 @@ async def test_real_llm_discovery_on_nance_trace():
         # Log what tool the judge chose
         msg = response.choices[0].message  # type: ignore[reportAttributeAccessIssue]
         if msg.tool_calls:
-            tools_used = [tc.function.name for tc in msg.tool_calls]
+            function_calls = [tc for tc in msg.tool_calls if tc.type == "function"]
+            tools_used = [tc.function.name for tc in function_calls]
             entry["tools_called"] = tools_used
-            for tc in msg.tool_calls:
+            for tc in function_calls:
                 if tc.function.name in ("expand_trace", "grep_trace"):
                     entry["args"] = json.loads(tc.function.arguments)
         else:
