@@ -1827,7 +1827,11 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
             )
             message = cast(Choices, response.choices[0]).message
             call = next(
-                (tc for tc in message.tool_calls or [] if tc.function.name == "finish_test"),
+                (
+                    tc
+                    for tc in _function_tool_calls(message)
+                    if tc.function.name == "finish_test"
+                ),
                 None,
             )
             if call is None:

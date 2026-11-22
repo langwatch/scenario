@@ -135,7 +135,7 @@ constraint-dependencies = [
     "litellm>=1.100.4",  # security: litellm advisories covering <1.95.0 and 1.91.0-1.100.3, two HIGH
     "certifi>=2026.10.19",  # security: certifi advisory covering <2026.10.19
     "black>=26.10.1",  # security: black advisory covering <26.10.1
-    "opentelemetry-api>=1.45.1",  # security: opentelemetry-api advisory covering <=1.45.0
+    "opentelemetry-api>=1.45.2",  # security: opentelemetry-api advisories covering <=1.45.1
 ]
 
 
