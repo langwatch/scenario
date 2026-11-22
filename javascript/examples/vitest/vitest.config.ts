@@ -39,8 +39,10 @@ export default withScenario(
       testTimeout: 180_000, // 3 minutes
 
       // Load environment variables from .env file
-      // Required for API keys and configuration needed by AI agents
-      setupFiles: ["dotenv/config"],
+      // Required for API keys and configuration needed by AI agents.
+      // Then register the AI SDK 7 OpenTelemetry integration so agent
+      // calls emit spans the judge and LangWatch can see.
+      setupFiles: ["dotenv/config", "./tests/helpers/register-ai-telemetry.ts"],
 
       // (Optional) Use Scenario's custom reporter for better test output
       // Provides detailed information about agent interactions,

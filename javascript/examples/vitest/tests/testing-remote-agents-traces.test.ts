@@ -3,7 +3,7 @@ import { openai } from "@ai-sdk/openai";
 import scenario, { AgentRole, type AgentAdapter } from "@langwatch/scenario";
 import { context, propagation } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
-import { generateText, ModelMessage, stepCountIs, tool } from "ai";
+import { generateText, ModelMessage, isStepCount, tool } from "ai";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { z } from "zod/v4";
 
@@ -60,17 +60,12 @@ beforeAll(async () => {
           const result = await context.with(extracted, () =>
             generateText({
               model: openai("gpt-5-mini"),
-              messages: [
-                {
-                  role: "system",
-                  content:
-                    "You are an order support assistant. Use the lookup_order_status tool to check orders before answering.",
-                },
-                ...messages,
-              ],
+              instructions:
+                "You are an order support assistant. Use the lookup_order_status tool to check orders before answering.",
+              messages: messages,
               tools: { lookup_order_status: lookupOrderStatus },
-              stopWhen: stepCountIs(3),
-              experimental_telemetry: { isEnabled: true },
+              stopWhen: isStepCount(3),
+              telemetry: { isEnabled: true },
             })
           );
 

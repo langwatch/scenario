@@ -1,6 +1,6 @@
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { generateText, ToolSet, GenerateTextResult } from "ai";
+import { generateText } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
 /**
@@ -39,7 +39,7 @@ const chatAgent: AgentAdapter = {
     const response = await generateText({
       model: openai("gpt-5-mini"),
       messages: input.messages,
-      experimental_telemetry: { isEnabled: true },
+      telemetry: { isEnabled: true },
     });
     return response.text;
   },
@@ -51,7 +51,7 @@ describe("LLM Provider Mocking", () => {
     // No actual LLM call will be made
     mockGenerateText.mockResolvedValue({
       text: "I can help you with that request.",
-    } as GenerateTextResult<ToolSet, never>);
+    } as Awaited<ReturnType<typeof generateText>>);
 
     const result = await scenario.run({
       name: "llm mock test",

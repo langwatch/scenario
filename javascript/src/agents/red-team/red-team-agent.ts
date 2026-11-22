@@ -431,6 +431,9 @@ Reply with exactly this JSON and nothing else:
     const result = await generateText({
       model: this.model,
       messages: this.attackerHistory as ModelMessage[],
+      // The prompt plus [SCORE]/[BACKTRACKED]/[INJECTED] markers are timeline
+      // system turns; on turn 1 the prompt is the only message there is.
+      allowSystemInMessages: true,
       temperature: this.temperature,
       maxOutputTokens: this.maxTokens,
     });

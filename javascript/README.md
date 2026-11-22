@@ -27,6 +27,17 @@ npm install @langwatch/scenario
 yarn add @langwatch/scenario
 ```
 
+Scenario targets [AI SDK](https://ai-sdk.dev) 7 (`ai@^7`) and Node.js 22.12 or later. If your project is still on AI SDK 6, stay on `@langwatch/scenario` 1.x until you upgrade.
+
+AI SDK 7 emits no spans until a telemetry integration is registered. To let the judge and LangWatch see your agent's LLM calls, register one once at start-up (for example in a Vitest setup file):
+
+```typescript
+import { OpenTelemetry } from "@ai-sdk/otel";
+import { registerTelemetry } from "ai";
+
+registerTelemetry(new OpenTelemetry());
+```
+
 ## Quick Start
 
 Create your first scenario test in under a minute.
@@ -86,7 +97,7 @@ describe("Weather Agent", () => {
     // 1. Define the tools your agent can use
     const getCurrentWeather = tool({
       description: "Get the current weather in a given city.",
-      parameters: z.object({
+      inputSchema: z.object({
         city: z.string().describe("The city to get the weather for."),
       }),
       execute: async ({ city }) =>
@@ -100,7 +111,7 @@ describe("Weather Agent", () => {
       call: async (input) => {
         const response = await generateText({
           model: openai("gpt-4.1-mini"),
-          system: `You are a helpful assistant that may help the user with weather information.`,
+          instructions: `You are a helpful assistant that may help the user with weather information.`,
           messages: input.messages,
           tools: { get_current_weather: getCurrentWeather },
         });
@@ -113,6 +124,7 @@ describe("Weather Agent", () => {
             {
               toolCallId: toolCall.toolCallId,
               messages: input.messages,
+              context: {},
             }
           );
           return [

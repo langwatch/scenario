@@ -36,13 +36,8 @@ const imageAgent: AgentAdapter = {
   async call(input) {
     const response = await generateText({
       model: openai("gpt-4o"),
-      messages: [
-        {
-          role: "system",
-          content: `You are a helpful assistant that can describe images.`,
-        },
-        ...input.messages,
-      ],
+      instructions: `You are a helpful assistant that can describe images.`,
+      messages: input.messages,
     });
     return response.text;
   },

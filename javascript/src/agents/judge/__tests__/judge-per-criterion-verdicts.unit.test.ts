@@ -118,8 +118,7 @@ function finishTestSchema(params: InvokeLLMParams): Record<string, unknown> {
 }
 
 function systemPrompt(params: InvokeLLMParams): string {
-  const first = params.messages![0]!;
-  return typeof first.content === "string" ? first.content : "";
+  return typeof params.instructions === "string" ? params.instructions : "";
 }
 
 class ScriptedAgent extends AgentAdapter {

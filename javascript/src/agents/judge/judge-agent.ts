@@ -4,7 +4,7 @@ import {
   ToolSet,
   Tool,
   tool,
-  stepCountIs,
+  isStepCount,
   hasToolCall,
 } from "ai";
 import { z } from "zod/v4";
@@ -513,7 +513,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
   /**
    * Extract a string identifier from the configured model for substring matching.
    *
-   * `LanguageModel` is `GlobalProviderModelId | LanguageModelV3 | LanguageModelV2`.
+   * `LanguageModel` is `GlobalProviderModelId | LanguageModelV4 | LanguageModelV3 | LanguageModelV2`.
    * `GlobalProviderModelId` resolves to a string literal; provider objects expose
    * a `modelId` property. We handle both shapes.
    */
@@ -521,7 +521,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     const model = this.cfg.model;
     if (!model) return "";
     if (typeof model === "string") return model.toLowerCase();
-    // LanguageModelV3 / LanguageModelV2 objects expose `modelId`.
+    // LanguageModelV4 / V3 / V2 objects expose `modelId`.
     const obj = model as { modelId?: string; provider?: string };
     const parts = [obj.provider ?? "", obj.modelId ?? ""].filter(Boolean);
     return parts.join("/").toLowerCase();
@@ -900,10 +900,8 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
     const params: InvokeLLMParams = {
       model: mergedConfig.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: contentForJudge },
-      ],
+      instructions: systemPrompt,
+      messages: [{ role: "user", content: contentForJudge }],
       temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,
       tools,
@@ -911,7 +909,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     };
     if (isLargeTrace) {
       params.stopWhen = [
-        stepCountIs(this.maxDiscoverySteps),
+        isStepCount(this.maxDiscoverySteps),
         hasToolCall("continue_test"),
         hasToolCall("make_verdict"),
       ];
@@ -938,8 +936,8 @@ export class JudgeAgent extends JudgeAgentAdapter {
       );
       // generateText never writes back into params.messages, so the discovery
       // cycles live only on the completion steps. Recombine both before
-      // collapsing, then drop the two messages the verdict phase rebuilds by
-      // itself (the system prompt and the criteria block).
+      // collapsing, then drop the one message the verdict phase rebuilds by
+      // itself (the criteria block; the system prompt rides on instructions).
       const discoveryHistory: ModelMessage[] = [
         ...(params.messages ?? []),
         ...(completion.steps ?? []).flatMap((step) => [
@@ -948,7 +946,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       ];
       return {
         decision: "exhausted",
-        discoveryRecap: collapseDiscoveryHistory(discoveryHistory).slice(2),
+        discoveryRecap: collapseDiscoveryHistory(discoveryHistory).slice(1),
       };
     }
     return {
@@ -1092,7 +1090,6 @@ export class JudgeAgent extends JudgeAgentAdapter {
           });
 
       const messages: ModelMessage[] = [
-        { role: "system", content: systemPrompt },
         { role: "user", content: contentForJudge },
       ];
 
@@ -1135,6 +1132,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
       const params: InvokeLLMParams = {
         model: mergedConfig.model,
+        instructions: systemPrompt,
         messages,
         temperature: mergedConfig.temperature,
         maxOutputTokens: mergedConfig.maxTokens,
@@ -1146,7 +1144,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       if (isLargeTrace && !exhaustedEntry) {
         params.toolChoice = "required";
         params.stopWhen = [
-          stepCountIs(this.maxDiscoverySteps),
+          isStepCount(this.maxDiscoverySteps),
           hasToolCall("finish_test"),
           ...(waitExtensionAvailable ? [hasToolCall("wait_for_traces")] : []),
         ];
@@ -1308,10 +1306,10 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
   /**
    * True when `toolName` was called anywhere in the (possibly multi-step)
-   * completion — the aggregate `steps` array when present, else the final
-   * `toolCalls`. AI SDK v6 surfaces only the final step in
-   * `completion.toolCalls`; a terminal call earlier in the loop would be
-   * invisible there.
+   * completion — the aggregate `steps` array when present, else
+   * `toolCalls`. AI SDK 6 surfaced only the final step in
+   * `completion.toolCalls` (AI SDK 7 accumulates every step); `steps` reads
+   * the same under both.
    */
   private completionCalledTool(
     completion: InvokeLLMResult,

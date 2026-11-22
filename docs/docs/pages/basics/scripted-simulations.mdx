@@ -257,7 +257,8 @@ const script = [
     ],
   }),
 
-  // System message
+  // System message (with AI SDK 7, an agent that forwards these messages to
+  // generateText needs `allowSystemInMessages: true`)
   message({
     role: "system",
     content: "The user is now in a hurry and needs quick responses",
