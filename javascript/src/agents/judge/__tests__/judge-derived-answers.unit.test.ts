@@ -118,6 +118,15 @@ describeFeature(
           },
         );
 
+        And(
+          "its rules count a standard unit conversion as a derivation, not outside knowledge",
+          () => {
+            expect(prompt).toContain(
+              "A standard unit conversion (2 m is 6.56 ft) is such a derivation, not outside knowledge.",
+            );
+          },
+        );
+
         And("its rules still require clear evidence for a pass", () => {
           expect(prompt).toContain(
             "Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.",

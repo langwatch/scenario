@@ -10,7 +10,7 @@ also available as standalone utilities.
 import json
 import re
 from dataclasses import dataclass
-from typing import List, NamedTuple, Sequence
+from typing import List, NamedTuple, Optional, Sequence, Tuple
 
 from opentelemetry.sdk.trace import ReadableSpan
 
@@ -62,21 +62,30 @@ def _page_to_char_budget(text: str, offset: int) -> str:
     return header + text[start:end] + footer
 
 
-def _match_windows(line: str, regex: "re.Pattern[str]") -> List[str]:
+def _match_windows(line: str, regex: "re.Pattern[str]", skip: int) -> List[str]:
     """The parts of a long line around each match of ``regex``.
 
     A match deep inside one long attribute (retrieved documents serialized as
     one JSON value) is shown instead of being cut off by the result budget.
+    The first ``skip`` matches are passed over, and a note says how to page
+    to the rest.
     """
     if len(line) <= GREP_CONTEXT_CHARS * 2:
         return [line]
+    first = max(0, int(skip))
     windows: List[str] = []
     last_end = -1
-    for match in regex.finditer(line):
-        if len(windows) >= MAX_WINDOWS_PER_LINE:
-            break
+    count = 0
+    next_match: Optional[Tuple[int, int]] = None
+    for i, match in enumerate(regex.finditer(line)):
+        count = i + 1
+        if i < first or next_match:
+            continue
         at = match.start()
         if at < last_end:
+            continue
+        if len(windows) >= MAX_WINDOWS_PER_LINE:
+            next_match = (i, at)
             continue
         start = max(0, at - GREP_CONTEXT_CHARS)
         end = min(len(line), match.end() + GREP_CONTEXT_CHARS)
@@ -86,6 +95,18 @@ def _match_windows(line: str, regex: "re.Pattern[str]") -> List[str]:
             f"{prefix}{line[start:end]}{suffix} [match at character {at} of {len(line)}]"
         )
         last_end = end
+    if first >= count:
+        return [
+            f"[All {count} matches in this line come before skip={first}; "
+            "call grep_trace with a lower skip to see them.]"
+        ]
+    if next_match:
+        index, at = next_match
+        windows.append(
+            f"[{count - index} more matches in this line; next at character "
+            f"{at}. Call grep_trace again with the same pattern and skip={index} "
+            "to see them.]"
+        )
     return windows
 
 
@@ -237,7 +258,7 @@ def expand_trace(
     return _page_to_char_budget("\n".join(lines).rstrip(), offset)
 
 
-def grep_trace(spans: Sequence[ReadableSpan], pattern: str) -> str:
+def grep_trace(spans: Sequence[ReadableSpan], pattern: str, skip: int = 0) -> str:
     """
     Searches across all span attributes, events, and content for a pattern.
     Returns matching spans with their tree position and matching content.
@@ -245,6 +266,8 @@ def grep_trace(spans: Sequence[ReadableSpan], pattern: str) -> str:
     Args:
         spans: The full array of ReadableSpan objects for the trace.
         pattern: Case-insensitive search pattern.
+        skip: Matches to pass over in each long line, to page past the first
+            ones shown.
 
     Returns:
         Formatted string with matches, limited to 20 results and ~4000 tokens.
@@ -281,7 +304,7 @@ def grep_trace(spans: Sequence[ReadableSpan], pattern: str) -> str:
             f"--- [{match.span.short_id}] {match.span.span.name} ({format_duration(duration)}) ---"
         )
         for line in match.matching_lines:
-            for window in _match_windows(line, regex):
+            for window in _match_windows(line, regex, skip):
                 lines.append(f"  {window}")
         lines.append("")
 

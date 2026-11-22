@@ -219,3 +219,11 @@ Feature: Progressive trace discovery for large OTEL traces
     When expand_trace is called with the offset each page names until the span ends
     Then one of the pages holds the target sentence
     And the first page says the rest of the span is not shown yet
+
+  @unit
+  Scenario: grep_trace pages through more matches than one line shows
+    Given a span whose prompt is one JSON line where a phrase appears 30 times before the target sentence that also holds it
+    When grep_trace searches for the phrase
+    Then the result shows the first 5 matches and says how many more the line holds, where the next one sits and the skip that shows it
+    And calling grep_trace with the skip each result names reaches the target sentence
+    And every result stays within the tool budget

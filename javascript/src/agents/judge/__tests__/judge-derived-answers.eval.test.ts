@@ -2,7 +2,8 @@
  * Real-model eval of the judge on numbers and derived answers.
  *
  * Binds the @integration scenarios of `specs/judge-derived-answers.feature`.
- * Opt-in: SCENARIO_JUDGE_EVAL=1 with OPENAI_API_KEY, or with
+ * Opt-in: SCENARIO_JUDGE_EVAL=1 with OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY
+ * (with SCENARIO_JUDGE_EVAL_MODEL naming a Gemini model), or with
  * AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY (deployment named after the
  * model). Prints the status counts per case for before and after comparisons.
  */
@@ -10,12 +11,13 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import type { LanguageModel, ModelMessage } from "ai";
 import { attributes } from "langwatch/observability";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type TestContext, vi } from "vitest";
 
 import { AgentRole, type AgentInput } from "../../../domain";
 import { judgeAgent as currentJudgeAgent } from "../judge-agent";
@@ -40,9 +42,19 @@ vi.mock("../../../config", () => ({
 
 const env = process.env;
 const AZURE = Boolean(env.AZURE_OPENAI_ENDPOINT && env.AZURE_OPENAI_API_KEY);
+// Gemini runs only when no OpenAI key is set and a Gemini model is named.
+const GOOGLE =
+  !AZURE &&
+  !env.OPENAI_API_KEY &&
+  Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY && env.SCENARIO_JUDGE_EVAL_MODEL);
 const ENABLED =
-  env.SCENARIO_JUDGE_EVAL === "1" && (AZURE || Boolean(env.OPENAI_API_KEY));
+  env.SCENARIO_JUDGE_EVAL === "1" &&
+  (AZURE || GOOGLE || Boolean(env.OPENAI_API_KEY));
 const MODEL = env.SCENARIO_JUDGE_EVAL_MODEL ?? "gpt-5-mini";
+// Comma-separated topics to run, e.g. "statue,festival in long trace"; all when unset.
+const TOPICS = env.SCENARIO_JUDGE_EVAL_TOPICS
+  ? env.SCENARIO_JUDGE_EVAL_TOPICS.split(",").map((t) => t.trim())
+  : undefined;
 
 // SCENARIO_JUDGE_EVAL_SDK points at another build's dist/index.js, so the
 // same cases can run against a released judge for a baseline.
@@ -51,6 +63,7 @@ const judgeAgent: typeof currentJudgeAgent = env.SCENARIO_JUDGE_EVAL_SDK
   : currentJudgeAgent;
 
 function evalModel(): LanguageModel {
+  if (GOOGLE) return createGoogleGenerativeAI()(MODEL);
   if (!AZURE) return createOpenAI()(MODEL);
   return createOpenAI({
     baseURL: `${env.AZURE_OPENAI_ENDPOINT!.replace(/\/$/, "")}/openai/v1`,
@@ -70,9 +83,18 @@ const QUESTIONS: Record<string, string> = {
     "How many years passed between the founding of Norvik Shipping and its merger with its rival?",
   "festival in trace":
     "In which year did the Cliffside Festival's attendance record fall?",
+  statue:
+    "According to the article: 'The bronze statue in the harbour stands 2 m tall.' How tall is the statue in feet?",
 };
 QUESTIONS["merger in long trace"] = QUESTIONS["merger in trace"]!;
 QUESTIONS["festival in long trace"] = QUESTIONS["festival in trace"]!;
+QUESTIONS["festival in one-line prompt"] = QUESTIONS["festival in trace"]!;
+const unknownTopics = TOPICS?.filter((topic) => !(topic in QUESTIONS)) ?? [];
+if (ENABLED && unknownTopics.length > 0) {
+  throw new Error(
+    `SCENARIO_JUDGE_EVAL_TOPICS names unknown topics: ${unknownTopics.join(", ")}`,
+  );
+}
 
 /** Retrieved articles, recorded as a retrieval span the judge reads. */
 const DOCUMENTS: Record<string, string> = {
@@ -94,6 +116,28 @@ DOCUMENTS["merger in long trace"] = longDocuments(
   DOCUMENTS["merger in trace"]!,
 );
 DOCUMENTS["festival in long trace"] = longDocuments(
+  DOCUMENTS["festival in trace"]!,
+);
+
+/**
+ * A prompt on one JSON line where the festival's name appears 30 times in an
+ * entities block before the source that holds the answer.
+ */
+function entitiesBeforeSource(article: string): string {
+  const entity = JSON.stringify({
+    name: "Cliffside Festival",
+    type: "event",
+    summary:
+      "The Cliffside Festival is a summer music event on the north coast. Visitors ask every year when its attendance record will fall. ".repeat(
+        8,
+      ),
+  });
+  return JSON.stringify({
+    entities: Array.from({ length: 30 }, () => entity).join(","),
+    sources: article,
+  });
+}
+DOCUMENTS["festival in one-line prompt"] = entitiesBeforeSource(
   DOCUMENTS["festival in trace"]!,
 );
 
@@ -195,7 +239,8 @@ if (!ENABLED) {
           And('the criterion "<criterion>"', () => undefined);
           And('an agent that answers "<answer>"', () => undefined);
 
-          When("gpt-5-mini delivers the verdict <runs> times", async () => {
+          When("gpt-5-mini delivers the verdict <runs> times", async (ctx: TestContext) => {
+            if (TOPICS && !TOPICS.includes(variables.topic)) ctx.skip();
             statuses = await Promise.all(
               Array.from({ length: Number(variables.runs) }, () =>
                 judgeOnce({
@@ -209,7 +254,8 @@ if (!ENABLED) {
 
           Then(
             "the criterion's status is <status> in at least <minimum> of the runs",
-            () => {
+            (ctx: TestContext) => {
+              if (TOPICS && !TOPICS.includes(variables.topic)) ctx.skip();
               const hits = statuses.filter(
                 (s) => s === variables.status,
               ).length;
