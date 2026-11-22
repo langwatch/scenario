@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langwatch-scenario"
-version = "1.6.0"
+version = "1.7.1"
 description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [{ name = "LangWatch Team", email = "support@langwatch.ai" }]
@@ -42,7 +42,7 @@ dependencies = [
     # Floor 1.0: the first langwatch that imports pandas-free. Older versions
     # pull pandas in at module load through langwatch.evaluations, which
     # breaks installs without the [report] extra.
-    "langwatch>=1.0.0,<2",
+    "langwatch>=1.0.0,<3",
     "opentelemetry-sdk>=1.20.0",
     # Voice agent support (issue #350). Hard deps: voice is first-class.
     # imageio-ffmpeg bundles the ffmpeg binary (not ffplay) for audio
@@ -78,6 +78,7 @@ dev = [
     "function-schema",
     "pdoc3",
     "respx",
+    "aiohttp",
 ]
 # Install with `pip install 'langwatch-scenario[report]'` to use
 # `scenario redteam-report`.
@@ -127,6 +128,7 @@ dev = [
     "pytest-asyncio-concurrent>=0.4.1",
     "pdoc3>=0.11.6",
     "respx>=0.22.0",
+    "aiohttp>=3.9",
     # Guard the suite against individual hangs — any test taking longer
     # than `timeout` in pytest.ini_options below fails fast instead of
     # pinning the CI runner. Set per-test; global suite has no limit.
