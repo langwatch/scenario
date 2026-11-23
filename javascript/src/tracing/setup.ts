@@ -1,8 +1,8 @@
 import { trace } from "@opentelemetry/api";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { LangWatchTraceExporter } from "langwatch/observability";
-import { setupObservability } from "langwatch/observability/node";
 import type { SetupObservabilityOptions } from "langwatch/observability/node";
+import { setupNodeObservability } from "./node-observability";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getEnv } from "../config";
 
@@ -167,7 +167,7 @@ function initializeFullSetup(
     spanProcessors.push(...options.spanProcessors);
   }
 
-  setupObservability({
+  setupNodeObservability({
     ...options,
     langwatch:
       options?.langwatch ?? {

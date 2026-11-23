@@ -2,7 +2,9 @@ import { ModelMessage } from "ai";
 import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
+import type { AgentStreamWriter } from "./types/agent-stream.types";
 export * from "./types/agent-return.types";
+export * from "./types/agent-stream.types";
 export * from "./connected-agent.types";
 export {
   isRealtimeUserAgent,
@@ -93,6 +95,12 @@ export interface AgentInput {
    * ```
    */
   propagationHeaders?: Record<string, string>;
+  /**
+   * Live progress for this call, set only when the run sends granular events
+   * and this agent plays the user or the agent under test. See
+   * {@link AgentStreamWriter}; what `call()` returns stays authoritative.
+   */
+  stream?: AgentStreamWriter;
   /**
    * The current state of the scenario execution.
    */

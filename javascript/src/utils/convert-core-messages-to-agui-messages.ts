@@ -126,6 +126,19 @@ export function convertModelMessagesToAguiMessages(
 }
 
 /**
+ * How many AG-UI rows {@link convertModelMessagesToAguiMessages} makes of one
+ * message, without converting it: one per tool result for a tool message, one
+ * for every other role. Lets a caller find a row's index in the flattened list
+ * without converting (and WAV-wrapping the audio of) the whole conversation.
+ */
+export function countAguiRows(message: ModelMessage): number {
+  if (message.role !== "tool") return 1;
+  return message.content.filter(
+    (p) => !("type" in p) || p.type === "tool-result"
+  ).length;
+}
+
+/**
  * Normalise an AI-SDK content-part array for AG-UI transport.
  *
  * - Translates AI-SDK `file`+`audio/*` parts to OpenAI Realtime `input_audio`

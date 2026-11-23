@@ -24,8 +24,8 @@ vi.mock("@opentelemetry/api", () => ({
   },
 }));
 
-vi.mock("langwatch/observability/node", () => ({
-  setupObservability: (...args: unknown[]) => mockSetupObservability(...args),
+vi.mock("../node-observability", () => ({
+  setupNodeObservability: (...args: unknown[]) => mockSetupObservability(...args),
 }));
 
 vi.mock("langwatch/observability", () => ({
@@ -174,7 +174,7 @@ describe("setup", () => {
       it("wraps user-provided traceExporter in SimpleSpanProcessor", () => {
         const customExporter = { export: vi.fn(), shutdown: vi.fn() };
 
-        setupScenarioTracing({ traceExporter: customExporter as any });
+        setupScenarioTracing({ traceExporter: customExporter });
 
         // judgeSpanCollector + user traceExporter wrapped + LangWatch exporter
         expect(mockAddSpanProcessor).toHaveBeenCalledTimes(3);

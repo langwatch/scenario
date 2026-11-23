@@ -17,6 +17,12 @@ export enum ScenarioEventType {
   RUN_STARTED = "SCENARIO_RUN_STARTED",
   RUN_FINISHED = "SCENARIO_RUN_FINISHED",
   MESSAGE_SNAPSHOT = "SCENARIO_MESSAGE_SNAPSHOT",
+  TEXT_MESSAGE_START = "SCENARIO_TEXT_MESSAGE_START",
+  TEXT_MESSAGE_END = "SCENARIO_TEXT_MESSAGE_END",
+  TEXT_MESSAGE_CONTENT = "SCENARIO_TEXT_MESSAGE_CONTENT",
+  TOOL_CALL_START = "SCENARIO_TOOL_CALL_START",
+  TOOL_CALL_ARGS = "SCENARIO_TOOL_CALL_ARGS",
+  TOOL_CALL_END = "SCENARIO_TOOL_CALL_END",
 }
 
 export enum ScenarioRunStatus {
@@ -199,6 +205,68 @@ export const scenarioMessageSnapshotSchema = MessagesSnapshotEventSchema.merge(
 );
 
 /**
+ * Scenario Text Message Start Event Schema
+ * Emitted when a message begins (placeholder). Persisted via event-sourcing.
+ */
+export const scenarioTextMessageStartSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TEXT_MESSAGE_START),
+  messageId: z.string(),
+  role: z.string(),
+  messageIndex: z.number().optional(),
+});
+
+/**
+ * Scenario Text Message End Event Schema
+ * Emitted when a message is complete with full content. Persisted via event-sourcing.
+ */
+export const scenarioTextMessageEndSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TEXT_MESSAGE_END),
+  messageId: z.string(),
+  role: z.string(),
+  content: z.string().optional(),
+  message: z.record(z.unknown()).optional(),
+  traceId: z.string().optional(),
+  messageIndex: z.number().optional(),
+});
+
+/**
+ * Scenario Text Message Content Event Schema (broadcast only)
+ * Streaming delta for real-time UX, not persisted.
+ */
+export const scenarioTextMessageContentSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TEXT_MESSAGE_CONTENT),
+  messageId: z.string(),
+  delta: z.string(),
+});
+
+/**
+ * Scenario Tool Call Start Event Schema (broadcast only)
+ */
+export const scenarioToolCallStartSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TOOL_CALL_START),
+  toolCallId: z.string(),
+  toolCallName: z.string(),
+  parentMessageId: z.string().optional(),
+});
+
+/**
+ * Scenario Tool Call Args Event Schema (broadcast only)
+ */
+export const scenarioToolCallArgsSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TOOL_CALL_ARGS),
+  toolCallId: z.string(),
+  delta: z.string(),
+});
+
+/**
+ * Scenario Tool Call End Event Schema (broadcast only)
+ */
+export const scenarioToolCallEndSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TOOL_CALL_END),
+  toolCallId: z.string(),
+});
+
+/**
  * Scenario Event Union Schema
  * Discriminated union of all possible scenario event types.
  * Enables type-safe handling of different event types based on the 'type' field.
@@ -207,6 +275,12 @@ export const scenarioEventSchema = z.discriminatedUnion("type", [
   scenarioRunStartedSchema,
   scenarioRunFinishedSchema,
   scenarioMessageSnapshotSchema,
+  scenarioTextMessageStartSchema,
+  scenarioTextMessageEndSchema,
+  scenarioTextMessageContentSchema,
+  scenarioToolCallStartSchema,
+  scenarioToolCallArgsSchema,
+  scenarioToolCallEndSchema,
 ]);
 
 export type ScenarioRunStartedEvent = z.infer<typeof scenarioRunStartedSchema>;
@@ -216,7 +290,39 @@ export type ScenarioRunFinishedEvent = z.infer<
 export type ScenarioMessageSnapshotEvent = z.infer<
   typeof scenarioMessageSnapshotSchema
 >;
+export type ScenarioTextMessageStartEvent = z.infer<
+  typeof scenarioTextMessageStartSchema
+>;
+export type ScenarioTextMessageEndEvent = z.infer<
+  typeof scenarioTextMessageEndSchema
+>;
+export type ScenarioTextMessageContentEvent = z.infer<
+  typeof scenarioTextMessageContentSchema
+>;
+export type ScenarioToolCallStartEvent = z.infer<
+  typeof scenarioToolCallStartSchema
+>;
+export type ScenarioToolCallArgsEvent = z.infer<
+  typeof scenarioToolCallArgsSchema
+>;
+export type ScenarioToolCallEndEvent = z.infer<
+  typeof scenarioToolCallEndSchema
+>;
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
+
+/**
+ * Events the platform only broadcasts to a watching browser and never
+ * stores. Losing one costs a moment of live progress, which the message's
+ * TEXT_MESSAGE_END replaces, so delivery tries each of them once.
+ */
+export function isBroadcastOnlyEvent(event: ScenarioEvent): boolean {
+  return (
+    event.type === ScenarioEventType.TEXT_MESSAGE_CONTENT ||
+    event.type === ScenarioEventType.TOOL_CALL_START ||
+    event.type === ScenarioEventType.TOOL_CALL_ARGS ||
+    event.type === ScenarioEventType.TOOL_CALL_END
+  );
+}
 
 // Define response schemas
 const successSchema = z.object({ success: z.boolean() });
