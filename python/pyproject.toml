@@ -9,13 +9,12 @@ description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [{ name = "LangWatch Team", email = "support@langwatch.ai" }]
 license = { text = "Apache-2.0" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
@@ -110,20 +109,13 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 constraint-dependencies = [
     "urllib3>=2.8.0",  # security: urllib3 advisories covering <2.8.0
     "python-liquid>=2.2.1",
-    "filelock>=3.20.3",
-    # filelock 4.2.1 fixes the advisories covering 3.20.4-4.2.0 but needs Python 3.11, and on 3.10
-    # virtualenv 21.14.9 (itself a security floor) needs filelock>=3.24.2, so 3.10 stays exposed (#1029).
-    "filelock>=4.2.1; python_full_version >= '3.11'",
-    "filelock<3.30; python_full_version < '3.11'",  # 3.30 and later add advisories with no 3.10 fix
-    "virtualenv>=21.14.9",  # security: virtualenv advisories covering <21.14.9
+    "filelock>=4.2.1",  # security: filelock advisories covering <=4.2.0
+    "virtualenv>=21.14.13",  # security: virtualenv advisories covering <21.14.13
     "fsspec>=2026.6.0",  # security: fsspec advisory covering <2026.6.0
     "mako>=1.4.2",  # security: Mako advisory covering <=1.4.1
     "multidict>=6.9.1",  # security: multidict advisory covering 6.7.0-6.9.0
     "pydantic-ai-slim>=1.107.7",  # security: pydantic-ai advisories fixed on the 1.x line up to 1.107.7
-    "pillow>=12.3.0",  # security: pillow advisories fixed up to 12.3.0
-    # Pillow 13.0.0 and streamlit 1.66.1 (the first to allow it) need Python 3.11;
-    # Python 3.10 has no patched Pillow for the advisories covering <13.0.0.
-    "pillow>=13.0.0; python_full_version >= '3.11'",
+    "pillow>=13.0.0",  # security: Pillow advisories covering <13.0.0
     "gitpython>=3.2.1",  # security: GitPython advisories covering <=3.2.0
     "pyasn1>=0.6.5",  # security: pyasn1 advisories (#534, #535) and four HIGH quadratic decoding ones fixed in 0.6.5
     "aiohttp>=3.14.4",  # security: aiohttp advisories (#594-#596, and three covering <=3.14.3)
