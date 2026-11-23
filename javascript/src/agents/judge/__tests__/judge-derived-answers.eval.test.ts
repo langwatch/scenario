@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import type { LanguageModel, ModelMessage } from "ai";
 import { attributes } from "langwatch/observability";
 import { describe, expect, it, type TestContext, vi } from "vitest";
