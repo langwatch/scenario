@@ -319,6 +319,8 @@ class TwilioWebhookServer:
             # ``adapter._call_generation`` and this socket becomes stale.
             my_generation = adapter._call_generation
             adapter._stream_ws = ws
+            if adapter._speech_gate is not None:
+                adapter._speech_gate.reset()
             adapter._stream_ended = False
             adapter._stream_ended_reason = "none"
             while not adapter._inbound_queue.empty():
@@ -383,21 +385,26 @@ class TwilioWebhookServer:
             """
             nonlocal last_bg_turn_ctx
             assert adapter._inbound_queue is not None
-            parent = adapter._voice_turn_context
-            if parent is None or parent is last_bg_turn_ctx:
-                await adapter._inbound_queue.put(AudioChunk(data=pcm))
-                return
-            last_bg_turn_ctx = parent
-            with voice_span(
-                "voice.audio.receive",
-                {
-                    "voice.adapter.class": type(adapter).__name__,
-                    "voice.twilio.recv.source": "background_loop",
-                    "voice.audio.bytes": len(pcm),
-                },
-                parent=parent,
-            ):
-                await adapter._inbound_queue.put(AudioChunk(data=pcm))
+            chunk = AudioChunk(data=pcm)
+            admitted = (
+                adapter._speech_gate.admit(chunk) if adapter._speech_gate else [chunk]
+            )
+            for chunk in admitted:
+                parent = adapter._voice_turn_context
+                if parent is None or parent is last_bg_turn_ctx:
+                    await adapter._inbound_queue.put(chunk)
+                    continue
+                last_bg_turn_ctx = parent
+                with voice_span(
+                    "voice.audio.receive",
+                    {
+                        "voice.adapter.class": type(adapter).__name__,
+                        "voice.twilio.recv.source": "background_loop",
+                        "voice.audio.bytes": len(chunk.data),
+                    },
+                    parent=parent,
+                ):
+                    await adapter._inbound_queue.put(chunk)
 
         # Deferred import, matching this module's ``run_stream_session``
         # pattern of keeping fastapi out of import-time dependencies.
@@ -550,5 +557,7 @@ class TwilioWebhookServer:
                 # anything else so the watchdog can never hang up a LATER call.
                 adapter._cancel_max_duration_timer()
                 adapter._stream_ended = True
+                if adapter._speech_gate is not None:
+                    adapter._speech_gate.reset()
                 if adapter._inbound_queue is not None:
                     await adapter._inbound_queue.put(AudioChunk(data=b""))

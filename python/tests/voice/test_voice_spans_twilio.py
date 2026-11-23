@@ -317,7 +317,7 @@ async def test_t1_regression_call_emits_turn_send_receive_with_twilio_class():
 
     # One real agent-audio media frame >= the 800-byte batch threshold, so it
     # flushes into the inbound queue immediately — deterministic, no sleep-race.
-    ws.push(build_media_frame(STREAM_SID, bytes([0x7F]) * 800))
+    ws.push(build_media_frame(STREAM_SID, bytes([0x90]) * 800))
     await asyncio.sleep(0.05)  # let the loop task drain the pushed frame
 
     user_audio = AudioChunk(data=b"\x00\x00" * 1200)
@@ -390,9 +390,9 @@ async def test_t3_disconnect_carries_frame_and_dtmf_counters_and_stop_reason(
 
     frames = [
         _start_frame(),
-        build_media_frame(STREAM_SID, bytes([0x7F]) * 160),
-        build_media_frame(STREAM_SID, bytes([0x7F]) * 160),
-        build_media_frame(STREAM_SID, bytes([0x7F]) * 160),
+        build_media_frame(STREAM_SID, bytes([0x90]) * 160),
+        build_media_frame(STREAM_SID, bytes([0x90]) * 160),
+        build_media_frame(STREAM_SID, bytes([0x90]) * 160),
         _dtmf_frame("1"),
         _dtmf_frame("5"),
         _stop_frame(),
@@ -607,7 +607,7 @@ async def test_t3_disconnect_reflects_the_actual_stream_close_not_a_pre_teardown
         # Three individually-flushing media frames — NO stop frame. The
         # stream is still LIVE when teardown begins below.
         for _ in range(3):
-            await client.send(build_media_frame(STREAM_SID, bytes([0x7F]) * 800))
+            await client.send(build_media_frame(STREAM_SID, bytes([0x90]) * 800))
         # Poll for the REAL server-side loop to actually decode+enqueue what
         # was sent over the wire (real TCP, not an in-process queue) — avoids
         # a flaky blind sleep.
@@ -849,7 +849,7 @@ async def test_t10_voice_span_count_invariant_to_frame_count(monkeypatch):
         frames = (
             [_start_frame()]
             + [
-                build_media_frame(STREAM_SID, bytes([0x7F]) * 160)
+                build_media_frame(STREAM_SID, bytes([0x90]) * 160)
                 for _ in range(n_frames)
             ]
             + [_stop_frame()]
@@ -910,7 +910,7 @@ async def test_t11a_background_receive_span_parented_to_turn():
 
     # Push ONE agent-audio frame, THEN IMMEDIATELY start the turn — see the
     # ordering-trick note above.
-    ws.push(build_media_frame(STREAM_SID, bytes([0x7F]) * 800))
+    ws.push(build_media_frame(STREAM_SID, bytes([0x90]) * 800))
     user_audio = AudioChunk(data=b"\x00\x00" * 1200)
     await drive_call(adapter, make_agent_input(user_audio))
 
@@ -948,7 +948,7 @@ async def test_t11b_one_background_span_per_turn_not_per_frame():
     await asyncio.wait_for(adapter._stream_connected.wait(), timeout=2.0)
 
     for _ in range(3):  # three 800-byte (individually-flushing) frames, one turn
-        ws.push(build_media_frame(STREAM_SID, bytes([0x7F]) * 800))
+        ws.push(build_media_frame(STREAM_SID, bytes([0x90]) * 800))
     user_audio = AudioChunk(data=b"\x00\x00" * 1200)
     await drive_call(adapter, make_agent_input(user_audio))
 
@@ -989,7 +989,7 @@ async def test_t11c_prebuffered_turn_has_base_span_but_no_background_marker():
     assert adapter._stream_connected is not None
     await asyncio.wait_for(adapter._stream_connected.wait(), timeout=2.0)
 
-    ws.push(build_media_frame(STREAM_SID, bytes([0x7F]) * 800))
+    ws.push(build_media_frame(STREAM_SID, bytes([0x90]) * 800))
     await asyncio.sleep(0.05)  # let the loop decode+enqueue with NO turn live
 
     user_audio = AudioChunk(data=b"\x00\x00" * 1200)
@@ -1037,7 +1037,7 @@ async def test_t11d_regression_no_background_span_between_turns():
 
     # No call() in flight -> _voice_turn_context is None -> the loop buffers
     # the decoded chunk but must emit no span.
-    ws.push(build_media_frame(STREAM_SID, bytes([0x7F]) * 800))
+    ws.push(build_media_frame(STREAM_SID, bytes([0x90]) * 800))
     await asyncio.sleep(0.05)  # let the background loop process the frame
 
     ws.push(_stop_frame())

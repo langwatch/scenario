@@ -25,8 +25,7 @@
  * The terminal sentinel (an empty chunk) is always passed through untouched;
  * it is the media loop's end-of-call signal, not audio.
  *
- * Python parity: none yet — `python/scenario/voice/adapters/_twilio_server.py`
- * has the same gap; tracked as a follow-up issue.
+ * Python counterpart: `python/scenario/voice/adapters/_twilio_speech_gate.py`.
  */
 
 import { AudioChunk } from "../audio-chunk";

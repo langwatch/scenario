@@ -44,6 +44,7 @@ from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 from .._telemetry import set_span_attributes, voice_span
+from ._twilio_speech_gate import TwilioSpeechGate, TwilioSpeechGateOptions
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
     TunnelNotReadyError,
@@ -169,6 +170,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
     ``interrupt(after_words=N)`` raises ``UnsupportedCapabilityError`` on this
     adapter — Media Streams delivers raw audio without incremental
     transcripts. Use ``interrupt(after=seconds)`` instead.
+
+    Inbound speech is energy-gated with 300 ms pre-roll and 400 ms hangover.
+    Pass ``speech_gate=TwilioSpeechGateOptions(...)`` to tune the gate, or
+    ``speech_gate=False`` to deliver every media batch including silence.
     """
 
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
@@ -198,6 +203,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         http_port: int = 8765,
         role: AgentRole = AgentRole.AGENT,
         validate_signature: bool = True,
+        speech_gate: TwilioSpeechGateOptions | Literal[False] | None = None,
     ) -> None:
         super().__init__()
         validate_e164(phone_number)
@@ -235,6 +241,9 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # ``validate_signature=False``; production callers should leave
         # it on.
         self.validate_signature = validate_signature
+        self._speech_gate = (
+            None if speech_gate is False else TwilioSpeechGate(speech_gate)
+        )
         if not validate_signature:
             logger.warning(
                 "TwilioAgentAdapter: validate_signature=False — inbound "
@@ -372,6 +381,8 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_ended_reason = "none"
         self._webhook_invocations = 0
         self._webhook_rejected = 0
+        if self._speech_gate is not None:
+            self._speech_gate.reset_counters()
         self._stream_nonce = None
         self._cancel_max_duration_timer()
         # Fresh connection lifecycle — bump the generation so any socket left
@@ -469,6 +480,16 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 "voice.twilio.webhook_invocations": self._webhook_invocations,
                 "voice.twilio.webhook_rejected": self._webhook_rejected,
                 "voice.twilio.rest_restore_failed": rest_restore_failed,
+                "voice.twilio.speech_gate.enabled": self._speech_gate is not None,
+                "voice.twilio.speech_gate.dropped_chunks": (
+                    self._speech_gate.dropped_chunks if self._speech_gate else 0
+                ),
+                "voice.twilio.speech_gate.dropped_ms": (
+                    round(self._speech_gate.dropped_ms) if self._speech_gate else 0
+                ),
+                "voice.twilio.speech_gate.onsets": (
+                    self._speech_gate.onsets if self._speech_gate else 0
+                ),
             },
         )
 
@@ -501,6 +522,8 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_ended_reason = "none"
         self._webhook_invocations = 0
         self._webhook_rejected = 0
+        if self._speech_gate is not None:
+            self._speech_gate.reset_counters()
 
     # ------------------------------------------------------------------ direction
 
@@ -540,6 +563,8 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_ended = False
         self._stream_ended_reason = "none"
         self._frames_received = 0
+        if self._speech_gate is not None:
+            self._speech_gate.reset()
 
     async def place_call(
         self,
