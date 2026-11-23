@@ -74,7 +74,7 @@ class _EchoUser(AgentAdapter):
 
 
 class _MeetingPoint:
-    """Python 3.10-compatible stand-in for ``asyncio.Barrier(parties)``.
+    """Barrier like ``asyncio.Barrier(parties)`` that gives up after a timeout.
 
     Each ``wait()`` call bumps the counter and blocks until the
     expected number of parties have arrived, then releases them all.
