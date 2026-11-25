@@ -1,6 +1,7 @@
 // THIS FILE IS SYNCED FROM langwatch-saas/langwatch/langwatch/src/app/api/scenario-events/[[...route]]/schemas/event-schemas.ts AND enums.ts
 // DO NOT EDIT MANUALLY. Edit the backend source of truth and sync.
-import { EventType, MessagesSnapshotEventSchema } from "@ag-ui/core";
+import { EventType } from "@ag-ui/core";
+import { MessagesSnapshotEventSchema } from "@ag-ui/core/schemas";
 import { z } from "zod";
 
 /**
