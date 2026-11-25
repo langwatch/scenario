@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.2](https://github.com/langwatch/scenario/compare/javascript/v1.8.1...javascript/v1.8.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* make red-team tests work on a fresh install and on gpt-6 models, move the repository to gpt-6-luna ([#1039](https://github.com/langwatch/scenario/issues/1039)) ([28da17f](https://github.com/langwatch/scenario/commit/28da17fedb6752a75a6ec9f10322fc34dd73432b))
+* **security:** close 314 of 324 JS alerts across the scenario workspaces ([#873](https://github.com/langwatch/scenario/issues/873)) ([316cf06](https://github.com/langwatch/scenario/commit/316cf0633a7deb4ffb4281921290db225123f382))
+
+
+### Documentation
+
+* dompurify 3.4.17 (one CRITICAL, one HIGH, one LOW covering ([316cf06](https://github.com/langwatch/scenario/commit/316cf0633a7deb4ffb4281921290db225123f382))
+
 ## [1.8.1](https://github.com/langwatch/scenario/compare/javascript/v1.8.0...javascript/v1.8.1) (2026-11-22)
 
 
