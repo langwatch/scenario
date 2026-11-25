@@ -767,3 +767,27 @@ async def test_ac5b_stt_bridge_judge_invokes_transcribe_segments():
         mock_ts.assert_called_once_with(recording)
     finally:
         context_scenario.reset(token)
+
+
+def test_judge_agent_explicit_zero_temperature_overrides_model_config():
+    """An explicit temperature=0.0 wins over the ModelConfig temperature."""
+    ScenarioConfig.default_config = ScenarioConfig(
+        default_model=ModelConfig(model="openai/gpt-4", temperature=0.7)
+    )
+    try:
+        assert JudgeAgent(criteria=["x"], temperature=0.0).temperature == 0.0
+        # Not passed: the ModelConfig value is still used
+        assert JudgeAgent(criteria=["x"]).temperature == 0.7
+    finally:
+        ScenarioConfig.default_config = None
+
+
+def test_judge_agent_default_temperature_is_zero_without_config_value():
+    ScenarioConfig.default_config = ScenarioConfig(
+        default_model=ModelConfig(model="openai/gpt-4")
+    )
+    try:
+        assert JudgeAgent(criteria=["x"]).temperature == 0.0
+    finally:
+        ScenarioConfig.default_config = None
+    assert JudgeAgent(criteria=["x"], model="openai/gpt-4").temperature == 0.0
