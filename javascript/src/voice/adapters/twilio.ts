@@ -264,6 +264,27 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   private _maxDurationGeneration = 0;
   private _maxDurationTimeout: ReturnType<typeof setTimeout> | null = null;
   private _streamConnected = makeDeferred<void>();
+  /**
+   * True from the moment a-leg `placeCall` originates the call until its
+   * stream-connected wait settles (resolves, times out, or throws).
+   * `expectStream` checks this because `_mode` alone cannot: `_mode` stays
+   * `"call"` for the rest of the adapter's life once a dial completes, so it
+   * cannot tell "mid-dial" from "dialed an hour ago". Without this guard,
+   * `expectStream` during an in-flight dial would reset the nonce/callSid the
+   * dial is still waiting on and silently retarget the dial's own abandon
+   * path at whatever call `expectStream` just armed.
+   */
+  private _aLegDialInFlight = false;
+  /**
+   * True once `expectStream` has armed the per-frame gate and nothing has
+   * since superseded it. A b-leg or originator-only `placeCall` must not
+   * clobber an active arming — unlike an a-leg `placeCall`, which may
+   * legitimately supersede it (same eviction rule as an already-adopted
+   * socket). Cleared by `_resetConnectionStateForDial` (whatever supersedes the
+   * arming) and by `disconnect()` (so a stale arming from a prior
+   * connection never blocks a later one).
+   */
+  private _expectStreamArmed = false;
   private _inboundQueue: InboundQueue = new InboundQueue();
   // Sits between the media loop and `_inboundQueue` (see `_enqueueInbound`).
   // `null` when constructed with `speechGate: false`. Per-call state is reset
@@ -495,6 +516,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._callSid = undefined;
     this._streamWs = null;
     this._streamNonce = undefined;
+    this._expectStreamArmed = false;
     this._cancelMaxDurationTimer();
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
@@ -599,29 +621,55 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       );
     }
 
-    // Guardrail (c), second half: a-leg hands Twilio our public URL and Twilio
-    // opens the media socket against it seconds later. Probe the edge AFTER the
-    // free local checks above and BEFORE origination, so an unreachable tunnel
-    // is a named error instead of a billed call that dies in a stream-connect
-    // timeout.
-    if (mode === "a-leg") {
-      await this._assertTunnelReady();
+    // `_aLegDialInFlight` covers this ENTIRE a-leg dial, from here to the end
+    // of this function — not just the stream-connected wait below. It is how
+    // `expectStream` tells "this dial's abandon path is still live" from
+    // "this adapter dialed, once, a while ago" — `_mode` cannot, since it
+    // stays `"call"` long after the dial settles. Set before the tunnel probe
+    // (not after): an `expectStream` racing in during that probe, or during
+    // origination itself, must see the same guard as one racing in during the
+    // stream-connected wait below — all three windows corrupt the same dial
+    // state the same way.
+    if (mode !== "a-leg" && this._expectStreamArmed) {
+      throw new Error(
+        "TwilioAgentAdapter: expectStream has armed this adapter's stream gate; " +
+          "a b-leg or originator-only placeCall would silently clobber it. Only " +
+          "an a-leg placeCall may supersede an expectStream arming.",
+      );
     }
+    if (mode === "a-leg") {
+      if (this._aLegDialInFlight) {
+        throw new Error(
+          "TwilioAgentAdapter: an a-leg placeCall is already in flight on this " +
+            "adapter; wait for it to settle before dialing again.",
+        );
+      }
+      this._aLegDialInFlight = true;
+    }
+    try {
+      // Guardrail (c), second half: a-leg hands Twilio our public URL and Twilio
+      // opens the media socket against it seconds later. Probe the edge AFTER the
+      // free local checks above and BEFORE origination, so an unreachable tunnel
+      // is a named error instead of a billed call that dies in a stream-connect
+      // timeout.
+      if (mode === "a-leg") {
+        await this._assertTunnelReady();
+      }
 
-    // NEW `voice.adapter.dial` span (#775 Tier 2a): self-instrumented, since
-    // no executor span is active by the time placeCall()/waitForCall() run
-    // (the `voice.adapter.connect` span already closed). Wraps the REST dial
-    // + the stream-connected wait — the "I placed the call but no media ever
-    // streamed" failure surface.
-    await voiceSpan(
-      "voice.adapter.dial",
-      {
-        "voice.adapter.class": this.constructor.name,
-        "voice.twilio.direction": "outbound",
-        "voice.twilio.to": redactE164(args.to),
-        "voice.twilio.from": redactE164(this.phoneNumber),
-      },
-      async (span) => {
+      // NEW `voice.adapter.dial` span (#775 Tier 2a): self-instrumented, since
+      // no executor span is active by the time placeCall()/waitForCall() run
+      // (the `voice.adapter.connect` span already closed). Wraps the REST dial
+      // + the stream-connected wait — the "I placed the call but no media ever
+      // streamed" failure surface.
+      await voiceSpan(
+        "voice.adapter.dial",
+        {
+          "voice.adapter.class": this.constructor.name,
+          "voice.twilio.direction": "outbound",
+          "voice.twilio.to": redactE164(args.to),
+          "voice.twilio.from": redactE164(this.phoneNumber),
+        },
+        async (span) => {
         // #762 P1: bump the call generation and reset per-dial connection state
         // BEFORE originating, so a socket that adopted un-gated before this dial
         // is evicted and cannot resolve the stream-connected wait below.
@@ -711,6 +759,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         }
       },
     );
+    } finally {
+      if (mode === "a-leg") this._aLegDialInFlight = false;
+    }
   }
 
   /**
@@ -848,6 +899,80 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       );
     }
     this._mode = mode;
+  }
+
+  /**
+   * Arm the a-leg nonce/callSid gate (#762 guardrail (a), `twilio-server.ts`'s
+   * `authenticate`) without placing an outbound call (#1002 slice 3).
+   *
+   * Worker-side dial: a parent process originates the call with its OWN
+   * adapter (`placeCall`) and hands the nonce + callSid it minted to a
+   * DIFFERENT pod that owns the media-stream socket this call will connect
+   * to. That pod never dials, so it has no `placeCall` to arm enforcement —
+   * this is the arming primitive for it, carrying the SAME security
+   * guarantee: until a `start` frame presents the matching nonce and callSid,
+   * every frame is dropped exactly as it is today.
+   *
+   * The dialing adapter (the `placeCall` side above) must itself own the
+   * media-stream socket for `attachStream: "a-leg"` to work end to end:
+   * `placeCall` waits on ITS OWN stream-connected signal, which only its own
+   * adopted socket resolves. A socket adopted by a DIFFERENT adapter (the one
+   * that called `expectStream`) resolves that adapter's signal, not the
+   * dialer's — the dialer still times out and `_abandonOriginatedCall` hangs
+   * up the call it placed. Tracked as a real gap, not yet fixed:
+   * https://github.com/langwatch/scenario/issues/1046.
+   *
+   * Resets connection state the same way a dial does (`_resetConnectionStateForDial`),
+   * so a socket already adopted un-gated — before this call expected anything
+   * — is evicted rather than grandfathered in, the same CWE-306 arming-race
+   * guard `placeCall`/`waitForCall` rely on.
+   *
+   * Reserves `"call"` mode first, same as `placeCall`'s a-leg path: without
+   * it, `_mode` stays `"idle"` and a later `waitForCall()` on this same
+   * adapter would pass its own mode check and reset away the socket this
+   * just armed.
+   *
+   * Refuses while an a-leg `placeCall` dial on this adapter is still waiting
+   * on its own stream: that dial's abandon-on-timeout path reads `_callSid`
+   * after the wait, so resetting it here would redirect that dial's REST
+   * hangup at whatever call `expectStream` just armed instead of its own.
+   *
+   * Calling this after a-leg `placeCall` has connected also replaces the live
+   * transport. The reset clears the adopted socket, which closes on its next
+   * frame and ends that call's media stream.
+   *
+   * @param args.nonce - Nonce the `start` frame must present; rejected if empty.
+   * @param args.callSid - Call SID the `start` frame must present; rejected if empty.
+   * @throws Error if `connect()` has not completed, if an a-leg dial on this
+   *   adapter is still awaiting its stream, if `nonce` is empty (an empty
+   *   nonce would otherwise leave the per-frame gate unarmed and fail open),
+   *   or if `callSid` is empty.
+   * @example
+   * ```ts
+   * adapter.expectStream({ nonce: mintedNonce, callSid: originatedCallSid });
+   * ```
+   */
+  expectStream(args: { nonce: string; callSid: string }): void {
+    this._assertConnected();
+    if (this._aLegDialInFlight) {
+      throw new Error(
+        "TwilioAgentAdapter: expectStream called while this adapter's own " +
+          "a-leg placeCall is still waiting for its stream to connect; " +
+          "resetting connection state now would redirect that dial's " +
+          "timeout/abandon path at the wrong call.",
+      );
+    }
+    if (!args.nonce) {
+      throw new Error("TwilioAgentAdapter: expectStream requires a non-empty nonce");
+    }
+    if (!args.callSid) {
+      throw new Error("TwilioAgentAdapter: expectStream requires a non-empty callSid");
+    }
+    this._enterMode("call");
+    this._resetConnectionStateForDial();
+    this._streamNonce = args.nonce;
+    this._callSid = args.callSid;
+    this._expectStreamArmed = true;
   }
 
   // ------------------------------------------------------- max call duration
@@ -1248,6 +1373,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * the genuine one arrives, so it adopts under the current generation.
    */
   _resetConnectionStateForDial(): void {
+    this._expectStreamArmed = false;
     this._callGeneration += 1;
     this._streamWs = null;
     this._streamSid = undefined;
