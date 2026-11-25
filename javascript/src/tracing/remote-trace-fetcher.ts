@@ -1,5 +1,5 @@
 import type { Attributes } from "@opentelemetry/api";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import type { ModelMessage } from "ai";
 import { attributes } from "langwatch/observability";
 import {

@@ -1,5 +1,5 @@
 import { trace } from "@opentelemetry/api";
-import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace";
 import { LangWatchTraceExporter } from "langwatch/observability";
 import { setupObservability } from "langwatch/observability/node";
 import type { SetupObservabilityOptions } from "langwatch/observability/node";
@@ -122,7 +122,7 @@ export function ensureTracingInitialized(
  */
 function attachToExistingProvider(
   // Use `any` for the processor parameter to avoid version conflicts between
-  // @opentelemetry/sdk-trace-base versions that pnpm may resolve differently
+  // @opentelemetry/sdk-trace versions that pnpm may resolve differently
   // for this package vs the langwatch SDK. The types are structurally identical.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   provider: { addSpanProcessor: (processor: any) => void },
@@ -138,7 +138,7 @@ function attachToExistingProvider(
 
   if (options?.traceExporter) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    provider.addSpanProcessor(new SimpleSpanProcessor(options.traceExporter as any));
+    provider.addSpanProcessor(new SimpleSpanProcessor({ exporter: options.traceExporter as any }));
   }
 
   const envConfig = getEnv();
@@ -148,7 +148,7 @@ function attachToExistingProvider(
       endpoint: envConfig.LANGWATCH_ENDPOINT,
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    provider.addSpanProcessor(new SimpleSpanProcessor(exporter as any));
+    provider.addSpanProcessor(new SimpleSpanProcessor({ exporter: exporter as any }));
   }
 }
 

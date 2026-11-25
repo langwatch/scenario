@@ -19,11 +19,7 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { context, propagation, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 import { ModelMessage } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
@@ -266,7 +262,7 @@ const feature = await loadFeature(FEATURE_PATH);
 describeFeature(
   feature,
   ({ Background, Scenario, AfterEachScenario }) => {
-    let provider: NodeTracerProvider | undefined;
+    let provider: TracerProvider | undefined;
 
     AfterEachScenario(async () => {
       if (provider) {
@@ -300,14 +296,8 @@ describeFeature(
 
         Given("a scenario turn is in progress", () => {
           const exporter = new InMemorySpanExporter();
-          provider = new NodeTracerProvider({
-            // Multiple @opentelemetry/sdk-trace-base copies coexist in the
-            // tree; cast to the type the provider expects.
-            spanProcessors: [
-              new SimpleSpanProcessor(exporter),
-            ] as unknown as NonNullable<
-              ConstructorParameters<typeof NodeTracerProvider>[0]
-            >["spanProcessors"],
+          provider = new TracerProvider({
+            spanProcessors: [new SimpleSpanProcessor({ exporter })],
           });
           trace.setGlobalTracerProvider(provider);
           propagation.setGlobalPropagator(new W3CTraceContextPropagator());

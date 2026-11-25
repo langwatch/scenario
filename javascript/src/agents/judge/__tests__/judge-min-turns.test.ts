@@ -14,7 +14,7 @@
  * execution/__tests__/min-turns-judge-floor.test.ts.
  */
 
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import { describe, it, expect, vi } from "vitest";
 import { AgentInput, AgentRole } from "../../../domain";
 import { InvokeLLMParams, InvokeLLMResult } from "../../types";

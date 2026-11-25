@@ -13,13 +13,7 @@
  */
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-  type SpanProcessor,
-  type ReadableSpan,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { InMemorySpanExporter, SimpleSpanProcessor, type SpanProcessor, type ReadableSpan, TracerProvider } from "@opentelemetry/sdk-trace";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Register a context manager ONCE so context.with propagates across awaits — our
@@ -90,12 +84,12 @@ function byName(spans: ReadableSpan[]): Record<string, ReadableSpan> {
 
 describe("voice.* span instrumentation (base runtime)", () => {
   let exporter: InMemorySpanExporter;
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
 
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
-    provider = new NodeTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter })],
     });
     trace.setGlobalTracerProvider(provider);
   });
@@ -192,7 +186,7 @@ describe("voice.* span instrumentation (base runtime)", () => {
     }
     await provider.shutdown();
     trace.disable(); // clear the set-once guard so the BoomProcessor provider REALLY registers
-    provider = new NodeTracerProvider({ spanProcessors: [new BoomProcessor()] });
+    provider = new TracerProvider({ spanProcessors: [new BoomProcessor()] });
     trace.setGlobalTracerProvider(provider);
 
     // A processor whose onEnd throws does NOT break the turn — call() resolves.
