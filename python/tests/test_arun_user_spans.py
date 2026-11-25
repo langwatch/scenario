@@ -56,7 +56,7 @@ def in_memory_exporter():
 
 
 class _MeetingPoint:
-    """Python 3.10-compatible stand-in for ``asyncio.Barrier(parties)``."""
+    """Barrier like ``asyncio.Barrier(parties)`` that gives up after a timeout."""
 
     def __init__(self, parties: int):
         self._parties = parties

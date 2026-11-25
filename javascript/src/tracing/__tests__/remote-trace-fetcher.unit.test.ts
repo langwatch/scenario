@@ -511,7 +511,7 @@ describe("RemoteTraceFetcher", () => {
 
       await expect(
         fetcher.settleWait({ ...target(collector), timeoutMs: 50 })
-      ).resolves.toEqual({ allSettled: false });
+      ).resolves.toEqual({ allSettled: false, unconfirmed: false });
 
       // The failing poll is retried instead of terminally failing the trace
       // on its first error, and the deadline records the last reason.

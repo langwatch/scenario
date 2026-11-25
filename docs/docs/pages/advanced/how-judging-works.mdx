@@ -129,7 +129,7 @@ The judge then gets two additional tools to drill into the trace on demand:
 
 **`expand_trace`** -- Expand one or more spans by ID (or 8-character prefix) to see full attributes, events, and content. The judge calls this when it needs to inspect a specific span in detail, for example to read the prompt sent to an LLM or the output of a tool call.
 
-**`grep_trace`** -- Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with context, limited to 20 matches. This is useful when the judge needs to find a specific keyword, API endpoint, or error message across a large trace without expanding every span individually.
+**`grep_trace`** -- Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with context, limited to 20 matches. A long line, such as a whole prompt serialized as one JSON value, shows at most 5 matches; the result then says how many more the line holds and the `skip` value that shows the next ones. This is useful when the judge needs to find a specific keyword, API endpoint, or error message across a large trace without expanding every span individually.
 
 The judge can call these tools multiple times in a loop before answering — in the decision phase before choosing `continue_test` or `make_verdict`, and in the verdict phase before `finish_test`. This keeps the initial context compact while allowing deep inspection when needed.
 

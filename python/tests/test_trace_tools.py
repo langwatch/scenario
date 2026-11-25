@@ -1,5 +1,7 @@
 """Tests for trace_tools module (expand_trace and grep_trace)."""
 
+import json
+import re
 from unittest.mock import MagicMock
 
 from opentelemetry.trace import StatusCode
@@ -310,3 +312,137 @@ class TestGrepTraceEmpty:
     def test_returns_no_spans_message(self) -> None:
         result = grep_trace([], "anything")
         assert result == "No spans recorded."
+
+
+def _long_retrieval_span(needle: str):
+    filler = "The regional council discussed road maintenance budgets. "
+    documents = (
+        filler * (30_000 // len(filler) + 1)
+        + needle
+        + " "
+        + filler * (10_000 // len(filler) + 1)
+    )
+    return create_mock_span(
+        span_id=0xA1B2C3D4E5F60718,
+        name="retrieve_documents",
+        start_time=1700000000_000_000_000,
+        end_time=1700000000_300_000_000,
+        attributes={"retrieval.documents": documents},
+    )
+
+
+class TestLongSpans:
+    """A passage deep inside a 40k-character span stays reachable."""
+
+    NEEDLE = "The attendance record fell on its 21st anniversary."
+
+    def test_grep_returns_the_text_around_a_match_deep_in_a_long_value(self):
+        result = grep_trace([_long_retrieval_span(self.NEEDLE)], "21st anniversary")
+        assert self.NEEDLE in result
+        assert "[match at character" in result
+        assert len(result) < 4_000
+
+    def test_expand_pages_through_a_long_span(self):
+        spans = [_long_retrieval_span(self.NEEDLE)]
+        pages = []
+        offset = 0
+        for _ in range(10):
+            page = expand_trace(spans, ["a1b2c3d4"], offset=offset)
+            pages.append(page)
+            marker = "offset="
+            if marker not in page:
+                break
+            offset = int(page.rsplit(marker, 1)[1].split(" ")[0])
+        assert len(pages) > 1
+        assert any(self.NEEDLE in page for page in pages)
+        assert "[Showing characters" in pages[1]
+
+    def test_first_page_alone_does_not_hold_the_needle(self):
+        page = expand_trace([_long_retrieval_span(self.NEEDLE)], ["a1b2c3d4"])
+        assert self.NEEDLE not in page
+        assert "do not conclude that something is absent" in page
+
+
+def _one_line_prompt_span(needle: str):
+    filler = "The regional council discussed road maintenance budgets. "
+    entity = json.dumps(
+        {"name": "Cliffside Festival", "type": "event", "note": filler * 16}
+    )
+    prompt = json.dumps({"entities": ",".join([entity] * 30), "sources": needle})
+    return create_mock_span(
+        span_id=0xA1B2C3D4E5F60718,
+        name="llm.call",
+        start_time=1700000000_000_000_000,
+        end_time=1700000000_300_000_000,
+        attributes={"gen_ai.prompt": prompt},
+    )
+
+
+class TestGrepTracePagesThroughOneLine:
+    """A phrase repeated 30 times on one line stays reachable past the first 5."""
+
+    NEEDLE = (
+        "Sources: the Cliffside Festival attendance record fell on its "
+        "21st anniversary."
+    )
+
+    def test_says_how_many_matches_were_cut_and_the_skip_to_see_them(self):
+        result = grep_trace([_one_line_prompt_span(self.NEEDLE)], "Cliffside Festival")
+        assert self.NEEDLE not in result
+        assert result.count("[match at character") == 5
+        assert re.search(
+            r"\[26 more matches in this line; next at character \d+\. Call "
+            r"grep_trace again with the same pattern and skip=5 to see them\.\]",
+            result,
+        )
+
+    def test_reaches_the_match_after_them_by_following_the_skip(self):
+        spans = [_one_line_prompt_span(self.NEEDLE)]
+        pages = []
+        skip = 0
+        for _ in range(10):
+            page = grep_trace(spans, "Cliffside Festival", skip=skip)
+            pages.append(page)
+            assert len(page) < 4096 * 4
+            found = re.search(r"skip=(\d+) to see them", page)
+            if not found:
+                break
+            skip = int(found.group(1))
+        assert len(pages) == 7
+        assert self.NEEDLE in pages[-1]
+        assert not any(self.NEEDLE in page for page in pages[:-1])
+
+    def test_says_when_skip_passes_every_match_in_the_line(self):
+        result = grep_trace(
+            [_one_line_prompt_span(self.NEEDLE)], "Cliffside Festival", skip=100
+        )
+        assert (
+            "[All 31 matches in this line come before skip=100; call grep_trace "
+            "with a lower skip to see them.]"
+        ) in result
+
+
+class TestGrepTraceSkipArgument:
+    """The judge refuses a skip that is not a non-negative integer."""
+
+    def _call(self, arguments: str) -> str:
+        from scenario import JudgeAgent
+
+        tool_call = MagicMock()
+        tool_call.function.name = "grep_trace"
+        tool_call.function.arguments = arguments
+        judge = JudgeAgent(criteria=["x"], model="openai/gpt-5-mini")
+        return judge._execute_discovery_tool(  # pyright: ignore[reportPrivateUsage]
+            tool_call,
+            [_one_line_prompt_span("Sources: the Cliffside Festival needle.")],
+            [],
+        )
+
+    def test_rejects_a_skip_that_is_not_an_integer(self):
+        for bad in ('"next"', "-1", "2.5", "true"):
+            result = self._call(f'{{"pattern": "Cliffside Festival", "skip": {bad}}}')
+            assert result.startswith("Error: skip must be a non-negative integer")
+
+    def test_passes_a_valid_skip_through(self):
+        result = self._call('{"pattern": "Cliffside Festival", "skip": 30}')
+        assert "Sources: the Cliffside Festival needle." in result

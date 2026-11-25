@@ -16,6 +16,11 @@ from typing import Any, List, Optional, Sequence, Union, cast
 import litellm
 from litellm import Choices
 from litellm.files.main import ModelResponse
+from litellm.types.utils import (
+    ChatCompletionMessageCustomToolCall,
+    ChatCompletionMessageToolCall,
+    Message,
+)
 from openai.types.chat import ChatCompletionMessageParam
 
 from scenario.cache import scenario_cache
@@ -26,6 +31,8 @@ from ._error_messages import agent_not_configured_error_message
 from ._utils.provider_compat import ProviderCompat
 from ._judge import JudgeUtils, judge_span_digest_formatter
 from ._judge.criterion_verdicts import (
+    merge_criteria_answers,
+    unanswered_criteria,
     PER_CRITERION_RULES,
     build_finish_test_tool,
     parse_criterion_verdicts,
@@ -84,6 +91,20 @@ DECISION_PHASE_RULE = (
 personas still drive the argument-free decision tools correctly."""
 
 
+_MISSING_VERDICT_PROMPT = (
+    "Your finish_test call did not give a usable verdict for the criteria "
+    "below. Call finish_test again with a requirement, a reasoning and a "
+    "status for every criterion. Pass criteria as an object keyed by "
+    "criterion, not as a string."
+)
+"""Re-asks the criteria a finish_test call left without a verdict. The JS
+SDK uses the same text; keep them in sync."""
+
+
+def _build_criteria_list(criteria: Sequence[str]) -> str:
+    return "\n".join(f"{idx + 1}. {criterion}" for idx, criterion in enumerate(criteria))
+
+
 REMOTE_TRACES_DECISION_RULE = (
     "The agent's execution traces are fetched and verified at the verdict, "
     "after the conversation ends; they are not part of this decision. Do not "
@@ -134,13 +155,23 @@ def _build_wait_for_traces_tool() -> dict:
     }
 
 
+def _function_tool_calls(message: Message) -> List[ChatCompletionMessageToolCall]:
+    """The function tool calls on a completion message. The judge only offers
+    function tools, so a custom tool call never answers one of them."""
+    return [
+        tc
+        for tc in (message.tool_calls or [])
+        if not isinstance(tc, ChatCompletionMessageCustomToolCall)
+    ]
+
+
 def _response_called_wait_for_traces(response: ModelResponse) -> bool:
     """True when the completion called the wait_for_traces tool."""
     if not hasattr(response, "choices") or len(response.choices) == 0:
         return False
     message = cast(Choices, response.choices[0]).message
     return any(
-        tc.function.name == "wait_for_traces" for tc in (message.tool_calls or [])
+        tc.function.name == "wait_for_traces" for tc in _function_tool_calls(message)
     )
 
 
@@ -927,14 +958,14 @@ Your goal is to decide if the conversation has collected enough information to e
                     f"Unexpected response format from LLM: {response.__repr__()}"
                 )
             message = cast(Choices, response.choices[0]).message
-            if not message.tool_calls:
+            if not _function_tool_calls(message):
                 raise Exception(
                     f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
                 )
             terminal_call = next(
                 (
                     tc
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                     if tc.function.name in _DECISION_TOOL_NAMES
                 ),
                 None,
@@ -960,10 +991,10 @@ Your goal is to decide if the conversation has collected enough information to e
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                 ],
             })
-            for tc in message.tool_calls:
+            for tc in _function_tool_calls(message):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -991,21 +1022,21 @@ Your goal is to decide if the conversation has collected enough information to e
                 f"Unexpected response format from LLM: {response.__repr__()}"
             )
         message = cast(Choices, response.choices[0]).message
-        if not message.tool_calls:
+        if not _function_tool_calls(message):
             raise Exception(
                 f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
             )
         terminal_call = next(
             (
                 tc
-                for tc in message.tool_calls
+                for tc in _function_tool_calls(message)
                 if tc.function.name in _DECISION_TOOL_NAMES
             ),
             None,
         )
         if terminal_call is None:
             raise Exception(
-                f"Invalid tool call from judge agent: {message.tool_calls[0].function.name}"
+                f"Invalid tool call from judge agent: {_function_tool_calls(message)[0].function.name}"
             )
         return (
             "continue"
@@ -1140,7 +1171,7 @@ Your goal is to deliver the final verdict of the scenario below with the finish_
 
 <rules>
 - Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
-- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary. Recomputing a number or following a derivation that a criterion depends on is not an extra judgment call.
 {per_criterion_rules}{remote_traces_rule}
 </rules>
 """
@@ -1372,7 +1403,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
         if is_large_trace:
             digest = (
                 judge_span_digest_formatter.format_structure_only(spans)
-                + "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
+                + "\n\nOnly the span structure is shown above, not the span contents. Before judging a criterion that depends on what a span holds, read it: grep_trace(pattern) finds text anywhere in the spans, even deep inside long values, and expand_trace(span_id) shows a span's details one page at a time. Content you have not read is missing evidence, never evidence that something is absent. Reference spans by the ID shown in brackets."
             )
         else:
             digest = full_digest
@@ -1402,7 +1433,9 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                     "description": (
                         "Expand one or more spans to see their full details "
                         "(attributes, events, content). Use the span ID shown "
-                        "in brackets in the trace skeleton."
+                        "in brackets in the trace skeleton. Long output comes in "
+                        "pages: pass the offset named at the end of a page to "
+                        "read the next one."
                     ),
                     "parameters": {
                         "type": "object",
@@ -1411,6 +1444,11 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": "Span IDs (or 8-char prefixes) to expand",
+                            },
+                            "offset": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Character offset of the page to read; 0 or omitted for the first page",
                             },
                         },
                         "required": ["span_ids"],
@@ -1424,7 +1462,10 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                     "name": "grep_trace",
                     "description": (
                         "Search across all span attributes, events, and content "
-                        "for a pattern (case-insensitive). Returns matching spans with context."
+                        "for a pattern (case-insensitive). Returns matching spans "
+                        "with the text around each match, even deep inside long values. "
+                        "A long line shows at most 5 matches; when it has more, the "
+                        "result names the skip value that shows the next ones."
                     ),
                     "parameters": {
                         "type": "object",
@@ -1432,6 +1473,15 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                             "pattern": {
                                 "type": "string",
                                 "description": "Search pattern (case-insensitive)",
+                            },
+                            "skip": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": (
+                                    "Matches to pass over in each long line, to see "
+                                    "the ones after the first 5; 0 or omitted to "
+                                    "start at the first match"
+                                ),
                             },
                         },
                         "required": ["pattern"],
@@ -1562,7 +1612,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 )
 
             message = cast(Choices, response.choices[0]).message
-            if not message.tool_calls:
+            if not _function_tool_calls(message):
                 # No tool calls - try to parse as a response
                 return self._parse_response(
                     response,
@@ -1573,7 +1623,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 )
 
             if wait_tool_offered and any(
-                tc.function.name == "wait_for_traces" for tc in message.tool_calls
+                tc.function.name == "wait_for_traces" for tc in _function_tool_calls(message)
             ):
                 # The extra wait rebuilds the whole phase: the caller
                 # settle-waits once more and re-enters with a fresh digest
@@ -1581,7 +1631,7 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                 return _WAIT_FOR_TRACES_REQUESTED
 
             terminal_call = next(
-                (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
+                (tc for tc in _function_tool_calls(message) if tc.function.name == "finish_test"),
                 None,
             )
             if terminal_call:
@@ -1607,11 +1657,11 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                 ],
             })
 
-            for tc in message.tool_calls:
+            for tc in _function_tool_calls(message):
                 tool_result = self._execute_discovery_tool(tc, spans, working_messages)
                 messages.append({
                     "role": "tool",
@@ -1720,9 +1770,13 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
             return expand_trace(
                 spans,
                 span_ids=args.get("span_ids", []),
+                offset=args.get("offset") or 0,
             )
         elif tool_call.function.name == "grep_trace":
-            return grep_trace(spans, args.get("pattern", ""))
+            skip = args.get("skip") or 0
+            if isinstance(skip, bool) or not isinstance(skip, int) or skip < 0:
+                return f"Error: skip must be a non-negative integer, got {skip!r}"
+            return grep_trace(spans, args.get("pattern", ""), skip=skip)
         elif tool_call.function.name == "expand_transcript":
             return expand_transcript(
                 working_messages,
@@ -1732,6 +1786,64 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
             return grep_transcript(working_messages, args.get("pattern", ""))
         else:
             return f"Unknown tool: {tool_call.function.name}"
+
+    def _reask_unanswered(
+        self,
+        *,
+        messages: List[dict],
+        args: dict,
+        missing: List[str],
+        effective_criteria: List[str],
+    ) -> Optional[dict]:
+        """Asks once more, pinned to finish_test, for the criteria a verdict
+        left without a readable answer (left out, or malformed). Returns the
+        new criteria answers, or None when the re-ask gave nothing usable;
+        whatever is still missing then fails closed."""
+        logger.warning(
+            "finish_test left criteria without a verdict; asking once more: %s",
+            missing,
+        )
+        try:
+            response = self._completion(
+                model=self.model,
+                messages=[
+                    *messages,
+                    {
+                        "role": "assistant",
+                        "content": f"My finish_test call: {json.dumps(args)}",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{_MISSING_VERDICT_PROMPT}\n"
+                        + _build_criteria_list(missing),
+                    },
+                ],
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=[build_finish_test_tool(effective_criteria)],
+                tool_choice={"type": "function", "function": {"name": "finish_test"}},
+                **self._extra_params,
+            )
+            message = cast(Choices, response.choices[0]).message
+            call = next(
+                (
+                    tc
+                    for tc in _function_tool_calls(message)
+                    if tc.function.name == "finish_test"
+                ),
+                None,
+            )
+            if call is None:
+                return None
+            answers = json.loads(call.function.arguments).get("criteria")
+            if isinstance(answers, str):
+                answers = json.loads(answers)
+            return answers if isinstance(answers, dict) else None
+        except Exception as error:  # noqa: BLE001 - the first verdict stands
+            logger.warning("Re-asking the missing criteria failed: %s", error)
+            return None
 
     def _parse_response(
         self,
@@ -1763,17 +1875,17 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
 
         message = cast(Choices, response.choices[0]).message
 
-        if not message.tool_calls:
+        if not _function_tool_calls(message):
             raise Exception(
                 f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
             )
 
         # In multi-step mode, find the terminal tool call
         terminal_call = next(
-            (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
+            (tc for tc in _function_tool_calls(message) if tc.function.name == "finish_test"),
             None,
         )
-        tool_call = terminal_call or message.tool_calls[0]
+        tool_call = terminal_call or _function_tool_calls(message)[0]
 
         if tool_call.function.name == "finish_test":
             try:
@@ -1794,6 +1906,17 @@ mark a criterion inconclusive when the conversation ended before the evidence fo
                     criteria_answers = json.loads(criteria_answers)
                 except (json.JSONDecodeError, ValueError):
                     criteria_answers = None  # unparseable, handled below
+
+            missing = unanswered_criteria(effective_criteria, criteria_answers)
+            if missing:
+                retry_answers = self._reask_unanswered(
+                    messages=messages, args=args, missing=missing,
+                    effective_criteria=effective_criteria,
+                )
+                if retry_answers is not None:
+                    criteria_answers = merge_criteria_answers(
+                        criteria_answers, retry_answers
+                    )
 
             # If the criteria payload is not a usable object, no per-criterion
             # verdict can be trusted. Surface it as an explicit, fail-closed

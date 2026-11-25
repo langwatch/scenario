@@ -4,4 +4,5 @@ export * from "./user-simulator-agent";
 export * from "./realtime";
 export * from "./claude-code";
 export * from "./connected-agent";
+export * from "./a2a-agent";
 export * from "./red-team";

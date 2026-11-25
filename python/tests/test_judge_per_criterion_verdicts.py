@@ -12,6 +12,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from litellm import ModelResponse
+from litellm.types.utils import (
+    ChatCompletionCustomToolCallPayload,
+    ChatCompletionMessageCustomToolCall,
+)
 
 from scenario import JudgeAgent, UserSimulatorAgent, agent, judge, user
 from scenario._events import ScenarioEvent, ScenarioEventBus, ScenarioRunFinishedEvent
@@ -192,14 +196,75 @@ async def test_run_passes_only_when_every_criterion_passed():
 @pytest.mark.asyncio
 async def test_a_criterion_the_judge_left_out_fails_closed():
     """@scenario A criterion the judge left out fails closed"""
-    result, _ = await _call_judge(
+    result, calls = await _call_judge(
         [_finish_with(["passed", None])],
         _agent_input(judgment_request=JudgmentRequest()),
     )
 
+    assert len(calls) == 2
     assert result.success is False
     assert result.failed_criteria == [CRITERIA[1]]
     assert result.criteria[1].status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_a_criterion_left_out_of_the_verdict_is_asked_once_more():
+    """@scenario A criterion left out of the verdict is asked once more"""
+    result, calls = await _call_judge(
+        [_finish_with(["passed", None]), _finish_with(["failed", "passed"])],
+        _agent_input(judgment_request=JudgmentRequest()),
+    )
+
+    assert len(calls) == 2
+    assert calls[1]["tool_choice"] == {"type": "function", "function": {"name": "finish_test"}}
+    last = calls[1]["messages"][-1]
+    assert last["role"] == "user"
+    assert f"1. {CRITERIA[1]}" in last["content"]
+    assert CRITERIA[0] not in last["content"]
+    assert [c.status for c in result.criteria] == ["passed", "passed"]
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_the_asked_again_verdict_skips_custom_tool_calls():
+    """A custom tool call next to finish_test in the asked-again reply is skipped."""
+    answer = _finish_with(["failed", "passed"])
+    answer.choices[0].message.tool_calls.insert(
+        0,
+        ChatCompletionMessageCustomToolCall(
+            id="custom-1",
+            type="custom",
+            custom=ChatCompletionCustomToolCallPayload(
+                name="finish_test", input="not a function call"
+            ),
+        ),
+    )
+    result, calls = await _call_judge(
+        [_finish_with(["passed", None]), answer],
+        _agent_input(judgment_request=JudgmentRequest()),
+    )
+
+    assert len(calls) == 2
+    assert [c.status for c in result.criteria] == ["passed", "passed"]
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_a_verdict_that_sends_the_criteria_object_as_a_json_string_is_read():
+    """@scenario A verdict that sends the criteria object as a JSON string is read"""
+    answer = json.loads(
+        _finish_with(["passed", "failed"]).choices[0].message.tool_calls[0].function.arguments
+    )
+    stringified = _tool_response(
+        "finish_test", {**answer, "criteria": json.dumps(answer["criteria"])}
+    )
+    result, calls = await _call_judge(
+        [stringified], _agent_input(judgment_request=JudgmentRequest())
+    )
+
+    assert [c.status for c in result.criteria] == ["passed", "failed"]
+    assert result.criteria[0].reasoning == "Reasoning 1"
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio

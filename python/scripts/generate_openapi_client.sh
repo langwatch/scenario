@@ -5,7 +5,8 @@
 # 1. Generates the OpenAPI client using openapi-python-client
 # 2. Adds generated code markers and headers
 # 3. Updates documentation
-# 4. Installs the generated client
+# 4. Adds security floors to the generated manifest
+# 5. Installs the generated client
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
@@ -81,6 +82,32 @@ EOF
     mv "$temp_file" "$file_path"
 }
 
+# Floors for httpx's transitive dependencies, which the generator does not
+# write. Dependabot reads the generated pyproject.toml as its own manifest and
+# alerts on what it resolves there, so the floors live in the manifest too.
+# Keep them in step with constraint-dependencies in python/pyproject.toml.
+SECURITY_FLOORS=(
+    'certifi = ">=2026.10.18"'
+    'anyio = ">=4.14.2"'
+)
+
+add_security_floors() {
+    local pyproject_path="$1"
+    local temp_file="${pyproject_path}.tmp"
+
+    log_info "Adding security floors to the generated manifest..."
+
+    awk -v floors="$(printf '%s\n' "${SECURITY_FLOORS[@]}")" '
+        { print }
+        /^python-dateutil = / {
+            print "# Security floors for httpx'"'"'s transitive dependencies, added by"
+            print "# scripts/generate_openapi_client.sh after each regeneration."
+            printf "%s\n", floors
+        }
+    ' "$pyproject_path" > "$temp_file"
+    mv "$temp_file" "$pyproject_path"
+}
+
 update_readme() {
     local readme_path="$1"
     local temp_file="${readme_path}.tmp"
@@ -141,6 +168,11 @@ main() {
     local readme_file="${CLIENT_DIR}/README.md"
     if [[ -f "$readme_file" ]]; then
         update_readme "$readme_file"
+    fi
+
+    local pyproject_file="${CLIENT_DIR}/pyproject.toml"
+    if [[ -f "$pyproject_file" ]]; then
+        add_security_floors "$pyproject_file"
     fi
 
     # Install the generated client
