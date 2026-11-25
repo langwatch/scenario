@@ -49,7 +49,7 @@ import { openai } from "@ai-sdk/openai";
 export default defineConfig({
   // Set a default model provider for all agents
   defaultModel: {
-    model: openai("gpt-4.1-mini"),
+    model: openai("gpt-6-luna"),
     temperature: 0.1, // Optional, defaults to 0.0
     maxTokens: 1000, // Optional
   },
@@ -82,7 +82,7 @@ import scenario
 
 # Set global defaults for all scenarios
 scenario.configure(
-    default_model="openai/gpt-4.1-mini",
+    default_model="openai/gpt-6-luna",
     max_turns=15,
     verbose=True,
     debug=False,
@@ -121,7 +121,7 @@ import scenario
 
 scenario.configure(
     default_model=ModelConfig(
-        model="openai/gpt-4o",
+        model="openai/gpt-6-luna",
         temperature=0.0,
         timeout=60,
         headers={"X-Custom-Header": "value"},

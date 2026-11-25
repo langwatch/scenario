@@ -12,7 +12,10 @@ import type { InvokeLLMParams } from "./types";
  * - `dropTemperature`: newer models refuse any temperature (Claude Sonnet 5)
  *   or any value but the default (GPT-5.5). The call is re-sent without it.
  *
- * The Python SDK recognises the same rejections; keep them in sync.
+ * The Python SDK recognises the same rejections; keep them in sync. It also
+ * switches reasoning off for function tools on gpt-5.6, gpt-6 and gpt-6.1, which
+ * `/v1/chat/completions` requires; `@ai-sdk/openai` calls `/v1/responses`,
+ * where those models take tools with reasoning on.
  */
 export type ProviderAdaptation = "relaxToolChoice" | "dropTemperature";
 

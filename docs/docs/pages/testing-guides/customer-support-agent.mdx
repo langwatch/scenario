@@ -34,8 +34,8 @@ describe("Customer Support Fraud Investigation", () => {
         "Customer discovers unauthorized transactions on their account and is worried about fraud. They need immediate help to secure their account and investigate the suspicious activity.",
       agents: [
         createBankSupportAgent(),
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
-        scenario.judgeAgent({ model: openai("gpt-4o") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user(
@@ -141,8 +141,8 @@ describe("Customer Support Complex Issues", () => {
         "Customer has multiple interconnected banking problems: locked online banking, unexpected fees, and missing direct deposit. They need systematic help and the agent should use knowledge base guidance.",
       agents: [
         createBankSupportAgent(),
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
-        scenario.judgeAgent({ model: openai("gpt-4o") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user(
@@ -233,8 +233,8 @@ describe("Customer Support Escalation", () => {
         "Customer has been dealing with an ongoing issue and is frustrated. They explicitly demand to speak with a human agent or manager. The agent should handle this professionally and escalate appropriately.",
       agents: [
         createBankSupportAgent(),
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
-        scenario.judgeAgent({ model: openai("gpt-4o") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user(

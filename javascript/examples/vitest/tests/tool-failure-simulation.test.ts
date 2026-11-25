@@ -41,7 +41,7 @@ const resilientAgent: AgentAdapter = {
   call: async (input) => {
     // First LLM call - agent decides if/how to use tools
     const response = await generateText({
-      model: openai("gpt-5-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
       tools: { call_external_service: callExternalServiceTool },
       toolChoice: "auto",

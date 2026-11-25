@@ -140,7 +140,7 @@ async def test_remote_spans_reach_the_judge_prompt_through_the_standard_digest(
                         _EchoAgent(),
                         scenario.UserSimulatorAgent(model="none"),
                         scenario.JudgeAgent(
-                            model="openai/gpt-5-mini",
+                            model="openai/gpt-6-luna",
                             criteria=["Agent queried the requirements table"],
                         ),
                     ],

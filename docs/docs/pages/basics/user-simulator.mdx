@@ -61,7 +61,7 @@ async def test_frustrated_customer_handling():
         agents=[
             TechnicalSupportAgent(),
             scenario.UserSimulatorAgent(
-                model="openai/gpt-4o",
+                model="openai/gpt-6-luna",
                 temperature=0.3  # Some variability for realistic frustration
             ),
             scenario.JudgeAgent(criteria=[
@@ -106,11 +106,11 @@ describe("Frustrated Customer Handling", () => {
       agents: [
         technicalSupportAgent,
         scenario.userSimulatorAgent({
-          model: openai("gpt-4o"),
+          model: openai("gpt-6-luna"),
           temperature: 0.3,  // Some variability for realistic frustration
         }),
         scenario.judgeAgent({
-          model: openai("gpt-4o"),
+          model: openai("gpt-6-luna"),
           criteria: [
             "Agent acknowledges the customer's frustration empathetically",
             "Agent avoids excessive technical jargon",
@@ -144,7 +144,7 @@ describe("Frustrated Customer Handling", () => {
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `model` | `str` | No | Global config | LLM model identifier (e.g., `"openai/gpt-4o"`). |
+| `model` | `str` | No | Global config | LLM model identifier (e.g., `"openai/gpt-6-luna"`). |
 | `temperature` | `float` | No | `0.0` | Sampling temperature (0.0-1.0). Higher values (0.3-0.7) create more varied user messages. |
 | `max_tokens` | `int` | No | Model default | Maximum tokens for user messages. Keep reasonable for natural brevity. |
 | `system_prompt` | `str` | No | Built-in | Custom system prompt to override default user simulation behavior. |
@@ -157,7 +157,7 @@ describe("Frustrated Customer Handling", () => {
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `model` | `LanguageModel` | No | Global config | LLM model identifier (e.g., `openai("gpt-4o")`). |
+| `model` | `LanguageModel` | No | Global config | LLM model identifier (e.g., `openai("gpt-6-luna")`). |
 | `temperature` | `number` | No | `0.0` | Sampling temperature (0.0-1.0). Higher values (0.3-0.7) create more varied user messages. |
 | `maxTokens` | `number` | No | Model default | Maximum tokens for user messages. Keep reasonable for natural brevity. |
 | `systemPrompt` | `string` | No | Built-in | Custom system prompt to override default user simulation behavior. |

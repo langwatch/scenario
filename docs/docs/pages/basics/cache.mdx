@@ -58,7 +58,7 @@ import scenario
 
 # Global configuration
 scenario.configure(
-    default_model="openai/gpt-4o-mini",
+    default_model="openai/gpt-6-luna",
     cache_key="test-suite-v1"  # Enable caching
 )
 ```
@@ -71,7 +71,7 @@ Use the <RefLink link={{ python: "index.html#scenario.cache", typescript: "index
 @scenario.cache()
 def my_agent_function(messages) -> scenario.AgentReturnTypes:
     response = litellm.completion(
-        model="openai/gpt-4o-mini",
+        model="openai/gpt-6-luna",
         messages=messages
     )
     return response.choices[0].message

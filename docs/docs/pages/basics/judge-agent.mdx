@@ -67,9 +67,9 @@ const result = await scenario.run({
   `,
   agents: [
     customerSupportAgent,
-    scenario.userSimulatorAgent({ model: openai("gpt-4o") }),
+    scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
     scenario.judgeAgent({
-      model: openai("gpt-4o"),
+      model: openai("gpt-6-luna"),
       criteria: [
         "Agent asks for account information to investigate",
         "Agent explains the charge clearly",
@@ -101,7 +101,7 @@ expect(result.success).toBe(true);
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `criteria` | `List[str]` | No | `[]` | Success criteria to evaluate. Include positive requirements and negative constraints. |
-| `model` | `str` | No | Global config | LLM model identifier (e.g., `"openai/gpt-4o"`). |
+| `model` | `str` | No | Global config | LLM model identifier (e.g., `"openai/gpt-6-luna"`). |
 | `temperature` | `float` | No | `0.0` | Sampling temperature (0.0-1.0). Use 0.0-0.2 for consistent evaluation. |
 | `max_tokens` | `int` | No | Model default | Maximum tokens for judge reasoning and explanations. |
 | `system_prompt` | `str` | No | Built-in | Custom system prompt to override default judge behavior. |
@@ -115,7 +115,7 @@ expect(result.success).toBe(true);
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `criteria` | `string[]` | No | `[]` | Success criteria to evaluate. Include positive requirements and negative constraints. |
-| `model` | `LanguageModel` | No | Global config | LLM model identifier (e.g., `openai("gpt-4o")`). |
+| `model` | `LanguageModel` | No | Global config | LLM model identifier (e.g., `openai("gpt-6-luna")`). |
 | `temperature` | `number` | No | `0.0` | Sampling temperature (0.0-1.0). Use 0.0-0.2 for consistent evaluation. |
 | `maxTokens` | `number` | No | Model default | Maximum tokens for judge reasoning and explanations. |
 | `systemPrompt` | `string` | No | Built-in | Custom system prompt to override default judge behavior. |

@@ -59,7 +59,7 @@ beforeAll(async () => {
           const extracted = propagation.extract(context.active(), req.headers);
           const result = await context.with(extracted, () =>
             generateText({
-              model: openai("gpt-5-mini"),
+              model: openai("gpt-6-luna"),
               messages: [
                 {
                   role: "system",
@@ -133,9 +133,9 @@ describe("Testing Remote Agents - Judging on Remote Traces", () => {
       description:
         "A customer asks where order ORD-1042 is. The agent must check the order system before answering.",
       agents: [
-        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
         remoteAgentAdapter,
-        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user("Where is my order ORD-1042?"),

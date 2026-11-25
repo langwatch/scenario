@@ -122,7 +122,7 @@ class TestForceVerdictHardening:
     def test_strips_discovery_tools_and_rewrites_history(self):
         agent = JudgeAgent(
             criteria=["Agent works"],
-            model="openai/gpt-5-mini",
+            model="openai/gpt-6-luna",
             max_discovery_steps=2,
         )
 
@@ -212,7 +212,7 @@ class TestForceVerdictHardening:
         and a model that ignores the pin and calls it reaches
         _parse_response as an invalid tool call.
         """
-        agent = JudgeAgent(criteria=["Agent works"], model="openai/gpt-5-mini")
+        agent = JudgeAgent(criteria=["Agent works"], model="openai/gpt-6-luna")
         tools = [
             {"type": "function", "function": {"name": "expand_trace"}},
             {"type": "function", "function": {"name": "wait_for_traces"}},
@@ -252,7 +252,7 @@ class TestForceVerdictHardening:
 
 class TestParseResponseSafetyNet:
     def test_leaked_discovery_tool_returns_inconclusive_not_exception(self):
-        agent = JudgeAgent(criteria=["A", "B"], model="openai/gpt-5-mini")
+        agent = JudgeAgent(criteria=["A", "B"], model="openai/gpt-6-luna")
         leaked = _mock_llm_response(
             "expand_trace", {"span_ids": ["xx"]}, call_id="tc-leak"
         )

@@ -795,12 +795,12 @@ describe("langwatchApiSpanToReadableSpan", () => {
     const span = langwatchApiSpanToReadableSpan(
       apiSpan({
         type: "llm",
-        model: "openai/gpt-5-mini",
+        model: "openai/gpt-6-luna",
         input: { type: "chat_messages", value: [{ role: "user", content: "hi" }] },
       })
     );
     expect(span.attributes["langwatch.span.type"]).toBe("llm");
-    expect(span.attributes["gen_ai.request.model"]).toBe("openai/gpt-5-mini");
+    expect(span.attributes["gen_ai.request.model"]).toBe("openai/gpt-6-luna");
     expect(span.attributes["gen_ai.input.messages"]).toBe(
       '[{"role":"user","content":"hi"}]'
     );

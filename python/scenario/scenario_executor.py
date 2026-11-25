@@ -296,6 +296,10 @@ class ScenarioExecutor:
         # Create executor's own event stream
         self._events = Subject()
         self._finished_emitted: bool = False
+        # The result of a run that a failing check ended. `run()` raises the
+        # check's error instead of returning it, so the pytest plugin reads it
+        # here to still write the red-team report for that run.
+        self.check_failure_result: Optional[ScenarioResult] = None
 
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
@@ -677,6 +681,7 @@ class ScenarioExecutor:
         scenario_run_id = generate_scenario_run_id()
         self._scenario_run_id = scenario_run_id
         self._finished_emitted = False
+        self.check_failure_result = None
         _check_failure: Optional[BaseException] = None
 
         # Voice connect and modality resolution stay inside the guarded scope:
@@ -790,6 +795,7 @@ class ScenarioExecutor:
                         "voice harvest failed on check-failure path; preserving original error",
                         exc_info=True,
                     )
+                self.check_failure_result = error_result
                 self._emit_finished_once(
                     scenario_run_id,
                     error_result,

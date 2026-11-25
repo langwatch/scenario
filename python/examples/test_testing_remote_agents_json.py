@@ -109,10 +109,10 @@ async def test_json_response(test_server):
         name="JSON weather inquiry",
         description="User asks about weather and receives JSON response",
         agents=[
-            scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+            scenario.UserSimulatorAgent(model="openai/gpt-6-luna"),
             JsonAgentAdapter(),
             scenario.JudgeAgent(
-                model="openai/gpt-4o-mini",
+                model="openai/gpt-6-luna",
                 criteria=[
                     "Agent should provide weather information",
                     "Response should be relevant to the query",

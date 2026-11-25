@@ -45,7 +45,7 @@ const databaseAgent: AgentAdapter = {
   call: async (input) => {
     // Agent has access to multiple database tools
     const response = await generateText({
-      model: openai("gpt-5-mini"),
+      model: openai("gpt-6-luna"),
       messages: input.messages,
       tools: {
         save_user: saveUserTool,

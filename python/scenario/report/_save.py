@@ -9,10 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence, Union, cast
 
-import litellm
 from litellm import Choices
 from litellm.files.main import ModelResponse
 
+from .._utils.provider_compat import ProviderCompat
 from ..types import ScenarioResult
 from ..red_team_agent import RedTeamAgent
 from .._red_team import CrescendoStrategy, GoatStrategy
@@ -166,7 +166,7 @@ def _analyze(
     )
     resp = cast(
         ModelResponse,
-        litellm.completion(
+        ProviderCompat().completion(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},

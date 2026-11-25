@@ -117,7 +117,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 14437,
             "gen_ai.usage.output_tokens": 512,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
             "gen_ai.response.text": "I'd be happy to help you set up a weekly workflow! Let me ask a few clarifying questions first. What email address should the expense summary be sent to?",
         },
     ))
@@ -166,7 +166,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 14538,
             "gen_ai.usage.output_tokens": 487,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
             "gen_ai.response.text": "Great, send it to cfo@company.com. Now, which Google Sheet contains the expense data?",
         },
     ))
@@ -215,7 +215,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 15770,
             "gen_ai.usage.output_tokens": 890,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
             "gen_ai.response.text": "I'll create a structured task plan for this weekly expense workflow. Let me set up the task with all the steps.",
         },
     ))
@@ -280,7 +280,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 16856,
             "gen_ai.usage.output_tokens": 723,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
             "gen_ai.response.text": "Now I need to set up the actual automation. Let me transfer this to the workflow manager agent to create the scheduled workflow.",
         },
     ))
@@ -337,7 +337,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 18621,
             "gen_ai.usage.output_tokens": 345,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
         },
     ))
     s, e = _s(66_940, 2)
@@ -363,7 +363,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 13282,
             "gen_ai.usage.output_tokens": 289,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
             "gen_ai.response.text": "I'll set up the automated workflow. First, what format should the email summary be in?",
         },
     ))
@@ -412,7 +412,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 13501,
             "gen_ai.usage.output_tokens": 456,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
             "gen_ai.response.text": "Perfect. I'll now create the automated workflow with all the steps configured.",
         },
     ))
@@ -476,7 +476,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 13819,
             "gen_ai.usage.output_tokens": 567,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
         },
     ))
     # Nance wraps up
@@ -492,7 +492,7 @@ def create_nance_agent_trace() -> list:
         attributes={
             "gen_ai.usage.input_tokens": 19879,
             "gen_ai.usage.output_tokens": 892,
-            "gen_ai.request.model": "gpt-4",
+            "gen_ai.request.model": "gpt-6-luna",
             "gen_ai.response.text": (
                 "Your automated weekly expense workflow is now live!\n\n"
                 "What's been set up:\n"
@@ -590,7 +590,7 @@ def _mock_discovery_response(tool_name: str, args: dict, call_id: str = "call_x"
 
 @pytest.fixture(autouse=True)
 def setup_config():
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     mock_executor = MagicMock()
     mock_executor.config = MagicMock()
     mock_executor.config.cache_key = None

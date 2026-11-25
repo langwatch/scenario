@@ -65,7 +65,7 @@ def _build_findings_block(reports: list[dict]) -> str:
 def aggregate_fixes(
     reports: list[dict],
     *,
-    model: str = "openai/gpt-4.1",
+    model: str = "openai/gpt-6-luna",
     temperature: float = 0.2,
 ) -> dict:
     """Return {'clusters': [...]} from a single LLM call."""
@@ -99,7 +99,7 @@ def load_or_generate(
     batch_dir: Path,
     reports: list[dict],
     *,
-    model: str = "openai/gpt-4.1",
+    model: str = "openai/gpt-6-luna",
     force: bool = False,
 ) -> dict:
     """Return aggregated fixes, cached to disk per batch directory."""

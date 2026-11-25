@@ -30,7 +30,7 @@ beforeAll(async () => {
 
           // Use real LLM to generate response
           const result = await generateText({
-            model: openai("gpt-5-mini"),
+            model: openai("gpt-6-luna"),
             messages: [
               {
                 role: "system",
@@ -119,9 +119,9 @@ describe("Testing Remote Agents - JSON Response", () => {
       name: "Weather inquiry via HTTP",
       description: "User asks about weather through HTTP API",
       agents: [
-        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
         jsonAgentAdapter,
-        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user("What's the weather like today in Paris? Be specific."),

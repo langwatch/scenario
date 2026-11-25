@@ -14,7 +14,7 @@ async def test_user_simulator_agent_merges_global_config_and_agent_params():
     # Setup global config with extra params
     ScenarioConfig.default_config = ScenarioConfig(
         default_model=ModelConfig(
-            model="openai/gpt-4",
+            model="openai/gpt-6-luna",
             headers={"X-Auth": "token-123"},  # type: ignore  # extra param via ConfigDict(extra="allow")
             max_retries=5,  # type: ignore  # extra param via ConfigDict(extra="allow")
         )
@@ -58,7 +58,7 @@ async def test_user_simulator_agent_merges_global_config_and_agent_params():
             call_kwargs = mock_completion.call_args.kwargs
 
             # Verify merged params
-            assert call_kwargs["model"] == "openai/gpt-4"
+            assert call_kwargs["model"] == "openai/gpt-6-luna"
             assert call_kwargs["temperature"] == 0.7  # Agent override
             assert call_kwargs["headers"] == {"X-Auth": "token-123"}  # From config
             assert call_kwargs["max_retries"] == 5  # From config
@@ -73,7 +73,7 @@ async def test_user_simulator_agent_merges_global_config_and_agent_params():
 async def test_user_simulator_agent_with_string_default_model_config():
     """UserSimulatorAgent should initialize _extra_params when default_model is a string."""
     # Setup global config with string default_model
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
 
     user_sim = UserSimulatorAgent(
         temperature=0.7,
@@ -111,7 +111,7 @@ async def test_user_simulator_agent_with_string_default_model_config():
 
             assert mock_completion.called
             call_kwargs = mock_completion.call_args.kwargs
-            assert call_kwargs["model"] == "openai/gpt-4"
+            assert call_kwargs["model"] == "openai/gpt-6-luna"
             assert call_kwargs["temperature"] == 0.7
     finally:
         context_scenario.reset(token)
@@ -187,7 +187,7 @@ async def test_audio_in_simulator_retains_audio_parts():
 @pytest.mark.asyncio
 async def test_text_simulator_strips_audio_with_placeholders():
     """AC2: text-only simulator strips audio parts and inserts placeholders."""
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4.1-mini")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
 
     user_sim = UserSimulatorAgent()
 

@@ -41,6 +41,14 @@ MODELS = {
         "openai/gpt-5.6-luna",
         bool(os.environ.get("OPENAI_API_KEY")),
     ),
+    "openai gpt-6-luna": (
+        "openai/gpt-6-luna",
+        bool(os.environ.get("OPENAI_API_KEY")),
+    ),
+    "openai gpt-6.1-terra": (
+        "openai/gpt-6.1-terra",
+        bool(os.environ.get("OPENAI_API_KEY")),
+    ),
     "gemini gemini-3.5-flash": (
         "gemini/gemini-3.5-flash",
         bool(os.environ.get("GEMINI_API_KEY")),

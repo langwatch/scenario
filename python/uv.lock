@@ -1589,7 +1589,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'" },
     { name = "joblib", specifier = ">=1.4.2" },
     { name = "langwatch", specifier = ">=1.0.0,<3" },
-    { name = "litellm", specifier = ">=1.83.14" },
+    { name = "litellm", specifier = ">=1.83.14,<1.106" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=1.88.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.20.0" },

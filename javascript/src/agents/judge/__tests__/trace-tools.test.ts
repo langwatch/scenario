@@ -21,7 +21,7 @@ function buildSpanSet(): ReadableSpan[] {
       attributes: {
         "gen_ai.prompt": "What is the weather in Paris?",
         "gen_ai.completion": "Let me check the weather for you.",
-        model: "gpt-4",
+        model: "gpt-6-luna",
       },
     }),
     createSpan({
@@ -76,7 +76,7 @@ describe("expandTrace", () => {
       expect(result).toContain("gen_ai.prompt");
       expect(result).toContain("What is the weather in Paris?");
       expect(result).toContain("gen_ai.completion");
-      expect(result).toContain("gpt-4");
+      expect(result).toContain("gpt-6-luna");
     });
 
     it("shows the span ID in brackets", () => {

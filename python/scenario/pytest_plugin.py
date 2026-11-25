@@ -50,11 +50,10 @@ def _auto_save_redteam_report(scenario: ScenarioExecutor, result: ScenarioResult
     if red_team is None:
         return
 
-    override_dir = os.environ.get("SCENARIO_REDTEAM_REPORT_DIR")
-    if override_dir:
-        set_batch_dir(override_dir)
-
     try:
+        override_dir = os.environ.get("SCENARIO_REDTEAM_REPORT_DIR")
+        if override_dir:
+            set_batch_dir(override_dir)
         save_redteam_report(
             result,
             red_team=red_team,
@@ -246,7 +245,8 @@ class ScenarioReporter:
 original_run = ScenarioExecutor.run
 
 def pytest_addoption(parser):
-    parser.addoption("--headless", action="store_true")
+    # Namespaced: the plugin auto-loads, and browser plugins own --headless.
+    parser.addoption("--scenario-headless", action="store_true", default=False)
     parser.addoption(
         "--scenario-debug",
         action="store_true",
@@ -302,7 +302,7 @@ def pytest_configure(config):
         print(colored("\nScenario debug mode enabled (--scenario-debug).", "yellow"))
         ScenarioConfig.configure(verbose=True, debug=True)
 
-    if config.getoption("--headless"):
+    if config.getoption("--scenario-headless"):
         ScenarioConfig.configure(headless=True)
 
     # Create a global reporter instance
@@ -311,7 +311,14 @@ def pytest_configure(config):
     # Create a patched version of Scenario.run that auto-reports
     @functools.wraps(original_run)
     async def auto_reporting_run(self, *args, **kwargs):
-        result = await original_run(self, *args, **kwargs)
+        try:
+            result = await original_run(self, *args, **kwargs)
+        except BaseException:
+            # A failing check raises out of run(); a red-team run that broke
+            # the agent this way still gets its report.
+            if self.check_failure_result is not None:
+                _auto_save_redteam_report(self, self.check_failure_result)
+            raise
 
         # Always report to the global reporter
         # Ensure the reporter exists before adding result

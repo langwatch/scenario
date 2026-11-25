@@ -22,7 +22,7 @@ pytestmark = pytest.mark.skipif(
     reason="LANGWATCH_API_KEY and OPENAI_API_KEY are required to run evaluators through LangWatch",
 )
 
-scenario.configure(default_model="openai/gpt-5-mini")
+scenario.configure(default_model="openai/gpt-6-luna")
 
 SQL = "SELECT quarter, count(*) FROM chargebacks WHERE merchant = 'ACME Travel' GROUP BY quarter"
 ANSWER = "ACME Travel had 12 chargebacks in 2026-Q1 and 9 in 2026-Q2."
@@ -86,6 +86,9 @@ async def test_answer_and_sql_are_checked_by_evaluators():
                 required=False,
                 mappings={"output": lambda state: state.tool_calls("run_sql").last.input},
                 settings={
+                    # The platform runs llm_boolean on gpt-6 only once
+                    # langwatch/langwatch#9102 is deployed; switch to gpt-6-luna then.
+                    "model": "openai/gpt-4.1-mini",
                     "prompt": "Does this SQL group chargebacks by quarter for one merchant? Answer true or false.",
                 },
             ),

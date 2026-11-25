@@ -1104,7 +1104,7 @@ async def llm_evaluator(state: scenario.ScenarioState) -> None:
     """
 
     response = await litellm.completion(
-        model="openai/gpt-4o-mini",
+        model="openai/gpt-6-luna",
         messages=[{"role": "user", "content": evaluation_prompt}]
     )
 
@@ -1142,7 +1142,7 @@ async function llmEvaluator(state: scenario.ScenarioState) {
   `;
 
   const response = await openai.completion({
-    model: "gpt-4o-mini",
+    model: "gpt-6-luna",
     messages: [{ role: "user", content: evaluationPrompt }],
   });
 

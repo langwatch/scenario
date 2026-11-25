@@ -23,7 +23,7 @@ import pytest
 import scenario
 from scenario.types import AgentInput, AgentReturnTypes
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-6-luna")
 
 NEEDLE_QUERY_INDEX = 13
 NEEDLE_FACT = "order_id=ORD-88421 status=REFUNDED refund_amount=204.50"

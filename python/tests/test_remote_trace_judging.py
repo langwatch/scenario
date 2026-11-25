@@ -222,7 +222,7 @@ async def test_judge_fetches_traces_for_every_turn_not_only_the_last():
     fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -252,7 +252,7 @@ async def test_conversation_turns_never_fetch_remote_traces():
     fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -292,7 +292,7 @@ async def test_forced_verdict_settle_waits_and_fetched_spans_reach_the_digest():
     fetcher = RecordingFetcher(spans_on_settle=[remote_span])
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=collector,
     )
@@ -343,7 +343,7 @@ async def test_make_verdict_decision_settles_traces_before_the_verdict():
     fetcher = RecordingFetcher(spans_on_settle=[remote_span])
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -397,7 +397,7 @@ async def test_voluntary_inconclusive_verdict_is_terminal_when_no_trace_ever_set
     fetcher = RecordingFetcher(spans_on_settle=[])
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -437,7 +437,7 @@ async def test_judge_system_prompt_carries_the_trace_verification_rule():
     fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -468,7 +468,7 @@ async def test_judge_system_prompt_omits_the_rule_when_fetching_is_off():
     fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -501,7 +501,7 @@ async def test_decision_prompt_defers_traces_to_the_verdict():
     fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -530,7 +530,7 @@ async def test_remote_fetching_is_off_by_default():
     fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -559,7 +559,7 @@ async def test_incomplete_traces_offer_the_wait_tool_and_the_judge_waits_once():
     fetcher = RecordingFetcher(all_settled=False)
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -602,7 +602,7 @@ async def test_the_extra_wait_is_available_once():
     fetcher = RecordingFetcher(all_settled=False)
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
@@ -640,7 +640,7 @@ async def test_the_wait_budget_and_its_extension_default_to_30_seconds():
     fetcher = RecordingFetcher(all_settled=False)
     judge = JudgeAgent(
         criteria=["Test criterion"],
-        model="openai/gpt-5-mini",
+        model="openai/gpt-6-luna",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )

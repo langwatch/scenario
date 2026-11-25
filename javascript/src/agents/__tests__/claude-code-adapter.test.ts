@@ -2700,7 +2700,7 @@ describe.skipIf(!process.env.RUN_CLAUDE_CODE_E2E)(
       // with OPENAI_API_KEY (the key this E2E is run with). `@ai-sdk/openai`
       // is already a dependency.
       const { openai } = await import("@ai-sdk/openai");
-      const judgeModelId = process.env.SCENARIO_JUDGE_MODEL ?? "gpt-4.1-mini";
+      const judgeModelId = process.env.SCENARIO_JUDGE_MODEL ?? "gpt-6-luna";
 
       const agent = scenario.claudeCodeAgent({
         workingDirectory: process.cwd(),
@@ -2754,7 +2754,7 @@ describe.skipIf(!process.env.RUN_CLAUDE_CODE_E2E)(
 
         const { openai } = await import("@ai-sdk/openai");
         const judgeModelId =
-          process.env.SCENARIO_JUDGE_MODEL ?? "gpt-4.1-mini";
+          process.env.SCENARIO_JUDGE_MODEL ?? "gpt-6-luna";
 
         const agent = scenario.claudeCodeAgent({
           workingDirectory: process.cwd(),

@@ -87,7 +87,7 @@ ${personaBlock}`.trim();
  *
  * Voice turns carry the canonical AI-SDK audio `file` part (`{ type: "file",
  * mediaType: "audio/pcm16", … }`, see `voice/messages.ts`) which text-only
- * models like `gpt-4.1-mini` reject. This helper keeps `text` parts as-is and
+ * models like `gpt-6-luna` reject. This helper keeps `text` parts as-is and
  * replaces audio-only messages with an `[audio message]` placeholder so the
  * LLM still has a structural turn in the right position.
  *

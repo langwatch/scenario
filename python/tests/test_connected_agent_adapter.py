@@ -40,7 +40,7 @@ class FakeConnectedAgent:
     the test queued, or with a string that names the turn.
     """
 
-    def __init__(self, name: str = "support-agent", model: str = "gpt-5-mini"):
+    def __init__(self, name: str = "support-agent", model: str = "gpt-6-luna"):
         self.name = name
         self.environment = "development"
         self.default_model = model
@@ -114,7 +114,7 @@ class TestAccept:
         fake = FakeConnectedAgent()
         resolve_agents([fake])
 
-        assert fake([{"role": "user", "content": "hi"}]) == "direct:gpt-5-mini"
+        assert fake([{"role": "user", "content": "hi"}]) == "direct:gpt-6-luna"
 
     def test_the_executor_accepts_the_decorated_function(self):
         fake = FakeConnectedAgent()
@@ -122,12 +122,12 @@ class TestAccept:
         executor = ScenarioExecutor(
             name="accept",
             description="a connected agent function in the agents list",
-            agents=[fake, scenario.JudgeAgent(criteria=["any"], model="openai/gpt-5-mini")],
-            parameters={"model": "gpt-5-mini"},
+            agents=[fake, scenario.JudgeAgent(criteria=["any"], model="openai/gpt-6-luna")],
+            parameters={"model": "gpt-6-luna"},
         )
 
         assert isinstance(executor.agents[0], ConnectedAgentAdapter)
-        assert executor.agents[0].parameters == {"model": "gpt-5-mini"}
+        assert executor.agents[0].parameters == {"model": "gpt-6-luna"}
         assert isinstance(executor.agents[1], scenario.JudgeAgent)
 
 
@@ -308,11 +308,11 @@ class TestRunParameters:
     @pytest.mark.asyncio
     async def test_parameters_from_the_scenario_reach_the_function(self):
         fake = FakeConnectedAgent()
-        adapter = ConnectedAgentAdapter(fake, parameters={"model": "gpt-5-mini"})
+        adapter = ConnectedAgentAdapter(fake, parameters={"model": "gpt-6-luna"})
 
         await adapter.call(make_input())
 
-        assert fake.calls[0].parameters == {"model": "gpt-5-mini"}
+        assert fake.calls[0].parameters == {"model": "gpt-6-luna"}
 
     @pytest.mark.asyncio
     async def test_no_parameters_means_the_function_default_applies(self):
@@ -326,13 +326,13 @@ class TestRunParameters:
     @pytest.mark.asyncio
     async def test_each_call_gets_its_own_copy_of_the_parameters(self):
         fake = FakeConnectedAgent()
-        adapter = ConnectedAgentAdapter(fake, parameters={"model": "gpt-5-mini"})
+        adapter = ConnectedAgentAdapter(fake, parameters={"model": "gpt-6-luna"})
 
         await adapter.call(make_input())
         fake.calls[0].parameters["model"] = "changed by the function"
         await adapter.call(make_input())
 
-        assert fake.calls[1].parameters == {"model": "gpt-5-mini"}
+        assert fake.calls[1].parameters == {"model": "gpt-6-luna"}
 
 
 class TestEndToEnd:
@@ -350,7 +350,7 @@ class TestEndToEnd:
             name="connected agent",
             description="the user asks for help twice",
             agents=[fake, ScriptedUser()],
-            parameters={"model": "gpt-5-mini"},
+            parameters={"model": "gpt-6-luna"},
             script=[
                 scenario.user("I need help"),
                 scenario.agent(),
@@ -362,7 +362,7 @@ class TestEndToEnd:
 
         assert result.success
         assert [call.session for call in fake.calls] == [None, {"ticket": 1}]
-        assert fake.calls[1].parameters == {"model": "gpt-5-mini"}
+        assert fake.calls[1].parameters == {"model": "gpt-6-luna"}
         assert len(fake.calls[1].messages) == 3
         assert [m["role"] for m in fake.calls[1].new_messages] == ["user"]
         assert fake.calls[1].messages[1]["content"] == "how can I help?"

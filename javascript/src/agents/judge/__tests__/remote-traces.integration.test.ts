@@ -151,7 +151,7 @@ describeFeature(
           "the scenario runs to a verdict with fetch_remote_traces enabled",
           async () => {
             const judge = judgeAgent({
-              model: "openai/gpt-5-mini",
+              model: "openai/gpt-6-luna",
               criteria: ["The agent writes the order to the database"],
               spanCollector: collector,
               traceFetcher: new RemoteTraceFetcher({ pollIntervalMs: 25 }),

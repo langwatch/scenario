@@ -30,7 +30,7 @@ def create_large_trace() -> list:
                 attributes={
                     "gen_ai.prompt": f"Prompt content for span {i} with enough text to inflate the token count",
                     "gen_ai.completion": f"Completion content for span {i} with detailed response text",
-                    "model": "gpt-4",
+                    "model": "gpt-6-luna",
                     "extra.data": "x" * 200,
                 },
             )
@@ -79,7 +79,7 @@ def mock_litellm_response(tool_name: str, args: dict):
 @pytest.fixture(autouse=True)
 def setup_config():
     """Set up default config for all tests."""
-    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-6-luna")
     mock_executor = MagicMock()
     mock_executor.config = MagicMock()
     mock_executor.config.cache_key = None
@@ -101,7 +101,7 @@ class TestBuildTraceDigestSmallTrace:
                 name="llm.call",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_500_000_000,
-                attributes={"gen_ai.prompt": "Hello", "model": "gpt-4"},
+                attributes={"gen_ai.prompt": "Hello", "model": "gpt-6-luna"},
             ),
         ]
         collector = create_mock_collector(spans)

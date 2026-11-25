@@ -24,7 +24,7 @@ describe("JudgeSpanDigestFormatter", () => {
         attributes: {
           "gen_ai.prompt": "Hello",
           "gen_ai.completion": "Hi there!",
-          model: "gpt-4",
+          model: "gpt-6-luna",
         },
       });
 
@@ -34,7 +34,7 @@ describe("JudgeSpanDigestFormatter", () => {
         [a1b2c3d4] 2023-11-14T22:13:20.000Z llm.chat (500ms)
             gen_ai.prompt: Hello
             gen_ai.completion: Hi there!
-            model: gpt-4
+            model: gpt-6-luna
         "
       `);
     });
@@ -423,7 +423,7 @@ describe("JudgeSpanDigestFormatter", () => {
           attributes: {
             "gen_ai.prompt": "Hello",
             "gen_ai.completion": "Hi there!",
-            model: "gpt-4",
+            model: "gpt-6-luna",
           },
           events: [
             {
@@ -440,7 +440,7 @@ describe("JudgeSpanDigestFormatter", () => {
         expect(result).not.toContain("gen_ai.prompt");
         expect(result).not.toContain("Hello");
         expect(result).not.toContain("Hi there!");
-        expect(result).not.toContain("gpt-4");
+        expect(result).not.toContain("gpt-6-luna");
         expect(result).not.toContain("token.generated");
       });
     });

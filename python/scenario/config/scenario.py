@@ -54,7 +54,7 @@ class ScenarioConfig(BaseModel):
 
         # Configure globally for all scenarios
         scenario.configure(
-            default_model="openai/gpt-4.1-mini",
+            default_model="openai/gpt-6-luna",
             max_turns=15,
             observability={
                 "span_filter": scenario_only,
@@ -142,7 +142,7 @@ class ScenarioConfig(BaseModel):
             from scenario import scenario_only
 
             scenario.configure(
-                default_model="openai/gpt-4.1-mini",
+                default_model="openai/gpt-6-luna",
                 observability={
                     "span_filter": scenario_only,
                     "instrumentors": [],

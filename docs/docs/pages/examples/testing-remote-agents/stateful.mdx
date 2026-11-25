@@ -116,7 +116,7 @@ app.post("/chat", async (req, res) => {
 
   // Generate response with FULL history
   const result = await generateText({
-    model: openai("gpt-4o-mini"),
+    model: openai("gpt-6-luna"),
     messages: [systemMessage, ...history],
   });
 

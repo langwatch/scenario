@@ -840,7 +840,7 @@ class TestSpanConversion:
                 "parent_id": "c" * 16,
                 "name": "query table",
                 "type": "tool",
-                "model": "openai/gpt-5-mini",
+                "model": "openai/gpt-6-luna",
                 "timestamps": {
                     "started_at": 1721382486895,
                     "finished_at": 1721382488392,

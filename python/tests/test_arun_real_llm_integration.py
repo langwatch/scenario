@@ -6,7 +6,7 @@ correctly when multiple scenarios run concurrently on the same loop,
 including that their LLM spans end up parented under the correct
 Scenario Turn root and never leak between scenarios.
 
-Requires ``OPENAI_API_KEY``. Uses ``gpt-5-mini`` per CLAUDE.md guidance.
+Requires ``OPENAI_API_KEY``. Uses ``gpt-6-luna`` per CLAUDE.md guidance.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-scenario.configure(default_model="openai/gpt-5-mini")
+scenario.configure(default_model="openai/gpt-6-luna")
 
 
 class _EchoAgent(AgentAdapter):

@@ -21,7 +21,7 @@ import { LibSQLStore } from "@mastra/libsql";
 export const weatherAgent = new Agent({
   name: "Weather Agent",
   instructions: "You are a helpful weather assistant...",
-  model: openai("gpt-4o-mini"),
+  model: openai("gpt-6-luna"),
   tools: { weatherTool },
   memory: new Memory({
     storage: new LibSQLStore({ url: "file:../mastra.db" }),

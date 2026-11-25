@@ -5,13 +5,13 @@ import pytest
 from openai.types.chat import ChatCompletionMessageParam
 import scenario
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-6-luna")
 
 
 class Agent(scenario.AgentAdapter):
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         response = litellm.completion(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-6-luna",
             messages=[
                 {
                     "role": "system",

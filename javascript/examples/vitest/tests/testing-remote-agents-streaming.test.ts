@@ -41,7 +41,7 @@ beforeAll(async () => {
           });
 
           const result = streamText({
-            model: openai("gpt-5-mini"),
+            model: openai("gpt-6-luna"),
             messages: [
               {
                 role: "system",
@@ -128,9 +128,9 @@ describe("Testing Remote Agents - Streaming Response", () => {
       name: "Streaming weather response",
       description: "User asks about weather and receives streamed response",
       agents: [
-        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
         streamingAdapter,
-        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-6-luna") }),
       ],
       script: [
         scenario.user("What's the weather forecast in Amsterdam?"),
