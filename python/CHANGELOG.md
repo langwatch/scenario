@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0](https://github.com/langwatch/scenario/compare/python/v1.7.1...python/v2.0.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **security:** langwatch-scenario now requires Python 3.11 or later. Projects on Python 3.10 must stay on the previous release.
+
+### Bug Fixes
+
+* make red-team tests work on a fresh install and on gpt-6 models, move the repository to gpt-6-luna ([#1039](https://github.com/langwatch/scenario/issues/1039)) ([28da17f](https://github.com/langwatch/scenario/commit/28da17fedb6752a75a6ec9f10322fc34dd73432b))
+* **security:** close 139 of 191 alerts on scenario's python manifests ([#857](https://github.com/langwatch/scenario/issues/857)) ([1505a2e](https://github.com/langwatch/scenario/commit/1505a2ebee105deabe153a746e2dc3c744a6c2c3))
+* **security:** close 314 of 324 JS alerts across the scenario workspaces ([#873](https://github.com/langwatch/scenario/issues/873)) ([316cf06](https://github.com/langwatch/scenario/commit/316cf0633a7deb4ffb4281921290db225123f382))
+* **security:** require Python 3.11 and close the Pillow and filelock alerts ([#1068](https://github.com/langwatch/scenario/issues/1068)) ([2c09285](https://github.com/langwatch/scenario/commit/2c09285edf45045d5cc8f1abfe34c537afea4de1)), closes [#1029](https://github.com/langwatch/scenario/issues/1029)
+
+
+### Documentation
+
+* dompurify 3.4.17 (one CRITICAL, one HIGH, one LOW covering ([316cf06](https://github.com/langwatch/scenario/commit/316cf0633a7deb4ffb4281921290db225123f382))
+
 ## [1.7.1](https://github.com/langwatch/scenario/compare/python/v1.7.0...python/v1.7.1) (2026-11-22)
 
 
