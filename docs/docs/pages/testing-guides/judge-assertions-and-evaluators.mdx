@@ -34,7 +34,7 @@ import pytest
 
 import scenario
 
-scenario.configure(default_model="openai/gpt-5-mini")
+scenario.configure(default_model="openai/gpt-6-luna")
 
 SQL = "SELECT quarter, count(*) FROM chargebacks WHERE merchant = 'ACME Travel' GROUP BY quarter"
 ANSWER = "ACME Travel had 12 chargebacks in 2026-Q1 and 9 in 2026-Q2."
@@ -177,10 +177,10 @@ describe("evaluators on scenarios", () => {
         "A fraud analyst asks for the chargebacks per quarter for merchant ACME Travel.",
       agents: [
         sqlAnalystAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-6-luna") }),
         // Judge criteria: the conversation as the user reads it.
         scenario.judgeAgent({
-          model: openai("gpt-5-mini"),
+          model: openai("gpt-6-luna"),
           criteria: ["The agent reports chargeback counts per quarter"],
         }),
       ],
