@@ -4,18 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langwatch-scenario"
-version = "1.5.0"
+version = "1.7.1"
 description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [{ name = "LangWatch Team", email = "support@langwatch.ai" }]
 license = { text = "Apache-2.0" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
@@ -27,11 +26,7 @@ dependencies = [
     "termcolor>=2.4.0",
     "pydantic>=2.7.0",
     "joblib>=1.4.2",
-    # Pin <2 — wrapt 2.x is RC-only as of 2026-05 and its type stubs
-    # break pyright on `@scenario.cache()`-decorated example agents
-    # (decorated callables surface as accepting 0 positional args).
-    # Revert when wrapt 2.x stabilises and the stubs are correct.
-    "wrapt>=1.17.2,<2",
+    "wrapt>=1.17.2,<3",
     "pytest-asyncio>=0.26.0",
     "rich>=13.3.3,<16.0.0",
     "pksuid>=1.1.2",
@@ -42,7 +37,7 @@ dependencies = [
     # Floor 1.0: the first langwatch that imports pandas-free. Older versions
     # pull pandas in at module load through langwatch.evaluations, which
     # breaks installs without the [report] extra.
-    "langwatch>=1.0.0,<2",
+    "langwatch>=1.0.0,<3",
     "opentelemetry-sdk>=1.20.0",
     # Voice agent support (issue #350). Hard deps: voice is first-class.
     # imageio-ffmpeg bundles the ffmpeg binary (not ffplay) for audio
@@ -78,6 +73,7 @@ dev = [
     "function-schema",
     "pdoc3",
     "respx",
+    "aiohttp",
 ]
 # Install with `pip install 'langwatch-scenario[report]'` to use
 # `scenario redteam-report`.
@@ -111,10 +107,27 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 
 [tool.uv]
 constraint-dependencies = [
-    "urllib3>=2.7.0",
+    "urllib3>=2.8.0",  # security: urllib3 advisories covering <2.8.0
     "python-liquid>=2.2.1",
-    "filelock>=3.20.3",
-    "virtualenv>=20.36.1",
+    "filelock>=4.2.1",  # security: filelock advisories covering <=4.2.0
+    "virtualenv>=21.14.13",  # security: virtualenv advisories covering <21.14.13
+    "fsspec>=2026.6.0",  # security: fsspec advisory covering <2026.6.0
+    "mako>=1.4.2",  # security: Mako advisory covering <=1.4.1
+    "multidict>=6.9.1",  # security: multidict advisory covering 6.7.0-6.9.0
+    "pydantic-ai-slim>=1.107.7",  # security: pydantic-ai advisories fixed on the 1.x line up to 1.107.7
+    "pillow>=13.0.0",  # security: Pillow advisories covering <13.0.0
+    "gitpython>=3.2.1",  # security: GitPython advisories covering <=3.2.0
+    "pyasn1>=0.6.5",  # security: pyasn1 advisories (#534, #535) and four HIGH quadratic decoding ones fixed in 0.6.5
+    "aiohttp>=3.14.4",  # security: aiohttp advisories (#594-#596, and three covering <=3.14.3)
+    "cryptography>=50.0.0",  # security: cryptography advisory (#597)
+    "anyio>=4.14.2",  # security: anyio advisories (#745, #746)
+    "httpx2>=2.12.0",  # security: httpx2 advisories (#708-#710)
+    "httpcore2>=2.10.0",  # security: httpcore2 advisory (#707)
+    "pyjwt>=2.15.0",  # security: PyJWT advisories covering <=2.14.0
+    "litellm>=1.100.4",  # security: litellm advisories covering <1.95.0 and 1.91.0-1.100.3, two HIGH
+    "certifi>=2026.10.19",  # security: certifi advisory covering <2026.10.19
+    "black>=26.10.1",  # security: black advisory covering <26.10.1
+    "opentelemetry-api>=1.45.2",  # security: opentelemetry-api advisories covering <=1.45.1
 ]
 
 
@@ -127,6 +140,7 @@ dev = [
     "pytest-asyncio-concurrent>=0.4.1",
     "pdoc3>=0.11.6",
     "respx>=0.22.0",
+    "aiohttp>=3.9",
     # Guard the suite against individual hangs — any test taking longer
     # than `timeout` in pytest.ini_options below fails fast instead of
     # pinning the CI runner. Set per-test; global suite has no limit.

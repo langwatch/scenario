@@ -194,6 +194,12 @@ function makeAdapter(opts?: {
     validateSignature: opts?.validateSignature ?? false,
     httpPort: opts?.httpPort ?? 0,
     rest: opts?.rest ?? stubRest(PHONE_NUMBER_SID).rest,
+    // Span-shape tests only: the µ-law fixtures here are constant bytes that
+    // decode to near-silence, which the inbound speech gate would (correctly)
+    // drop before the drain. The gate has its own suite
+    // (`twilio-speech-gate*.test.ts`); its disconnect counters are stamped
+    // (as zeros / enabled=false) regardless.
+    speechGate: false,
   });
 }
 
@@ -223,6 +229,27 @@ function receives(
   spans: ReturnType<InMemorySpanExporter["getFinishedSpans"]>,
 ): ReturnType<InMemorySpanExporter["getFinishedSpans"]> {
   return spans.filter((s) => s.name === "voice.audio.receive");
+}
+
+async function dialAndConnect(
+  adapter: TwilioAgentAdapter,
+  dial: Promise<void>,
+): Promise<void> {
+  let settled = false;
+  const done = dial.then(
+    () => {
+      settled = true;
+    },
+    (err) => {
+      settled = true;
+      throw err;
+    },
+  );
+  for (let i = 0; i < 500 && !settled; i++) {
+    await Promise.resolve();
+    adapter._signalStreamConnected();
+  }
+  await done;
 }
 
 describe("voice.twilio.* span instrumentation (#775)", () => {
@@ -425,8 +452,7 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       const adapter = makeAdapter({ rest });
       tracked.push(adapter);
       await startVoiceAdapters([adapter], bareVoiceState());
-      adapter._signalStreamConnected();
-      await adapter.waitForCall();
+      await dialAndConnect(adapter, adapter.waitForCall());
 
       await stopVoiceAdapters([adapter]);
 
@@ -439,8 +465,7 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       const adapter = makeAdapter({ rest });
       tracked.push(adapter);
       await startVoiceAdapters([adapter], bareVoiceState());
-      adapter._signalStreamConnected();
-      await adapter.waitForCall();
+      await dialAndConnect(adapter, adapter.waitForCall());
 
       const originalWrite = rest.writeVoiceUrl.bind(rest);
       rest.writeVoiceUrl = async (sid, url) => {
@@ -577,8 +602,7 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       const adapter = makeAdapter({ rest });
       tracked.push(adapter);
       await adapter.connect();
-      adapter._signalStreamConnected(); // pre-fire: stream "already" connected
-      await adapter.placeCall({ to: "+14155557777" });
+      await dialAndConnect(adapter, adapter.placeCall({ to: "+14155557777" }));
 
       const dialSpans = exporter
         .getFinishedSpans()
@@ -602,13 +626,26 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       expect(String(dial.attributes["voice.twilio.from"])).toMatch(/1234$/);
     });
 
+    it("stamps voice.twilio.record on the dial span only when record: true was requested", async () => {
+      const { rest } = stubRest(PHONE_NUMBER_SID);
+      const adapter = makeAdapter({ rest });
+      tracked.push(adapter);
+      await adapter.connect();
+      await dialAndConnect(
+        adapter,
+        adapter.placeCall({ to: "+14155557777", record: true }),
+      );
+
+      const dial = byName(exporter.getFinishedSpans())["voice.adapter.dial"];
+      expect(dial.attributes["voice.twilio.record"]).toBe(true);
+    });
+
     it("T5: waitForCall emits voice.adapter.dial, direction=='inbound'", async () => {
       const { rest } = stubRest(PHONE_NUMBER_SID);
       const adapter = makeAdapter({ rest });
       tracked.push(adapter);
       await adapter.connect();
-      adapter._signalStreamConnected();
-      await adapter.waitForCall();
+      await dialAndConnect(adapter, adapter.waitForCall());
 
       const dial = byName(exporter.getFinishedSpans())["voice.adapter.dial"];
       expect(dial, "expected a voice.adapter.dial span").toBeDefined();

@@ -102,7 +102,14 @@ from .config import logging as _logging_config  # noqa: F401
 from . import _tracing  # noqa: F401
 
 # First import non-dependent modules
-from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes, JudgmentRequest
+from .types import (
+    ScenarioResult,
+    AgentInput,
+    AgentRole,
+    AgentReturnTypes,
+    CriterionResult,
+    JudgmentRequest,
+)
 from .config import ScenarioConfig
 
 # Tracing public API
@@ -116,6 +123,7 @@ from .scenario_state import ScenarioState
 from ._state_views import ToolCall, ToolCalls, TraceView, TurnView
 from .agent_adapter import AgentAdapter
 from .connected_agent import ConnectedAgentAdapter, ConnectedAgentCall
+from .a2a_agent import A2AAgent, A2AError
 from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
@@ -166,6 +174,7 @@ from .voice import (
     PipecatAgentAdapter,
     PipecatRecvError,
     STTProvider,
+    TunnelNotReadyError,
     TwilioAgentAdapter,
     UnsupportedCapabilityError,
     VapiAgentAdapter,
@@ -254,6 +263,7 @@ __all__ = [
     "FirstChunkTimeoutError",
     "ModalityNegotiationError",
     "PipecatRecvError",
+    "TunnelNotReadyError",
     "VoiceAgentAdapter",
     "VoiceEvent",
     "VoiceRecording",
@@ -277,6 +287,7 @@ __all__ = [
     "realtime_langwatch_session",
     # Types
     "ScenarioResult",
+    "CriterionResult",
     "AgentInput",
     "AgentRole",
     "ScenarioConfig",
@@ -284,6 +295,8 @@ __all__ = [
     # Classes
     "ScenarioState",
     "AgentAdapter",
+    "A2AAgent",
+    "A2AError",
     "ConnectedAgentAdapter",
     "ConnectedAgentCall",
     "UserSimulatorAgent",

@@ -13,6 +13,11 @@ import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
 export const DEFAULT_TRACE_WAIT_TIMEOUT_MS = 30_000;
+/**
+ * OTel BatchSpanProcessor exports every 5s by default (JS, Python, Go, Java,
+ * and the LangWatch SDKs), plus about 2s for ingest and network.
+ */
+export const DEFAULT_TRACE_QUIET_PERIOD_MS = 7_000;
 
 /**
  * Configuration for LangWatch event reporting.
@@ -185,6 +190,9 @@ export interface ScenarioConfig {
    * Can also be set project-wide in `scenario.config.js`; this per-run value
    * wins.
    *
+   * When neither is set, the LangWatch project's recommendation is used
+   * before the default.
+   *
    * @default 30000
    */
   traceWaitTimeoutMs?: number;
@@ -199,9 +207,34 @@ export interface ScenarioConfig {
    * Can also be set project-wide in `scenario.config.js`; this per-run value
    * wins.
    *
+   * When neither is set, the LangWatch project's recommendation is used
+   * before the default.
+   *
    * @default the resolved traceWaitTimeoutMs
    */
   traceWaitExtensionMs?: number;
+
+  /**
+   * How long in milliseconds the remote span set of a trace has to stay
+   * unchanged, after every span's parent has resolved, before the judge
+   * treats the trace as complete. A leaf tool span still in flight leaves no
+   * unresolved parent behind, so without this wait the verdict can be made
+   * on a trace that was one span short. Only used when
+   * {@link fetchRemoteTraces} is enabled, and bounded by
+   * {@link traceWaitTimeoutMs}: at the deadline a complete trace settles
+   * anyway.
+   *
+   * It is paid once per verdict, so lowering it makes verdicts faster and
+   * raises the chance of judging a trace that was still arriving. Zero
+   * settles on the first poll whose parents all resolve.
+   *
+   * Can also be set project-wide in `scenario.config.js`; this per-run value
+   * wins. When neither is set, the LangWatch project's recommendation is used
+   * (derived from its observed span arrival gaps), then the default.
+   *
+   * @default 7000
+   */
+  traceQuietPeriodMs?: number;
 
   /**
    * LangWatch reporting configuration.

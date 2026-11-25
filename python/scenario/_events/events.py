@@ -88,17 +88,32 @@ class ScenarioRunFinishedEventResults(PostApiScenarioEventsBodyType1ResultsType0
     the platform stores the list as it is and skips its own evaluators, so an
     absent key is what lets a platform-run scenario evaluate server-side.
 
+    `inconclusiveCriteria` and `criteria` are added the same way. They are
+    sent only when the judge produced them, so an older platform that reads
+    only the met and unmet lists keeps working.
+
     Args:
         evaluations (Union[Unset, list[dict[str, Any]]]): One entry per
             evaluator, in the wire shape of `results.evaluations`
+        inconclusive_criteria (Union[Unset, list[str]]): The unmet criteria
+            the judge could not decide
+        criteria (Union[Unset, list[dict[str, Any]]]): The verdict on each
+            criterion (criterion, requirement, status, reasoning), in
+            declared order
     """
 
     evaluations: Union[Unset, list[dict[str, Any]]] = UNSET
+    inconclusive_criteria: Union[Unset, list[str]] = UNSET
+    criteria: Union[Unset, list[dict[str, Any]]] = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         field_dict = super().to_dict()
         if not isinstance(self.evaluations, Unset):
             field_dict["evaluations"] = list(self.evaluations)
+        if not isinstance(self.inconclusive_criteria, Unset):
+            field_dict["inconclusiveCriteria"] = list(self.inconclusive_criteria)
+        if not isinstance(self.criteria, Unset):
+            field_dict["criteria"] = list(self.criteria)
         return field_dict
 
 

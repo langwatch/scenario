@@ -72,3 +72,31 @@ Feature: Two-phase judge: decision gate then verdict
     When the system prompt is built
     Then it instructs the judge not to decide pass or fail yet
     And it instructs the judge to lean towards continuing while the conversation is short
+
+  @unit
+  Scenario: A verdict maps each criterion by its schema key, not by position
+    Given a judge with three criteria
+    When the verdict call answers the criteria keys out of order
+    Then each criterion takes the answer filed under its own key
+
+  @unit
+  Scenario: A verdict that omits a criterion marks that criterion unmet, never its neighbour
+    Given a judge with three criteria
+    When the verdict call answers only the first and the third key
+    Then the omitted criterion is unmet
+    And the criteria that were answered keep their own answers
+
+  @unit
+  Scenario: Two criteria that share their first seventy characters keep separate keys
+    Given a judge with two criteria that differ only after the seventieth character
+    When the verdict tool schema is built
+    Then the two criteria have distinct schema keys
+    And a verdict answering both keys judges them separately
+
+  @unit
+  Scenario: An inconclusive criterion is reported apart from the unmet ones
+    Given a judge with three criteria
+    When the verdict call marks one criterion inconclusive and one false
+    Then the inconclusive criterion is listed as inconclusive
+    And the inconclusive criterion is still listed as unmet
+    And the false criterion is not listed as inconclusive

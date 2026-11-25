@@ -124,6 +124,17 @@ _TWILIO_REQUIRED_KEYS = (
 )
 
 
+# Keys required by the a-leg external live smoke (#762 AC11). No
+# TWILIO_PHONE_NUMBER_2: a-leg needs no second owned number, only an explicit
+# external destination the operator has consented to dial.
+_TWILIO_A_LEG_REQUIRED_KEYS = (
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_PHONE_NUMBER",
+    "SCENARIO_TWILIO_EXTERNAL_TO",
+)
+
+
 def _require_twilio_env(keys: tuple[str, ...], auth_ok: Callable[[], bool]) -> None:
     """Gate a Twilio fixture per the #796 decision (option b).
 
@@ -381,6 +392,18 @@ def requires_twilio_outbound():
     number whose own harness answers. No human required.
     """
     _require_twilio_env(_TWILIO_REQUIRED_KEYS, _twilio_auth_ok)
+
+
+@pytest.fixture
+def requires_twilio_a_leg_external():
+    """Skip when a-leg live env is ABSENT; FAIL when present-but-broken (#796 opt b).
+
+    A-leg dials a number this account does NOT own, so it needs no second Twilio
+    number — but it does need an explicit external destination, which is also
+    what keeps this test from ever dialling by accident: no
+    ``SCENARIO_TWILIO_EXTERNAL_TO``, no call.
+    """
+    _require_twilio_env(_TWILIO_A_LEG_REQUIRED_KEYS, _twilio_auth_ok)
 
 
 @pytest.fixture

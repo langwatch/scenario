@@ -173,6 +173,9 @@ function stripAudioContent(messages: ModelMessage[]): ModelMessage[] {
   });
 }
 
+/** How many times the simulator asks the model before an empty answer fails the turn. */
+const MAX_EMPTY_COMPLETION_ATTEMPTS = 3;
+
 class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   private logger = new Logger(this.constructor.name);
 
@@ -469,15 +472,36 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     // User to assistant role reversal (mirrors Python's role reversal to avoid LLM bias).
     const reversedMessages = messageRoleReversal(messages);
 
-    const completion = await this.invokeLLM({
-      model: mergedConfig.model,
-      messages: reversedMessages,
-      temperature: mergedConfig.temperature,
-      maxOutputTokens: mergedConfig.maxTokens,
-    });
+    // A model that answers nothing is usually a transient miss: the next
+    // call over the same messages answers normally. Ending the run on the
+    // first empty answer reads to the user as the simulator going silent
+    // mid-conversation, so ask again before giving up. The judge is not
+    // retried this way: it answers with tool calls and empty text is normal
+    // there, which is why this lives here and not in createLLMInvoker.
+    let messageContent = "";
+    for (
+      let attempt = 1;
+      attempt <= MAX_EMPTY_COMPLETION_ATTEMPTS && !messageContent;
+      attempt++
+    ) {
+      const completion = await this.invokeLLM({
+        model: mergedConfig.model,
+        messages: reversedMessages,
+        temperature: mergedConfig.temperature,
+        maxOutputTokens: mergedConfig.maxTokens,
+      });
 
-    const messageContent = completion.text;
+      messageContent = completion.text ?? "";
+      if (!messageContent && attempt < MAX_EMPTY_COMPLETION_ATTEMPTS) {
+        this.logger.warn(
+          `The model returned no content on attempt ${attempt} of ${MAX_EMPTY_COMPLETION_ATTEMPTS}; asking again`
+        );
+      }
+    }
+
     if (!messageContent) {
+      // The platform classifies the failure on this message, so it stays
+      // exactly as it was.
       throw new Error("No response content from LLM");
     }
 

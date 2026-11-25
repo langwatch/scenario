@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.7.1](https://github.com/langwatch/scenario/compare/python/v1.7.0...python/v1.7.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **judge:** grep_trace pages past the first 5 matches in a long line ([#1061](https://github.com/langwatch/scenario/issues/1061)) ([e94e913](https://github.com/langwatch/scenario/commit/e94e9135f8cac6e8314372fa8a5724762cb3fa66))
+
+## [1.7.0](https://github.com/langwatch/scenario/compare/python/v1.6.1...python/v1.7.0) (2026-11-21)
+
+
+### Features
+
+* test any A2A agent from its Agent Card with A2AAgent ([#1055](https://github.com/langwatch/scenario/issues/1055)) ([50abd23](https://github.com/langwatch/scenario/commit/50abd23236e9634481d62d88e5458dc49749ba8a))
+
+
+### Bug Fixes
+
+* **judge:** recompute numbers, reach deep trace text and wait out exporter batches ([#1054](https://github.com/langwatch/scenario/issues/1054)) ([9047e7f](https://github.com/langwatch/scenario/commit/9047e7fae71ff97292523e8611996f99896c9482))
+
+## [1.6.1](https://github.com/langwatch/scenario/compare/python/v1.6.0...python/v1.6.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** allow langwatch 2.x in the python package ([#1040](https://github.com/langwatch/scenario/issues/1040)) ([9eda75c](https://github.com/langwatch/scenario/commit/9eda75cf467e223f597276d14193997fe358ad70))
+
+## [1.6.0](https://github.com/langwatch/scenario/compare/python/v1.5.0...python/v1.6.0) (2026-10-07)
+
+
+### Features
+
+* **judge:** per-criterion verdicts, fail-condition polarity and provider compatibility ([#1006](https://github.com/langwatch/scenario/issues/1006)) ([0698d00](https://github.com/langwatch/scenario/commit/0698d00d0fee261b3fa05e1131044be686f484dc))
+* **voice/twilio:** a-leg external-number dialing for TwilioAgentAdapter ([#982](https://github.com/langwatch/scenario/issues/982)) ([29dea33](https://github.com/langwatch/scenario/commit/29dea3374ef4abffbd25233a3bfff4184fd6852d))
+
+
+### Bug Fixes
+
+* **voice:** end the ElevenLabs agent turn when its audio stops ([#1013](https://github.com/langwatch/scenario/issues/1013)) ([e6335ed](https://github.com/langwatch/scenario/commit/e6335edd3a9d6b1f298b1561033fd59a9f33a069))
+
 ## [1.5.0](https://github.com/langwatch/scenario/compare/python/v1.4.0...python/v1.5.0) (2026-09-06)
 
 

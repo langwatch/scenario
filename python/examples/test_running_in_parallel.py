@@ -30,7 +30,8 @@ class VegetarianRecipeAgentAdapter(AgentAdapter):
                     "role": "system",
                     "content": """You are a strictly vegetarian recipe agent.
                     Given the user request, ask AT MOST ONE follow-up question,
-                    then provide a complete recipe. Keep your responses concise and focused.
+                    then provide a complete recipe. Once you have given a recipe, answer
+                    without asking further questions. Keep your responses concise and focused.
 
                     HARD RULE: You ONLY produce vegetarian recipes. If the user
                     asks for a recipe containing meat, poultry, fish, or seafood,
@@ -48,8 +49,9 @@ class VegetarianRecipeAgentAdapter(AgentAdapter):
 
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent")
 async def test_vegetarian_recipe_agent():
-    # No ``flaky`` marker: reruns declared on a test that
-    # pytest-asyncio-concurrent owns never happen. See test_user_is_hungry.
+    # A fixed two-turn script: a free-form 12-turn chat left the agent room to
+    # ask the third follow-up question criterion 5 forbids. No ``flaky`` marker:
+    # pytest-asyncio-concurrent owns this test, so reruns would never happen.
     result = await scenario.run(
         name="dinner idea",
         description="User is looking for a dinner idea",
@@ -66,7 +68,13 @@ async def test_vegetarian_recipe_agent():
                 ]
             ),
         ],
-        max_turns=12,
+        script=[
+            scenario.user("What could I cook for dinner tonight?"),
+            scenario.agent(),
+            scenario.user("Sounds good, please share the full recipe."),
+            scenario.agent(),
+            scenario.judge(),
+        ],
         set_id="python-examples",
     )
 

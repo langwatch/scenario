@@ -123,20 +123,57 @@ export type ScenarioEvaluationResult = z.infer<
 >;
 
 /**
+ * The judge's verdict on one criterion. `passed` means the agent satisfied
+ * the criterion read as a requirement; `inconclusive` means the test could
+ * not check it, and it still fails the run.
+ */
+export const criterionResultSchema = z.object({
+  criterion: z.string(),
+  requirement: z.string(),
+  status: z.enum(["passed", "failed", "inconclusive"]),
+  reasoning: z.string(),
+});
+
+/**
  * Scenario Results Schema
  * Defines the structure for scenario evaluation results including verdict and criteria analysis.
  * Matches the Python dataclass structure used in the evaluation system.
  * `evaluations` is present only when the run itself ran evaluators; the
  * platform then stores them as they are instead of running its own.
  */
-export const scenarioResultsSchema = z.object({
-  verdict: z.nativeEnum(Verdict),
-  reasoning: z.string().optional(),
-  metCriteria: z.array(z.string()),
-  unmetCriteria: z.array(z.string()),
-  error: z.string().optional(),
-  evaluations: z.array(scenarioEvaluationResultSchema).optional(),
-});
+export const scenarioResultsSchema = z
+  .object({
+    verdict: z.nativeEnum(Verdict),
+    reasoning: z.string().optional(),
+    metCriteria: z.array(z.string()),
+    unmetCriteria: z.array(z.string()),
+    /**
+     * The criteria the judge could not decide. A subset of `unmetCriteria`,
+     * sent so the platform can tell "could not tell" from "judged false".
+     * Omitted, never empty, when the verdict left nothing inconclusive.
+     */
+    inconclusiveCriteria: z.array(z.string()).min(1).optional(),
+    /**
+     * One entry per judged criterion, in the order the scenario declared
+     * them. Omitted when no judge verdict produced the result.
+     */
+    criteria: z.array(criterionResultSchema).min(1).optional(),
+    error: z.string().optional(),
+    evaluations: z.array(scenarioEvaluationResultSchema).optional(),
+  })
+  // An inconclusive criterion that is not also unmet would make a result
+  // report "could not tell" about a criterion the run counts as met, which
+  // is the one thing this field must never do.
+  .refine(
+    (results) =>
+      (results.inconclusiveCriteria ?? []).every((criterion) =>
+        results.unmetCriteria.includes(criterion)
+      ),
+    {
+      message: "every inconclusiveCriteria entry must also be in unmetCriteria",
+      path: ["inconclusiveCriteria"],
+    }
+  );
 export type ScenarioResults = z.infer<typeof scenarioResultsSchema>;
 
 /**

@@ -1,6 +1,6 @@
 /**
- * Regression guard for issue #886: a judge that calls finish_test with
- * verdict "inconclusive" mid-conversation (nothing forcing a verdict) must
+ * Regression guard for issue #886: a judge that calls finish_test with an
+ * inconclusive criterion mid-conversation (nothing forcing a verdict) must
  * let the conversation CONTINUE, not end the run as FAILED.
  *
  * Uses the real judgeAgent with only invokeLLM stubbed, so the test executes
@@ -49,7 +49,7 @@ class CountingUserSim extends UserSimulatorAgentAdapter {
 
 function finishTestCall(
   verdict: "success" | "inconclusive",
-  criterionValue: "true" | "inconclusive",
+  status: "passed" | "inconclusive",
 ): InvokeLLMResult {
   return {
     text: "",
@@ -60,12 +60,17 @@ function finishTestCall(
         type: "tool-call" as const,
         toolCallId: `tc-${verdict}`,
         input: {
-          criteria: { agent_greets_the_user_politely: criterionValue },
-          reasoning:
-            verdict === "inconclusive"
-              ? "Too early to tell — the conversation should continue."
-              : "The agent greeted the user politely.",
-          verdict,
+          criteria: {
+            agent_greets_the_user_politely: {
+              requirement: "The agent greets the user politely",
+              reasoning:
+                verdict === "inconclusive"
+                  ? "The agent has not replied yet."
+                  : "The agent greeted the user politely.",
+              status,
+            },
+          },
+          reasoning: "Summary.",
         },
       },
     ],
@@ -113,7 +118,7 @@ describe("given a judge that hedges on the first turn (#886)", () => {
         verdictCalls += 1;
         return verdictCalls === 1
           ? finishTestCall("inconclusive", "inconclusive")
-          : finishTestCall("success", "true");
+          : finishTestCall("success", "passed");
       };
 
       const execution = new ScenarioExecution(

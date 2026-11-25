@@ -124,7 +124,7 @@ const PUMP_INTERVAL_MS = 20;
  * Absolute wall-clock ceiling (seconds) for a single {@link
  * ElevenLabsAgentAdapter.receiveAudio} call that liveness frames do NOT reset.
  *
- * The idle deadline (`timeout`) is re-armed on every inbound frame, pings included
+ * Until the agent speaks, the idle deadline (`timeout`) is re-armed on every inbound frame, pings included
  * (the liveness-driven idle-timer reset via {@link onMessage}), so a
  * slow-but-pinging server is not aborted mid-think. But EL ConvAI keeps pinging
  * *indefinitely* on a turn it will never answer with audio (e.g. after it ends or
@@ -135,6 +135,29 @@ const PUMP_INTERVAL_MS = 20;
  * non-responding turn times out cleanly and the drain moves on.
  */
 const KEEPALIVE_HARD_CEILING_S = 45;
+
+/**
+ * Inbound EL message types that still mean "the agent's turn is in progress" once
+ * the agent has started speaking: more audio, or the agent working a tool between
+ * two spoken parts of the same turn.
+ *
+ * Before the agent's first audio of a turn EVERY frame re-arms the idle deadline,
+ * so a slow-but-pinging agent is not cut off mid-think. After it, only these do.
+ * Pings, `vad_score`, `context_usage`, text parts and debug events are liveness or
+ * bookkeeping, not speech; letting them re-arm the sub-second tail probe meant an
+ * agent with a steady stream of them never looked quiet, and every turn ended on
+ * the 45s ceiling instead of `responseTailSilence`. Same rule the official EL
+ * client uses: "speaking" ends when the audio does, whatever else is on the wire.
+ */
+const AGENT_TURN_ACTIVITY_TYPES = new Set([
+  "audio",
+  "agent_tool_request",
+  "agent_tool_response",
+  "mcp_tool_call",
+]);
+
+/** A receive whose deadline fired this much past its due time ran on a stalled event loop. */
+const LATE_TIMER_WARN_MS = 1000;
 
 /** Deep link to the section that expands on both receiveAudio timeouts. */
 const RECEIVE_TIMEOUT_DOCS_URL =
@@ -424,8 +447,12 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly audioQueue: AudioChunk[] = [];
   /** Resolvers waiting on the next agent audio chunk (FIFO). */
   private readonly waiters: Array<(chunk: AudioChunk) => void> = [];
-  /** Idle-timer-reset callbacks for active receiveAudio calls — called on every inbound frame. */
-  private readonly timerResetters: Array<() => void> = [];
+  /**
+   * Inbound-frame hooks for active receiveAudio calls — called on every inbound
+   * frame with its EL `type`. Each one counts the frame and decides whether it
+   * re-arms that receive's idle deadline (see {@link AGENT_TURN_ACTIVITY_TYPES}).
+   */
+  private readonly timerResetters: Array<(etype: string) => void> = [];
 
   /**
    * Continuous mic pump outbound queue: 20 ms PCM frames enqueued by {@link
@@ -461,6 +488,26 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    */
   private awaitingUserTurn = false;
 
+  /**
+   * Server-side tool calls the agent started this turn and has not yet answered
+   * (`agent_tool_request` minus `agent_tool_response`). While one is running the
+   * agent is mid-turn even if it already spoke ("let me check that…"); it keeps
+   * {@link agentToolTurnOpen} set past audio that arrives mid-tool. Cleared with
+   * {@link awaitingUserTurn}.
+   */
+  private agentToolsInFlight = 0;
+
+  /**
+   * TRUE from the agent's first `agent_tool_request` of a turn until its audio
+   * resumes after the last tool answered. Tool completion is not speech: the
+   * agent still has to generate the spoken answer from the result, which can take
+   * longer than `responseTailSilence`. While set, every inbound frame re-arms the
+   * receive deadline and the idle budget is `responseTimeout`, so a silent tool or
+   * a slow post-tool answer is not cut off by the sub-second tail probe. Cleared
+   * with {@link awaitingUserTurn}.
+   */
+  private agentToolTurnOpen = false;
+
   lastUserTranscript: string | null = null;
   lastAgentTranscript: string | null = null;
 
@@ -477,6 +524,50 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   /** Debug logger for the #734 transcript-lag instrumentation (AC4). */
   private readonly logger = new Logger("ElevenLabsAgentAdapter");
+
+  /**
+   * EL's own conversation id, captured off `conversation_initiation_metadata`.
+   * Undefined until that event arrives (or the adapter never connected).
+   */
+  private _conversationId?: string;
+
+  /** Whether {@link _conversationId} has been stamped onto a span yet — the
+   * connect span (if still open) or, as a fallback, the first sendAudio. */
+  private _conversationIdStamped = false;
+
+  /** EL's own conversation id for this call, once known. */
+  get conversationId(): string | undefined {
+    return this._conversationId;
+  }
+
+  /**
+   * Stamp {@link _conversationId} onto whatever span is active right now, once
+   * it has actually landed on a span.
+   *
+   * The `isRecording()` check is what makes the retry work, and it is load
+   * bearing. `conversation_initiation_metadata` arrives asynchronously and
+   * routinely lands *after* `connect()` resolved and the connect span was
+   * ended in its `finally`. The async callback still carries that ended span
+   * in its captured context, so `currentSpan()` returns a non-null but dead
+   * span, and `setSpanAttributes` silently drops the write on a span that is
+   * no longer recording.
+   *
+   * Marking the id stamped on that dropped write is what used to make the loss
+   * permanent rather than merely late: it poisoned the guard flag, so the
+   * `sendAudio` fallback below — which runs inside a reliably open span on the
+   * first turn carrying user audio — returned early and never retried. The
+   * conversation id then never reached any span, and the whole-call recording
+   * could not be resolved for that run at all.
+   *
+   * So only count it stamped when the span was live enough to take it.
+   */
+  private stampConversationIdIfPending(): void {
+    if (this._conversationId === undefined || this._conversationIdStamped) return;
+    const span = currentSpan();
+    if (!span?.isRecording()) return;
+    setSpanAttributes(span, { "voice.elevenlabs.conversation_id": this._conversationId });
+    this._conversationIdStamped = true;
+  }
 
   /**
    * How many user turns this adapter committed by streaming real PCM. The
@@ -635,6 +726,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // user turn ({@link enqueueSpeech} clears the flag). Idempotent — the FIRST
     // agent frame of the response is the real transition; later frames re-assert it.
     this.awaitingUserTurn = true;
+    // Audio after the last tool answered is the post-tool answer: back to the tail probe.
+    if (this.agentToolsInFlight === 0) this.agentToolTurnOpen = false;
     // #734 — stamp the last agent-audio arrival so callbackAgentResponse can log
     // transcript-lag-vs-audio-drain. Every frame re-stamps; the field therefore
     // holds the LAST audio frame of the turn, the tightest baseline for the lag.
@@ -701,6 +794,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       "voice.elevenlabs.pump.silence_frames_sent": this.pumpStats.silenceFramesSent,
       "voice.elevenlabs.pump.unexpected_errors": this.pumpStats.unexpectedErrors,
     });
+    this._conversationId = undefined;
+    this._conversationIdStamped = false;
     const conversation = this.conversation;
     this.conversation = null;
     this.inputCallback = null;
@@ -750,6 +845,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // Reset the post-response pause so a reconnect starts in the closing-silence
     // state — the next user turn streams its closing silence as normal.
     this.awaitingUserTurn = false;
+    this.agentToolsInFlight = 0;
+    this.agentToolTurnOpen = false;
   }
 
   /**
@@ -814,6 +911,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (!this.isConnected()) {
       throw new Error("ElevenLabsAgentAdapter: not connected");
     }
+    // Fallback stamp: if the conversation id arrived after the connect span
+    // closed, this is the first later span we're guaranteed to see.
+    this.stampConversationIdIfPending();
 
     // Continuous mic: instead of bursting the whole turn's PCM, slice the spoken
     // PCM into 20 ms frames and ENQUEUE them. The always-on pump (running since
@@ -850,6 +950,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // A real user turn is starting → lift the post-response pause so the closing
     // silence streams again once this speech drains (see pumpTick).
     this.awaitingUserTurn = false;
+    this.agentToolsInFlight = 0;
+    this.agentToolTurnOpen = false;
     // #734 — a new user turn opens a new agent turn; clear the last-audio stamp so
     // callbackAgentResponse measures transcript lag against THIS turn's audio only.
     // Without this, a turn whose transcript arrives with no fresh audio frame would
@@ -910,6 +1012,50 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // means the socket was silent throughout, so the idle diagnosis is the true
       // one however the two timers happen to be ordered.
       let sawInboundFrame = false;
+      // Wait diagnosis: which EL message types reached this receive, and when its
+      // idle deadline was last armed. Logged when the receive ends on a deadline, so
+      // a slow turn names its cause: a frame type re-arming the wait, or (nothing
+      // arrived, yet the deadline fired late) a stalled event loop in the host.
+      const startedAtMs = Date.now();
+      let idleArmedAtMs = startedAtMs;
+      // The idle budget the deadline was last armed with: `timeout`, or
+      // `responseTimeout` while an agent tool turn is open (see agentToolTurnOpen).
+      const toolTurnBudgetS = Math.max(timeout, this.responseTimeout);
+      let idleBudgetS = this.agentToolTurnOpen ? toolTurnBudgetS : timeout;
+      const framesByType: Record<string, number> = {};
+      // Captured now: the deadline callbacks run outside this call's span context.
+      const span = currentSpan();
+
+      const reportWait = (end: "idle" | "ceiling") => {
+        const nowMs = Date.now();
+        const waitedMs = nowMs - startedAtMs;
+        const dueMs = end === "idle" ? idleArmedAtMs + idleBudgetS * 1000 : startedAtMs + ceilingS * 1000;
+        const lateMs = Math.max(0, nowMs - dueMs);
+        const details = {
+          end,
+          timeoutS: timeout,
+          waitedMs,
+          lateMs,
+          afterAgentAudio: this.awaitingUserTurn,
+          framesByType,
+        };
+        setSpanAttributes(span, {
+          "voice.elevenlabs.receive_wait_end": end,
+          "voice.elevenlabs.receive_wait_ms": waitedMs,
+          "voice.elevenlabs.receive_wait_late_ms": lateMs,
+          "voice.elevenlabs.receive_wait_frames": JSON.stringify(framesByType),
+        });
+        if (end === "ceiling" || lateMs > LATE_TIMER_WARN_MS) {
+          this.logger.warn(
+            end === "ceiling"
+              ? "receiveAudio ended on the absolute ceiling; framesByType shows what kept the wait open"
+              : "receiveAudio deadline fired late; the host event loop was stalled",
+            details,
+          );
+        } else {
+          this.logger.debug("receiveAudio ended on its idle deadline", details);
+        }
+      };
 
       const cleanup = () => {
         clearTimeout(timer);
@@ -922,7 +1068,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
       const onIdleTimeout = () => {
         cleanup();
-        reject(new Error(idleTimeoutMessage(timeout)));
+        reportWait("idle");
+        reject(new Error(idleTimeoutMessage(idleBudgetS)));
       };
 
       const onCeilingTimeout = () => {
@@ -931,17 +1078,28 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
           return;
         }
         cleanup();
+        reportWait("ceiling");
         reject(new Error(ceilingTimeoutMessage(timeout, ceilingS)));
       };
 
-      // Re-arm the IDLE deadline on every received message (pings included) so a
-      // slow-but-healthy server that keeps pinging while processing does not trip
-      // the timer. Matches the Python recv_audio sliding-idle-deadline. The hard
-      // ceiling is deliberately NOT reset here.
-      const resetTimer = () => {
+      // Re-arm the IDLE deadline on inbound frames so a slow-but-healthy server
+      // that keeps pinging while processing does not trip the timer. Matches the
+      // Python recv_audio sliding-idle-deadline. Once the agent has spoken this
+      // turn, only turn activity re-arms it (AGENT_TURN_ACTIVITY_TYPES), so the
+      // tail probe measures audio silence rather than socket silence. While an
+      // agent tool turn is open every frame re-arms it, on the response budget. The
+      // hard ceiling is deliberately NOT reset here.
+      const resetTimer = (etype: string) => {
         sawInboundFrame = true;
+        const key = etype || "unknown";
+        framesByType[key] = (framesByType[key] ?? 0) + 1;
+        const toolTurn = this.agentToolTurnOpen;
+        const agentQuietCandidate = this.awaitingUserTurn && !toolTurn;
+        if (agentQuietCandidate && !AGENT_TURN_ACTIVITY_TYPES.has(etype)) return;
+        idleBudgetS = toolTurn ? toolTurnBudgetS : timeout;
+        idleArmedAtMs = Date.now();
         clearTimeout(timer);
-        timer = setTimeout(onIdleTimeout, timeout * 1000);
+        timer = setTimeout(onIdleTimeout, idleBudgetS * 1000);
       };
 
       const waiter = (chunk: AudioChunk) => {
@@ -949,7 +1107,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         resolve(chunk);
       };
 
-      timer = setTimeout(onIdleTimeout, timeout * 1000);
+      timer = setTimeout(onIdleTimeout, idleBudgetS * 1000);
       hardTimer = setTimeout(onCeilingTimeout, ceilingS * 1000);
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
@@ -992,9 +1150,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    * which fires for EVERY message (ping, audio, transcript, …) AFTER the SDK has
    * routed it. Two jobs, both ours rather than the SDK's:
    *
-   *  - LIVENESS: any inbound frame re-arms all active receiveAudio idle deadlines so
-   *    a slow-but-pinging server does not spuriously time out (the sliding
-   *    idle-deadline). The SDK already auto-pongs pings; we only need the reset.
+   *  - LIVENESS: inbound frames re-arm active receiveAudio idle deadlines so a
+   *    slow-but-pinging server does not spuriously time out (the sliding
+   *    idle-deadline). Once the agent has spoken this turn only turn activity
+   *    re-arms them ({@link AGENT_TURN_ACTIVITY_TYPES}). The SDK already
+   *    auto-pongs pings; we only need the reset.
    *  - TERMINAL TURN: a `client_tool_call` is a tool-only / non-audio terminal — this
    *    adapter ships no client_tool_result path, so EL produces no spoken audio for
    *    it. Resolve the parked receiver with an empty chunk so the drain exits cleanly
@@ -1003,11 +1163,24 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    * Exposed via the class (not a closure) so unit tests can drive it directly.
    */
   onMessage(message: unknown): void {
-    // Liveness reset first — every inbound frame counts.
-    for (const resetter of this.timerResetters) resetter();
-
     const event = (message ?? {}) as Record<string, unknown>;
     const etype = (event.type as string | undefined) ?? "";
+
+    // Track running server-side tools before the reset, so a frame that arrives
+    // while one runs, or before the agent speaks its post-tool answer, keeps the
+    // turn open.
+    if (etype === "agent_tool_request") {
+      this.agentToolsInFlight += 1;
+      this.agentToolTurnOpen = true;
+    }
+    if (etype === "agent_tool_response") {
+      this.agentToolsInFlight = Math.max(0, this.agentToolsInFlight - 1);
+    }
+
+    // Liveness reset first. Each active receive decides whether this frame type
+    // re-arms it (every type before the agent speaks or while a tool runs, turn
+    // activity otherwise).
+    for (const resetter of this.timerResetters) resetter(etype);
 
     if (etype === "client_tool_call") {
       // Active-waiters-only: if a receive is in flight, hand it the empty terminal;
@@ -1053,6 +1226,15 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     }
 
     if (etype === "conversation_initiation_metadata") {
+      const meta =
+        (event.conversation_initiation_metadata_event as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      const conversationId = meta.conversation_id as string | undefined;
+      if (conversationId) {
+        this._conversationId = conversationId;
+        this.stampConversationIdIfPending();
+      }
       this.warnOnFormatDrift(event);
     }
 

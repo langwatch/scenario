@@ -17,8 +17,9 @@ import base64
 import json
 import logging
 import re
-from dataclasses import dataclass
-from typing import Iterator, Optional
+import secrets
+from dataclasses import dataclass, field
+from typing import Iterator, Optional, Protocol, runtime_checkable
 
 
 logger = logging.getLogger("scenario.voice.twilio")
@@ -41,14 +42,143 @@ E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 # Guards against TwiML XML injection in send_dtmf_on_call.
 DTMF_RE = re.compile(r"^[0-9*#wW]+$")
 
+#: Byte length of the per-call media-stream nonce (a-leg WS auth, #762).
+#: 16 bytes = 128 bits — UUIDv4-grade entropy, far beyond guessing for a value
+#: that lives only for one call. Rendered as lowercase hex because hex survives
+#: Twilio's <Parameter> round-trip with no alphabet, padding, or case ambiguity.
+STREAM_NONCE_BYTES = 16
+#: Length of the hex rendering of a minted nonce.
+STREAM_NONCE_HEX_LEN = STREAM_NONCE_BYTES * 2
+
+
+#: Hard ceiling on how long an a-leg call may live, in seconds (#762 guardrail
+#: (b)). A-leg mode dials numbers we do not own, so a runaway call is a runaway
+#: bill; 300s is well past any scenario turn-taking demo and far short of a
+#: forgotten-call disaster. A per-call value ABOVE this cap is a caller error,
+#: never a silent clamp — see ``resolve_max_call_duration``.
+MAX_CALL_DURATION_CAP_SECONDS = 300
+#: Applied when an a-leg ``place_call`` names no duration. Equal to the cap: an
+#: unspecified duration must still be bounded, and the safest bound we are
+#: willing to grant at all is the one the cap already sets.
+DEFAULT_MAX_CALL_DURATION_SECONDS = MAX_CALL_DURATION_CAP_SECONDS
+
+
+def resolve_max_call_duration(requested: Optional[int]) -> int:
+    """Resolve an a-leg call's maximum duration in seconds.
+
+    ``None`` yields :data:`DEFAULT_MAX_CALL_DURATION_SECONDS`. A request above
+    :data:`MAX_CALL_DURATION_CAP_SECONDS` raises rather than clamping: the cap
+    exists to bound spend, and a caller who silently receives a shorter call
+    than the one they asked for debugs the wrong problem.
+
+    Distinct from ``place_call``'s ``timeout``, which bounds how long we WAIT
+    FOR THE MEDIA STREAM TO CONNECT, not how long the call may last.
+    """
+    if requested is None:
+        return DEFAULT_MAX_CALL_DURATION_SECONDS
+    if requested <= 0:
+        raise ValueError(
+            f"max_call_duration_seconds must be a positive number of seconds, "
+            f"got {requested!r}."
+        )
+    if requested > MAX_CALL_DURATION_CAP_SECONDS:
+        raise ValueError(
+            f"max_call_duration_seconds={requested!r} exceeds the "
+            f"{MAX_CALL_DURATION_CAP_SECONDS}s cap on a-leg calls. A-leg mode "
+            f"dials numbers this account does not own; the cap bounds spend and "
+            f"is not per-call overridable."
+        )
+    return int(requested)
+
+
+def mint_stream_nonce() -> str:
+    """Mint a fresh per-call media-stream nonce from the OS CSPRNG."""
+    return secrets.token_hex(STREAM_NONCE_BYTES)
+
+
+def nonce_matches(expected: str, received: Optional[str]) -> bool:
+    """Timing-safe compare of a received nonce against the minted one.
+
+    A missing/empty ``received`` never matches: the caller enforces on adapter
+    state (a-leg mode minted a nonce), not on the frame carrying one, so
+    omitting the ``<Parameter>`` is a rejection rather than a bypass.
+
+    Compared as UTF-8 BYTES, not as ``str``: ``compare_digest`` raises
+    ``TypeError`` on a non-ASCII ``str``, so a socket sending ``{"nonce":"é"}``
+    would otherwise turn this auth primitive into an exception that unwinds
+    through the media loop instead of a rejection. Mirrors the JS twin, which
+    has always compared buffers.
+    """
+    if not received:
+        return False
+    return secrets.compare_digest(expected.encode("utf-8"), received.encode("utf-8"))
+
+
+def escape_xml_attr(value: str) -> str:
+    """Escape a string for interpolation into an XML attribute value.
+
+    Twin of the JS ``escapeXmlAttr`` (``twilio-shared.ts``) — the two SDKs must
+    emit byte-identical TwiML, so the escaping table is shared as well.
+    """
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
 
 def validate_e164(phone_number: str) -> None:
-    """Raise ValueError if phone_number is not a valid E.164 number."""
+    """Raise ValueError if phone_number is not a valid E.164 number.
+
+    The message redacts the offending number: ``place_call`` validates BEFORE
+    the allowlist check, so a mistyped external destination would otherwise
+    reach logs in full while every other Twilio failure path redacts. The
+    format hint already tells the caller what shape was expected.
+    """
     if not E164_RE.match(phone_number):
         raise ValueError(
-            f"phone_number {phone_number!r} is not in E.164 format "
+            f"phone_number {_redact_e164(phone_number)} is not in E.164 format "
             f"(expected e.g. '+14155551234', pattern: leading '+' then 7–15 digits)."
         )
+
+
+def normalize_e164(phone_number: str) -> str:
+    """Validate a phone number and return its canonical comparison form.
+
+    Allowlist membership is decided on the value this returns, on BOTH sides of
+    the comparison, so a match is an exact set lookup. Never compare raw
+    strings with ``in``/``startswith``: "+1415555" is a prefix of a real
+    allowlisted number and must not pass.
+    """
+    stripped = phone_number.strip()
+    validate_e164(stripped)
+    return stripped
+
+
+class TunnelNotReadyError(RuntimeError):
+    """Raised when the public base URL is not yet reachable from the edge.
+
+    A-leg origination hands Twilio our public URL and Twilio opens the media
+    WebSocket against it within seconds. If the tunnel edge is not live yet the
+    call connects to nothing: the caller pays for a dead PSTN call that ends in
+    a confusing stream-connect timeout. Failing fast under a named error before
+    origination is the cheaper failure.
+    """
+
+
+@runtime_checkable
+class TunnelReadiness(Protocol):
+    """Anything that can tell us our public URL is reachable from the edge.
+
+    Structurally satisfied by ``scenario.voice.testing.CloudflareTunnel`` — the
+    adapter never imports the tunnel (``testing`` depends on ``adapters``, not
+    the other way round), it just calls the method the tunnel already has.
+    """
+
+    async def wait_until_edge_reachable(self) -> None:
+        """Return once the public edge answers; raise if it will not."""
 
 
 def validate_dtmf(tones: str) -> None:
@@ -119,6 +249,9 @@ class MediaStreamEvent:
     payload_mulaw: Optional[bytes] = None  # decoded from media/base64
     dtmf_digit: Optional[str] = None
     mark_name: Optional[str] = None
+    #: ``start.customParameters`` — the <Parameter> children of <Stream>. Carries
+    #: the a-leg per-call nonce; empty for every other event and for b-leg.
+    custom_parameters: dict[str, str] = field(default_factory=dict)
 
 
 def parse_media_stream_frame(text: str) -> Optional[MediaStreamEvent]:
@@ -177,7 +310,25 @@ def parse_media_stream_frame(text: str) -> Optional[MediaStreamEvent]:
             mark_name=mark.get("name"),
         )
 
-    if event in {"connected", "start", "stop"}:
+    if event == "start":
+        raw_params = start.get("customParameters")
+        custom = (
+            {
+                name: value
+                for name, value in raw_params.items()
+                if isinstance(name, str) and isinstance(value, str)
+            }
+            if isinstance(raw_params, dict)
+            else {}
+        )
+        return MediaStreamEvent(
+            event="start",
+            stream_sid=stream_sid,
+            call_sid=call_sid,
+            custom_parameters=custom,
+        )
+
+    if event in {"connected", "stop"}:
         return MediaStreamEvent(event=event, stream_sid=stream_sid, call_sid=call_sid)
 
     return None
@@ -217,6 +368,21 @@ def build_mark_frame(stream_sid: str, name: str) -> str:
             "streamSid": stream_sid,
             "mark": {"name": name},
         }
+    )
+
+
+def stream_ws_url(public_base_url: str) -> str:
+    """Derive the Media Streams WebSocket URL from the adapter's public base URL.
+
+    ``https://`` → ``wss://`` (``http://`` → ``ws://``), trailing slash
+    stripped, ``/twilio/stream`` appended. Single source of truth for the
+    string-munging: both the inbound webhook (``_twilio_server.py``) and the
+    A-leg origination TwiML (``twilio.place_call``) route through here.
+    """
+    return (
+        public_base_url.replace("https://", "wss://").replace("http://", "ws://")
+        .rstrip("/")
+        + "/twilio/stream"
     )
 
 
@@ -265,8 +431,16 @@ class TwilioRESTHelper:
         to: str,
         from_: str,
         twiml: str,
+        time_limit: Optional[int] = None,
     ) -> str:
         """Originate an outbound call. Returns the call SID.
+
+        ``time_limit`` is Twilio's own maximum call duration in seconds
+        (``TimeLimit`` on the wire). Twilio hangs the call up when it elapses,
+        which is the ONLY duration guard that still fires if this process hangs
+        or is killed — the adapter-side timer is the second belt. Omitted from
+        the request entirely when ``None``, so b-leg origination bodies stay
+        byte-identical to what they have always been.
 
         ``twiml`` is inline TwiML run when the call connects. The
         adapter always builds the inline form (an A-leg ``<Say>`` +
@@ -280,9 +454,20 @@ class TwilioRESTHelper:
         the caller's behalf. No active caller ever needed it, so it was
         removed.
         """
-        call = self._client.calls.create(to=to, from_=from_, twiml=twiml)
+        extra = {} if time_limit is None else {"time_limit": time_limit}
+        call = self._client.calls.create(to=to, from_=from_, twiml=twiml, **extra)
         # Twilio always returns non-None sid for create results; see above.
         return str(call.sid)
+
+    def end_call(self, call_sid: str) -> None:
+        """Hang up an in-progress call (REST ``Status=completed``).
+
+        The adapter-side max-duration timer's teardown action (#762 guardrail
+        (b)). Uses the same ``calls(sid).update(...)`` idiom as
+        ``send_dtmf_on_call``, but ends the call outright instead of replacing
+        its TwiML.
+        """
+        self._client.calls(call_sid).update(status="completed")
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
         """Send DTMF on an in-progress call via the REST ``send_digits`` update.
@@ -339,8 +524,19 @@ __all__ = [
     "TWILIO_FRAME_BYTES",
     "E164_RE",
     "DTMF_RE",
+    "STREAM_NONCE_BYTES",
+    "STREAM_NONCE_HEX_LEN",
+    "MAX_CALL_DURATION_CAP_SECONDS",
+    "DEFAULT_MAX_CALL_DURATION_SECONDS",
+    "resolve_max_call_duration",
     "validate_e164",
+    "normalize_e164",
     "validate_dtmf",
+    "TunnelNotReadyError",
+    "TunnelReadiness",
+    "mint_stream_nonce",
+    "nonce_matches",
+    "escape_xml_attr",
     "mulaw8k_to_pcm16_24k",
     "pcm16_24k_to_mulaw8k",
     "iter_mulaw_frames",

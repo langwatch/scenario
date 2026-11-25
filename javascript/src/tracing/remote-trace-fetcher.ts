@@ -9,7 +9,10 @@ import {
 import { createSyntheticErrorSpan } from "./synthetic-error-span";
 import type { JudgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getEnv } from "../config/env";
-import type { LangwatchConfig } from "../domain/scenarios";
+import {
+  DEFAULT_TRACE_QUIET_PERIOD_MS,
+  type LangwatchConfig,
+} from "../domain/scenarios";
 import { Logger } from "../utils/logger";
 
 /** Spans with these name prefixes are scenario infrastructure, not user agent spans. */
@@ -52,6 +55,20 @@ interface TraceFetchState {
    * can retract it when the trace settles after all.
    */
   errorSpanId?: string;
+  /**
+   * The remote span set of the last poll whose parents all resolved, as a
+   * sorted span id key. Undefined while the parents are unresolved.
+   */
+  candidateKey?: string;
+  /** When {@link candidateKey} was first seen, in epoch milliseconds. */
+  candidateSince?: number;
+  /**
+   * The settled span set has a wrapping agent span: every remote span whose
+   * parent is not another remote span has remote children. Ancestors export
+   * after their descendants, so such a trace is complete. Flat spans settle
+   * on the quiet period alone, and a later batch may still be on its way.
+   */
+  wrapped?: boolean;
 }
 
 interface TraceApiAuth {
@@ -75,9 +92,38 @@ interface PollResult {
    * arriving. The scenario's own spans echoed back by the platform are
    * exempt: their parent is often the still-open local turn span, and their
    * ingestion state says nothing about the agent's spans. (Missing leaf
-   * subtrees are undetectable from the outside; the deadline bounds those.)
+   * subtrees are undetectable from the outside; the quiet period gives them
+   * time to arrive and the deadline bounds those.)
    */
   parentsResolved: boolean;
+  /** The remote span ids of this poll, sorted and joined: the quiet-period key. */
+  remoteSpanKey: string;
+  /** See {@link TraceFetchState.wrapped}. */
+  wrapped: boolean;
+}
+
+/**
+ * The wait settings a LangWatch project recommends for remote traces, from
+ * its measured ingest lag and span arrival gaps.
+ */
+export interface RecommendedTraceSettings {
+  waitTimeoutMs?: number;
+  waitExtensionMs?: number;
+  quietPeriodMs?: number;
+}
+
+/** Upper bound for the settings request; the defaults apply after it. */
+const SETTINGS_REQUEST_TIMEOUT_MS = 5_000;
+
+/** Result of a settle-wait. */
+export interface SettleOutcome {
+  /** Every given trace id settled cleanly. */
+  allSettled: boolean;
+  /**
+   * At least one settled trace has no wrapping agent span, so only the quiet
+   * period vouches for it and spans may still be arriving.
+   */
+  unconfirmed: boolean;
 }
 
 /**
@@ -92,6 +138,12 @@ export interface RemoteTraceTarget {
   collector: JudgeSpanCollector;
   /** LangWatch endpoint and API key overrides; environment variables otherwise. */
   langwatch?: LangwatchConfig;
+  /**
+   * How long a parent-resolved span set has to stay unchanged before the
+   * trace settles. Defaults to {@link DEFAULT_TRACE_QUIET_PERIOD_MS}; 0
+   * settles on the first parent-resolved poll.
+   */
+  quietPeriodMs?: number;
 }
 
 /**
@@ -129,10 +181,15 @@ export function collectMessageTraceIds(
  * span that is not one of the scenario's own locally collected spans) AND
  * every fetched agent span's parent resolves within the fetched and locally
  * collected spans — the trace is complete, because ancestors always finish
- * and export after their descendants. Count-stability is deliberately NOT a
- * settle signal: ingestion arrives in chunks that can be tens of seconds
- * apart, and a stable early chunk would satisfy it while tool spans are
- * still on the way.
+ * and export after their descendants — AND that span set has stayed
+ * unchanged for the quiet period. Count-stability is deliberately NOT a
+ * settle signal on its own: ingestion arrives in chunks that can be tens of
+ * seconds apart, and a stable early chunk would satisfy it while tool spans
+ * are still on the way. The quiet period only extends the parent-resolved
+ * condition, which a resolved parent chain already backs; it covers the one
+ * case that condition cannot see, a leaf tool span still in flight, whose
+ * absence leaves no unresolved parent behind. It costs one quiet period per
+ * verdict, {@link DEFAULT_TRACE_QUIET_PERIOD_MS} by default.
  *
  * When the deadline expires with remote spans present but parents still
  * unresolved, the trace settles best-effort: every span that arrived stays
@@ -153,6 +210,10 @@ export class RemoteTraceFetcher {
   private readonly fetchFn: typeof fetch;
   private readonly pollIntervalMs: number;
   private readonly registry = new Map<string, Map<string, TraceFetchState>>();
+  private readonly recommendations = new Map<
+    string,
+    Promise<RecommendedTraceSettings | undefined>
+  >();
 
   constructor(options?: { fetchFn?: typeof fetch; pollIntervalMs?: number }) {
     this.fetchFn =
@@ -165,6 +226,11 @@ export class RemoteTraceFetcher {
    * the class doc for the settle conditions), all ids in parallel, under one
    * shared deadline of `timeoutMs` total.
    *
+   * A trace whose spans are complete still waits out `quietPeriodMs` of an
+   * unchanged span set, so this wait costs at least one quiet period when
+   * there is anything to fetch. At the deadline a trace still inside its
+   * quiet period settles cleanly, with no error span.
+   *
    * A failed poll retries until the deadline; only the deadline marks the id
    * failed and feeds one synthetic `langwatch.span_collection.error` span
    * carrying the reason to the collector. Never throws. Returns whether every
@@ -172,7 +238,7 @@ export class RemoteTraceFetcher {
    */
   async settleWait(
     target: RemoteTraceTarget & { timeoutMs: number }
-  ): Promise<{ allSettled: boolean }> {
+  ): Promise<SettleOutcome> {
     const auth = this.resolveAuth(target.langwatch);
     const deadline = Date.now() + target.timeoutMs;
     // Every trace this wait touches is claimed for the thread, so the
@@ -197,9 +263,10 @@ export class RemoteTraceFetcher {
           } is not configured (set LANGWATCH_API_KEY and LANGWATCH_ENDPOINT, or pass them in the run's langwatch config)`,
         });
       }
-      return { allSettled: false };
+      return { allSettled: false, unconfirmed: false };
     }
 
+    const quietPeriodMs = this.resolveQuietPeriodMs(target.quietPeriodMs);
     await Promise.all(
       pending.map((traceId) =>
         this.settleOne({
@@ -209,40 +276,121 @@ export class RemoteTraceFetcher {
           auth,
           deadline,
           timeoutMs: target.timeoutMs,
+          quietPeriodMs,
         })
       )
     );
-    return { allSettled: this.allSettled(target.threadId, target.traceIds) };
+    return this.outcome(target.threadId, target.traceIds);
   }
 
   /**
    * The judge's one extra wait: re-arms every trace that terminally failed
    * the first settle-wait (retracting its synthetic error span from the
-   * collector) and settle-waits once more under `timeoutMs`. A trace that
-   * fails again gets a fresh error span with the new reason. Returns whether
-   * every given trace id is settled cleanly afterwards.
+   * collector) or settled on the quiet period alone, and settle-waits once
+   * more under `timeoutMs`. A trace that fails again gets a fresh error span
+   * with the new reason. Spans that arrive meanwhile join the collector.
    */
   async extendSettle(
     target: RemoteTraceTarget & { timeoutMs: number }
-  ): Promise<{ allSettled: boolean }> {
+  ): Promise<SettleOutcome> {
     const threadStates = this.registry.get(target.threadId);
     for (const traceId of target.traceIds) {
       const state = threadStates?.get(traceId);
-      if (!state?.failed) continue;
+      if (!state) continue;
+      if (state.settled && !state.wrapped) {
+        state.settled = false;
+        state.candidateKey = undefined;
+        state.candidateSince = undefined;
+        continue;
+      }
+      if (!state.failed) continue;
       state.failed = false;
       if (state.errorSpanId) {
         target.collector.removeSpanById(state.errorSpanId);
         state.errorSpanId = undefined;
       }
+      state.candidateKey = undefined;
+      state.candidateSince = undefined;
     }
     return this.settleWait(target);
   }
 
-  private allSettled(threadId: string, traceIds: string[]): boolean {
-    const threadStates = this.registry.get(threadId);
-    return traceIds.every((traceId) =>
-      Boolean(threadStates?.get(traceId)?.settled)
+  /**
+   * The quiet period to poll with. The judge validates its own config, but
+   * this target is public and the evaluator path forwards a per-run value as
+   * it stands, so anything that is not a finite number of milliseconds of
+   * zero or more falls back to the default rather than reaching the loop: a
+   * negative value would settle on the first poll and NaN would never settle.
+   */
+  private resolveQuietPeriodMs(quietPeriodMs: number | undefined): number {
+    if (quietPeriodMs == null) return DEFAULT_TRACE_QUIET_PERIOD_MS;
+    if (Number.isFinite(quietPeriodMs) && quietPeriodMs >= 0) {
+      return quietPeriodMs;
+    }
+    this.logger.warn(
+      "quietPeriodMs must be a finite number of milliseconds of zero or more; using the default",
+      { value: String(quietPeriodMs), default: DEFAULT_TRACE_QUIET_PERIOD_MS }
     );
+    return DEFAULT_TRACE_QUIET_PERIOD_MS;
+  }
+
+  private outcome(threadId: string, traceIds: string[]): SettleOutcome {
+    const threadStates = this.registry.get(threadId);
+    const states = traceIds.map((traceId) => threadStates?.get(traceId));
+    return {
+      allSettled: states.every((state) => Boolean(state?.settled)),
+      unconfirmed: states.some((state) => state?.settled && !state.wrapped),
+    };
+  }
+
+  /**
+   * The remote-trace wait settings the LangWatch project recommends, asked
+   * once per endpoint and key. Undefined when the endpoint is unreachable,
+   * older than the settings route, or answers anything unexpected: the
+   * caller then uses its defaults.
+   */
+  recommendedSettings(
+    langwatch?: LangwatchConfig
+  ): Promise<RecommendedTraceSettings | undefined> {
+    const auth = this.resolveAuth(langwatch);
+    if (!auth.endpoint || !auth.apiKey) return Promise.resolve(undefined);
+    const cacheKey = `${auth.endpoint}\u0000${auth.apiKey}\u0000${auth.projectId ?? ""}`;
+    let pending = this.recommendations.get(cacheKey);
+    if (!pending) {
+      pending = this.fetchRecommendedSettings(auth);
+      this.recommendations.set(cacheKey, pending);
+    }
+    return pending;
+  }
+
+  private async fetchRecommendedSettings(
+    auth: TraceApiAuth
+  ): Promise<RecommendedTraceSettings | undefined> {
+    const url = `${auth.endpoint.replace(/\/$/, "")}/api/traces/settle-settings`;
+    try {
+      const response = await this.fetchFn(url, {
+        headers: this.authHeaders(auth),
+        signal: AbortSignal.timeout(SETTINGS_REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) return undefined;
+      const body = (await response.json()) as Record<string, unknown>;
+      const read = (key: string): number | undefined => {
+        const value = body?.[key];
+        return typeof value === "number" && Number.isFinite(value) && value >= 0
+          ? value
+          : undefined;
+      };
+      return {
+        waitTimeoutMs: read("waitTimeoutMs"),
+        waitExtensionMs: read("waitExtensionMs"),
+        quietPeriodMs: read("quietPeriodMs"),
+      };
+    } catch (error) {
+      this.logger.debug("Trace settle settings unavailable; using defaults", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   /**
@@ -319,6 +467,7 @@ export class RemoteTraceFetcher {
     auth,
     deadline,
     timeoutMs,
+    quietPeriodMs,
   }: {
     threadId: string;
     traceId: string;
@@ -326,6 +475,7 @@ export class RemoteTraceFetcher {
     auth: TraceApiAuth;
     deadline: number;
     timeoutMs: number;
+    quietPeriodMs: number;
   }): Promise<void> {
     const state = this.stateFor(threadId, traceId);
     let lastRemoteSpanCount = 0;
@@ -340,6 +490,7 @@ export class RemoteTraceFetcher {
           collector,
           auth,
           deadline,
+          quietPeriodMs,
         });
         lastFetchError = undefined;
       } catch (error) {
@@ -353,6 +504,12 @@ export class RemoteTraceFetcher {
         const reason = error instanceof Error ? error.message : String(error);
         if (!(error instanceof DeadlineAbortError)) {
           lastFetchError = reason;
+          // A poll that never answered cannot vouch for the span set holding
+          // still, so the candidate from the last successful poll is dropped:
+          // a deadline reached this way reports an incomplete trace instead
+          // of settling on evidence nobody confirmed.
+          state.candidateKey = undefined;
+          state.candidateSince = undefined;
         }
         this.logger.debug("Trace poll failed; retrying until the deadline", {
           traceId,
@@ -364,6 +521,17 @@ export class RemoteTraceFetcher {
 
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
+        if (state.candidateKey !== undefined) {
+          // The trace is complete and was only waiting out the quiet period.
+          // Failing it here would tell the judge that spans may be missing
+          // when nothing says so, so it settles cleanly instead.
+          this.logger.debug(
+            "Deadline reached with a complete trace mid-quiet-period; settling",
+            { traceId }
+          );
+          state.settled = true;
+          return;
+        }
         if (lastRemoteSpanCount >= 1) {
           // Best-effort settle: the spans that arrived stay judged, and the
           // error span tells the judge the trace may be missing spans. The
@@ -401,10 +569,12 @@ export class RemoteTraceFetcher {
   }
 
   /**
-   * One fetch + merge + settle evaluation. Marks the state settled when the
-   * trace holds at least one remote span and every fetched agent span's parent
-   * resolves (fetched or locally collected). Returns the remote span count
-   * of this poll.
+   * One fetch + merge + settle evaluation. A poll whose trace holds at least
+   * one remote span and resolves every fetched agent span's parent (fetched
+   * or locally collected) becomes the settle candidate; the state settles
+   * once that same span set has held for `quietPeriodMs`. Any change to the
+   * set, and any poll that leaves a parent unresolved, restarts the period.
+   * Returns the remote span count of this poll.
    */
   private async pollOnce({
     threadId,
@@ -413,6 +583,7 @@ export class RemoteTraceFetcher {
     collector,
     auth,
     deadline,
+    quietPeriodMs,
   }: {
     threadId: string;
     traceId: string;
@@ -420,9 +591,10 @@ export class RemoteTraceFetcher {
     collector: JudgeSpanCollector;
     auth: TraceApiAuth;
     deadline: number;
+    quietPeriodMs: number;
   }): Promise<number> {
     const spans = await this.fetchTrace({ traceId, auth, deadline });
-    const { remoteSpanCount, parentsResolved } = this.merge({
+    const { remoteSpanCount, parentsResolved, remoteSpanKey, wrapped } = this.merge({
       threadId,
       traceId,
       state,
@@ -430,7 +602,21 @@ export class RemoteTraceFetcher {
       spans,
     });
 
-    if (remoteSpanCount >= 1 && parentsResolved) {
+    if (remoteSpanCount < 1 || !parentsResolved) {
+      // The trace is still arriving: whatever was stable before says nothing
+      // about the set it is growing into.
+      state.candidateKey = undefined;
+      state.candidateSince = undefined;
+      return remoteSpanCount;
+    }
+
+    if (state.candidateKey !== remoteSpanKey) {
+      state.candidateKey = remoteSpanKey;
+      state.candidateSince = Date.now();
+    }
+    state.wrapped = wrapped;
+
+    if (Date.now() - (state.candidateSince ?? Date.now()) >= quietPeriodMs) {
       state.settled = true;
     }
     return remoteSpanCount;
@@ -466,8 +652,9 @@ export class RemoteTraceFetcher {
    * Filters out scenario infrastructure spans, deduplicates by span id
    * against spans already collected for the thread, tags the remainder with
    * the thread id attribute, and feeds them to the collector. Returns the
-   * remote-only span count and whether every fetched agent span's parent id
-   * resolves within the fetched spans plus the locally collected ones.
+   * remote-only span count, whether every fetched agent span's parent id
+   * resolves within the fetched spans plus the locally collected ones, and
+   * the sorted remote span id key the quiet period watches.
    */
   private merge({
     threadId,
@@ -496,6 +683,7 @@ export class RemoteTraceFetcher {
 
     let remoteSpanCount = 0;
     let parentsResolved = spans.length > 0;
+    const remoteSpanIds: string[] = [];
     const existingSpanIds = new Set(collectorSpanIds);
 
     for (const apiSpan of spans) {
@@ -516,6 +704,7 @@ export class RemoteTraceFetcher {
         collector.isProcessSpan(traceId, apiSpan.span_id);
       if (!isLocalEcho) {
         remoteSpanCount += 1;
+        remoteSpanIds.push(apiSpan.span_id);
         const parentId = apiSpan.parent_id;
         if (
           parentId &&
@@ -534,7 +723,30 @@ export class RemoteTraceFetcher {
       collector.onEnd(this.tagWithThreadId(readableSpan, threadId));
     }
 
-    return { remoteSpanCount, parentsResolved };
+    const remoteIdSet = new Set(remoteSpanIds);
+    const remoteParents = new Set(
+      spans
+        .filter((s) => s.span_id && remoteIdSet.has(s.span_id) && s.parent_id)
+        .map((s) => s.parent_id as string)
+    );
+    const entrySpanIds = spans
+      .filter(
+        (s) =>
+          s.span_id &&
+          remoteIdSet.has(s.span_id) &&
+          !(s.parent_id && remoteIdSet.has(s.parent_id))
+      )
+      .map((s) => s.span_id as string);
+    const wrapped =
+      entrySpanIds.length > 0 &&
+      entrySpanIds.every((id) => remoteParents.has(id));
+
+    return {
+      remoteSpanCount,
+      parentsResolved,
+      remoteSpanKey: remoteSpanIds.sort().join(","),
+      wrapped,
+    };
   }
 
   /**
@@ -562,19 +774,7 @@ export class RemoteTraceFetcher {
   }): Promise<LangWatchApiSpan[]> {
     const url = `${auth.endpoint.replace(/\/$/, "")}/api/trace/${traceId}`;
 
-    const headers: Record<string, string> = {
-      // Dual-emit auth: /api/trace historically authenticates with
-      // X-Auth-Token, while newer deployments accept a Bearer token.
-      // Sending both keeps the fetch working across LangWatch versions.
-      "X-Auth-Token": auth.apiKey,
-      Authorization: `Bearer ${auth.apiKey}`,
-    };
-    // The Bearer branch resolves first on the platform, and it rejects a PAT
-    // or organization key that is not scoped to a project. The event reporter
-    // sends the same header for the same reason.
-    if (auth.projectId) {
-      headers["X-Project-Id"] = auth.projectId;
-    }
+    const headers = this.authHeaders(auth);
 
     // Two bounds, whichever is nearer: a fixed guard against a hung API, and
     // what is left of the settle loop's shared deadline. Without the second
@@ -636,6 +836,23 @@ export class RemoteTraceFetcher {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private authHeaders(auth: TraceApiAuth): Record<string, string> {
+    const headers: Record<string, string> = {
+      // Dual-emit auth: /api/trace historically authenticates with
+      // X-Auth-Token, while newer deployments accept a Bearer token.
+      // Sending both keeps the fetch working across LangWatch versions.
+      "X-Auth-Token": auth.apiKey,
+      Authorization: `Bearer ${auth.apiKey}`,
+    };
+    // The Bearer branch resolves first on the platform, and it rejects a PAT
+    // or organization key that is not scoped to a project. The event reporter
+    // sends the same header for the same reason.
+    if (auth.projectId) {
+      headers["X-Project-Id"] = auth.projectId;
+    }
+    return headers;
   }
 
   /**

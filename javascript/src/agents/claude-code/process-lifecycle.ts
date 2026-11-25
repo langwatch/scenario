@@ -31,15 +31,17 @@ const posix = process.platform !== "win32";
  * The watchdog. `$1` is the harness pid, `$2` the CLI pid, which is also its
  * process group id (see {@link ownProcessGroup}). It polls once a second while
  * both are alive, then either exits, when the CLI finished on its own, or
- * terminates the CLI's group when the harness went first.
+ * terminates the CLI's group when the harness went first. It names the group
+ * as `"-$child"` with no `--`: dash, the `/bin/sh` of Debian and Ubuntu,
+ * reads `--` as a pid and refuses it with "Illegal number".
  */
-const WATCHDOG_SCRIPT = [
+export const WATCHDOG_SCRIPT = [
   'harness="$1"; child="$2"',
   'while kill -0 "$harness" 2>/dev/null && kill -0 "$child" 2>/dev/null; do sleep 1; done',
   'kill -0 "$child" 2>/dev/null || exit 0',
-  'kill -TERM -- "-$child" 2>/dev/null',
+  'kill -TERM "-$child" 2>/dev/null',
   "sleep 5",
-  'kill -KILL -- "-$child" 2>/dev/null',
+  'kill -KILL "-$child" 2>/dev/null',
   "exit 0",
 ].join("\n");
 

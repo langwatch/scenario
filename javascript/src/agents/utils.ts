@@ -145,11 +145,60 @@ export const messageRoleReversal = (messages: ModelMessage[]): ModelMessage[] =>
  * // Returns: "very_long_criterion_name_that_exceeds_limits" (truncated to 70 chars)
  * ```
  */
+/** The longest parameter name a criterion may produce. */
+const CRITERION_PARAM_NAME_MAX = 70;
+
 export const criterionToParamName = (criterion: string): string => {
   return criterion
     .replace(/"/g, "")
     .replace(/[^a-zA-Z0-9]/g, "_")
     .replace(/ /g, "_")
     .toLowerCase()
-    .substring(0, 70);
+    .substring(0, CRITERION_PARAM_NAME_MAX);
+};
+
+/**
+ * The schema keys the verdict tool exposes for a list of criteria, one per
+ * criterion, in the same order.
+ *
+ * {@link criterionToParamName} alone is not enough to key a verdict by: it
+ * truncates, so two criteria sharing their first characters collapse onto the
+ * same key and the verdict can only answer one of them. A name already taken
+ * gets a numeric suffix here, and only then is the base shortened, so the
+ * suffixed name still fits the 70-character budget and a criterion that
+ * collides with nothing keeps the plain name.
+ *
+ * Both the schema builder and the verdict parser read the keys from here, so
+ * an answer always lands on the criterion it was written for.
+ *
+ * @param criteria - The criteria to name, in judging order
+ * @returns One unique parameter name per criterion, in the same order
+ *
+ * @example
+ * ```ts
+ * criteriaParamNames({ criteria: ["Ships fast", "Ships fast"] })
+ * // Returns: ["ships_fast", "ships_fast_1"]
+ * ```
+ */
+export const criteriaParamNames = ({
+  criteria,
+}: {
+  criteria: string[];
+}): string[] => {
+  const taken = new Set<string>();
+
+  return criteria.map((criterion, index) => {
+    const base = criterionToParamName(criterion);
+    // The suffixed candidate can collide in its own right (a later criterion
+    // whose own name is the suffixed one), so every candidate is tested, not
+    // just the base.
+    let name = base;
+    let suffixIndex = index;
+    while (taken.has(name)) {
+      const suffix = `_${suffixIndex++}`;
+      name = `${base.substring(0, CRITERION_PARAM_NAME_MAX - suffix.length)}${suffix}`;
+    }
+    taken.add(name);
+    return name;
+  });
 };

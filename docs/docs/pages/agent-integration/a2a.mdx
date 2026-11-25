@@ -1,0 +1,61 @@
+# A2A agents
+
+`A2AAgent` tests any agent that speaks the [A2A protocol](https://a2a-protocol.org/latest/specification/) v1.0. You pass the Agent Card URL and nothing else: the adapter reads the card, picks its first v1.0 `JSONRPC` or `HTTP+JSON` interface and sends each scenario turn as `SendMessage`.
+
+:::code-group
+
+```python [python]
+import scenario
+
+result = await scenario.run(
+    name="refund request",
+    description="A customer asks for a refund on a bike bought two weeks ago",
+    agents=[
+        scenario.A2AAgent(card_url="https://agent.example.com/.well-known/agent-card.json"),
+        scenario.UserSimulatorAgent(),
+        scenario.JudgeAgent(criteria=["The agent says the refund is possible"]),
+    ],
+)
+```
+
+```typescript [typescript]
+import scenario, { A2AAgent } from "@langwatch/scenario";
+
+const result = await scenario.run({
+  name: "refund request",
+  description: "A customer asks for a refund on a bike bought two weeks ago",
+  agents: [
+    new A2AAgent({ cardUrl: "https://agent.example.com/.well-known/agent-card.json" }),
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({ criteria: ["The agent says the refund is possible"] }),
+  ],
+});
+```
+
+:::
+
+## Agent name
+
+The run reports the agent under its card name once the first turn has read the card. Pass `name` to report your own name from the start of the run.
+
+## Auth
+
+Pass `auth` as a bearer token string, or as a mapping of headers such as `{"X-Api-Key": "..."}`. The adapter sends these headers to the card's origin only, on the card fetch and on every request. An interface or a redirect on another origin gets no auth headers, unless you set `send_auth_to_any_host=True` (`sendAuthToAnyHost: true` in TypeScript). Redirects are followed up to five times in both languages.
+
+## Conversation and tasks
+
+Each scenario thread gets one `contextId`, so every turn of a run lands in the same A2A conversation. If the agent answers with its own `contextId`, the adapter uses that one from then on. A task in `TASK_STATE_INPUT_REQUIRED` is continued with its `taskId` on the next turn. A submitted or working task is polled with `GetTask` until it finishes, for up to the timeout. A task that ends failed, rejected, canceled or auth required fails the turn with an `A2AError`. So does a JSON-RPC error, an HTTP error, an unreachable host, a body that is not a JSON object, and a reply with neither a task nor a message.
+
+Each turn sends the newest user message. A turn with no new user message, such as two agent turns in a row in a script, fails instead of resending an older message.
+
+## Tracing
+
+Each turn opens a client span `invoke_agent <card name>` and sends its W3C `traceparent` and `tracestate` headers, plus `A2A-Version: 1.0`. An agent with OpenTelemetry HTTP instrumentation joins the scenario trace with no extra code. The span carries `gen_ai.agent.name` and `a2a.*` attributes (`a2a.method`, `a2a.context.id`, `a2a.task.id`, `a2a.task.state`). The `a2a.*` names follow an OpenTelemetry proposal and can still change.
+
+## Examples
+
+Both examples run a small A2A agent locally and test it through `A2AAgent`: [Python](https://github.com/langwatch/scenario/blob/main/python/examples/test_a2a_agent.py) and [TypeScript](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/a2a-agent.test.ts). The server continues the trace from `traceparent`, so its spans sit under the scenario trace.
+
+## Limits
+
+The adapter speaks A2A v1.0 only. A v0.3 Agent Card (one with `protocolVersion` 0.x or `preferredTransport` and no `supportedInterfaces`) fails with an `A2AError` that says so, and v0.x interfaces in a v1.0 card are skipped. The adapter does not support gRPC, streaming (`SendStreamingMessage`) or push notifications yet. It sends text parts only and reads text parts and artifacts from the reply.

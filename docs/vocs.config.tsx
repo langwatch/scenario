@@ -350,6 +350,10 @@ export default defineConfig({
           link: "/agent-integration",
         },
         {
+          text: "A2A",
+          link: "/agent-integration/a2a",
+        },
+        {
           text: "Agno",
           link: "/agent-integration/agno",
         },

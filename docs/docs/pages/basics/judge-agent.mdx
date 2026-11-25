@@ -170,6 +170,50 @@ scenario.judgeAgent({
 
 :::
 
+### Positive requirements and fail conditions
+
+Prefer criteria that state what the agent does: "Agent keeps the account password secret" reads the same way to every judge model. A criterion phrased as a fail condition ("Fail if the agent promises a refund without checking the order", "Pass unless...", "The agent must not...") also works: the judge first restates each criterion as a positive requirement ("The agent does not promise a refund without checking the order") and judges that. `passed` always means the agent satisfied the requirement, so a fail condition passes when the condition did not happen.
+
+Write one requirement per criterion. The judge checks and explains each criterion on its own, so a criterion that bundles two checks gets one status for both.
+
+## Reading the Result
+
+The result lists the judge's verdict on every criterion, in the order you declared them, next to the existing `passed_criteria` / `failed_criteria` (Python) and `metCriteria` / `unmetCriteria` (TypeScript) lists:
+
+:::code-group
+
+```python [python]
+result = await scenario.run(...)
+for verdict in result.criteria:
+    print(verdict.criterion, verdict.status, verdict.reasoning)
+# result.inconclusive_criteria lists the criteria the judge could not check
+```
+
+```typescript [typescript]
+const result = await scenario.run({ ... });
+for (const verdict of result.criteria ?? []) {
+  console.log(verdict.criterion, verdict.status, verdict.reasoning);
+}
+// result.inconclusiveCriteria lists the criteria the judge could not check
+```
+
+:::
+
+Each entry has:
+
+| Field | Meaning |
+| ----- | ------- |
+| `criterion` | The criterion as you wrote it |
+| `requirement` | The criterion restated by the judge as a positive requirement |
+| `status` | `passed`, `failed` or `inconclusive` |
+| `reasoning` | What the judge checked for this criterion, written before it chose the status |
+
+`inconclusive` means the evidence to decide was not available: the conversation ended before the moment the criterion depends on, or the criterion depends on internal behavior that left no trace. The reasoning names the missing evidence. The run stays binary: it passes only when every criterion passed, so an inconclusive criterion fails it. LangWatch shows an inconclusive criterion as one the test could not check, not as one the agent failed. The usual fix is a longer conversation, a script step that reaches the moment, or [remote traces](/advanced/remote-traces) for internal behavior.
+
+## Model Compatibility
+
+The judge answers through tool calls with a forced tool choice. Some models refuse parts of that call: Claude Opus 5.5 (including on Bedrock) refuses a forced tool choice, Claude Sonnet 5 refuses any `temperature`, GPT-5.5 refuses a `temperature` other than the default, and GPT-5.6 models refuse function tools with reasoning on the Chat Completions API that the Python SDK uses. When a provider refuses a call for one of these reasons, the judge and the user simulator send it again without that parameter and keep that change for their later calls: tool choice `auto` plus an instruction to answer with the tool, or no temperature, in both SDKs, and `reasoning_effort: "none"` in the Python SDK. The TypeScript SDK needs no reasoning retry, because it calls OpenAI through the Responses API. No configuration is needed.
+
 ## Guaranteeing a Minimum Number of Turns
 
 The judge looks at the conversation after every turn and may end the run. On

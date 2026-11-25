@@ -54,6 +54,7 @@ class TwilioHarness:
         phone_number: str,
         http_port: int = 8765,
         allowed_callers: Optional[list[str]] = None,
+        allowed_callees: Optional[list[str]] = None,
         on_dtmf: Optional[Callable[[str], None]] = None,
         validate_signature: bool = True,
     ) -> None:
@@ -62,6 +63,7 @@ class TwilioHarness:
         self._phone_number = phone_number
         self._http_port = http_port
         self._allowed_callers = allowed_callers
+        self._allowed_callees = allowed_callees
         self._on_dtmf = on_dtmf
         self._validate_signature = validate_signature
 
@@ -79,6 +81,10 @@ class TwilioHarness:
             phone_number=self._phone_number,
             public_base_url=self._tunnel.public_url,
             allowed_callers=self._allowed_callers,
+            allowed_callees=self._allowed_callees,
+            # The harness owns the tunnel, so it is the one thing that can
+            # answer "is our public URL live yet?" for a-leg origination.
+            tunnel_readiness=self._tunnel,
             on_dtmf=self._on_dtmf,
             http_port=self._http_port,
             validate_signature=self._validate_signature,

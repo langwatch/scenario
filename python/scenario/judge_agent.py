@@ -16,6 +16,11 @@ from typing import Any, List, Optional, Sequence, Union, cast
 import litellm
 from litellm import Choices
 from litellm.files.main import ModelResponse
+from litellm.types.utils import (
+    ChatCompletionMessageCustomToolCall,
+    ChatCompletionMessageToolCall,
+    Message,
+)
 from openai.types.chat import ChatCompletionMessageParam
 
 from scenario.cache import scenario_cache
@@ -23,7 +28,15 @@ from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
+from ._utils.provider_compat import ProviderCompat
 from ._judge import JudgeUtils, judge_span_digest_formatter
+from ._judge.criterion_verdicts import (
+    merge_criteria_answers,
+    unanswered_criteria,
+    PER_CRITERION_RULES,
+    build_finish_test_tool,
+    parse_criterion_verdicts,
+)
 from ._judge.estimate_tokens import estimate_tokens, DEFAULT_TOKEN_THRESHOLD
 from ._judge.trace_tools import expand_trace, grep_trace
 from ._judge.transcript_tools import (
@@ -44,39 +57,6 @@ from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
 logger = logging.getLogger("scenario")
-
-
-# `/v1/chat/completions` refuses function tools on some reasoning models unless
-# reasoning is explicitly switched off:
-#
-#   Function tools with reasoning_effort are not supported for <model> in
-#   /v1/chat/completions. To use function tools, use /v1/responses or set
-#   reasoning_effort to 'none'.
-#
-# The judge forces a finish_test / continue_test tool call on every graded run,
-# so on such a model no run could reach a verdict (langwatch/scenario#864, and
-# the same signature on the LangWatch platform judge, langwatch/langwatch#6369).
-#
-# Reasoning is disabled by RETRY, never preemptively: whether a model accepts
-# reasoning off is not knowable up front (Gemini 2.5 Pro rejects it with
-# "Budget 0 is invalid. This model only works in thinking mode."), so the call
-# goes out untouched and is re-sent with reasoning off only when the provider's
-# rejection asks for exactly that. Models that work today are never sent
-# anything new.
-_REASONING_OFF = "none"
-
-
-def _rejection_asks_for_reasoning_off(error: Exception) -> bool:
-    """
-    Whether a provider rejection is the "set reasoning_effort to 'none' to use
-    function tools" class, as opposed to any other bad request.
-
-    Keyed on the remediation directive, not just the field name: an error such
-    as "reasoning_effort 'none' is invalid for this model" mentions both tokens
-    but is not asking us to turn reasoning off, and retrying it with reasoning
-    off would replace the provider's real error.
-    """
-    return "set reasoning_effort to 'none'" in str(error)
 
 
 _DISCOVERY_TOOL_NAMES = frozenset(
@@ -109,6 +89,20 @@ DECISION_PHASE_RULE = (
 )
 """Appended to a custom system prompt on decision calls, so custom judge
 personas still drive the argument-free decision tools correctly."""
+
+
+_MISSING_VERDICT_PROMPT = (
+    "Your finish_test call did not give a usable verdict for the criteria "
+    "below. Call finish_test again with a requirement, a reasoning and a "
+    "status for every criterion. Pass criteria as an object keyed by "
+    "criterion, not as a string."
+)
+"""Re-asks the criteria a finish_test call left without a verdict. The JS
+SDK uses the same text; keep them in sync."""
+
+
+def _build_criteria_list(criteria: Sequence[str]) -> str:
+    return "\n".join(f"{idx + 1}. {criterion}" for idx, criterion in enumerate(criteria))
 
 
 REMOTE_TRACES_DECISION_RULE = (
@@ -161,13 +155,23 @@ def _build_wait_for_traces_tool() -> dict:
     }
 
 
+def _function_tool_calls(message: Message) -> List[ChatCompletionMessageToolCall]:
+    """The function tool calls on a completion message. The judge only offers
+    function tools, so a custom tool call never answers one of them."""
+    return [
+        tc
+        for tc in (message.tool_calls or [])
+        if not isinstance(tc, ChatCompletionMessageCustomToolCall)
+    ]
+
+
 def _response_called_wait_for_traces(response: ModelResponse) -> bool:
     """True when the completion called the wait_for_traces tool."""
     if not hasattr(response, "choices") or len(response.choices) == 0:
         return False
     message = cast(Choices, response.choices[0]).message
     return any(
-        tc.function.name == "wait_for_traces" for tc in (message.tool_calls or [])
+        tc.function.name == "wait_for_traces" for tc in _function_tool_calls(message)
     )
 
 
@@ -337,20 +341,6 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
     return out
 
 
-def _criteria_keys(criteria: Sequence[str]) -> List[str]:
-    """Sanitized schema property names for each criterion.
-
-    Must stay the single source of truth for these keys: the finish_test
-    tool schema declares them as required properties, and _parse_response
-    maps the LLM's verdicts back to criteria BY these keys. If the two ever
-    computed them differently, every verdict would silently fail to map.
-    """
-    return [
-        re.sub(r"[^a-zA-Z0-9]", "_", c.replace(" ", "_").replace("'", "").lower())[:70]
-        for c in criteria
-    ]
-
-
 class JudgeAgent(AgentAdapter):
     """
     Agent that evaluates conversations against success criteria.
@@ -434,6 +424,7 @@ class JudgeAgent(AgentAdapter):
     _remote_trace_fetcher: RemoteTraceFetcher
     _token_threshold: int
     _max_discovery_steps: int
+    _provider_compat: ProviderCompat
 
     def __init__(
         self,
@@ -530,6 +521,7 @@ class JudgeAgent(AgentAdapter):
         self._remote_trace_fetcher = remote_trace_fetcher or default_remote_trace_fetcher
         self._token_threshold = token_threshold
         self._max_discovery_steps = max_discovery_steps
+        self._provider_compat = ProviderCompat()
         # Voice-aware judge behaviour (§4.3). None = auto-detect based on
         # conversation content and judge model capabilities.
         self.include_audio = include_audio
@@ -935,7 +927,7 @@ Your goal is to decide if the conversation has collected enough information to e
             tools = self._build_transcript_discovery_tools() + tools
 
         if not is_large_trace:
-            response = self._completion_with_reasoning_off_retry(
+            response = self._completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -949,7 +941,7 @@ Your goal is to decide if the conversation has collected enough information to e
             return _DecisionOutcome(decision=self._parse_decision(response))
 
         for _ in range(self._max_discovery_steps):
-            response = self._completion_with_reasoning_off_retry(
+            response = self._completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -965,14 +957,14 @@ Your goal is to decide if the conversation has collected enough information to e
                     f"Unexpected response format from LLM: {response.__repr__()}"
                 )
             message = cast(Choices, response.choices[0]).message
-            if not message.tool_calls:
+            if not _function_tool_calls(message):
                 raise Exception(
                     f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
                 )
             terminal_call = next(
                 (
                     tc
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                     if tc.function.name in _DECISION_TOOL_NAMES
                 ),
                 None,
@@ -998,10 +990,10 @@ Your goal is to decide if the conversation has collected enough information to e
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                 ],
             })
-            for tc in message.tool_calls:
+            for tc in _function_tool_calls(message):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -1029,21 +1021,21 @@ Your goal is to decide if the conversation has collected enough information to e
                 f"Unexpected response format from LLM: {response.__repr__()}"
             )
         message = cast(Choices, response.choices[0]).message
-        if not message.tool_calls:
+        if not _function_tool_calls(message):
             raise Exception(
                 f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
             )
         terminal_call = next(
             (
                 tc
-                for tc in message.tool_calls
+                for tc in _function_tool_calls(message)
                 if tc.function.name in _DECISION_TOOL_NAMES
             ),
             None,
         )
         if terminal_call is None:
             raise Exception(
-                f"Invalid tool call from judge agent: {message.tool_calls[0].function.name}"
+                f"Invalid tool call from judge agent: {_function_tool_calls(message)[0].function.name}"
             )
         return (
             "continue"
@@ -1157,6 +1149,7 @@ Your goal is to decide if the conversation has collected enough information to e
         remote_traces_rule = (
             f"\n- {REMOTE_TRACES_JUDGE_RULE}" if fetch_remote_traces else ""
         )
+        per_criterion_rules = "\n".join(f"- {rule}" for rule in PER_CRITERION_RULES)
 
         system_content = self.system_prompt or f"""
 <role>
@@ -1164,7 +1157,7 @@ You are an LLM as a judge delivering the final verdict on a simulated conversati
 </role>
 
 <goal>
-Your goal is to deliver the final verdict of the scenario below with the finish_test tool, evaluating each criterion independently against the conversation and the collected evidence.
+Your goal is to deliver the final verdict of the scenario below with the finish_test tool, judging each criterion on its own against the conversation and the collected evidence.
 </goal>
 
 <scenario>
@@ -1177,8 +1170,8 @@ Your goal is to deliver the final verdict of the scenario below with the finish_
 
 <rules>
 - Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
-- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
-- When the evidence for a criterion is not definitive, mark that criterion inconclusive rather than guessing; an inconclusive verdict is acceptable{remote_traces_rule}
+- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary. Recomputing a number or following a derivation that a criterion depends on is not an extra judgment call.
+{per_criterion_rules}{remote_traces_rule}
 </rules>
 """
         if self.system_prompt and fetch_remote_traces:
@@ -1198,7 +1191,7 @@ System:
 
 <finish_test>
 This is the last message, conversation has reached the maximum number of turns, give your final verdict,
-if you don't have enough information to make a verdict, say inconclusive with max turns reached.
+mark a criterion inconclusive when the conversation ended before the evidence for it was available.
 </finish_test>
 """,
                 }
@@ -1216,47 +1209,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 }
             )
 
-        criteria_names = _criteria_keys(effective_criteria)
-        tools: List[dict] = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "finish_test",
-                    "description": "Complete the test with a final verdict",
-                    "strict": True,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "criteria": {
-                                "type": "object",
-                                "properties": {
-                                    criteria_names[idx]: {
-                                        "type": "string",
-                                        "enum": ["true", "false", "inconclusive"],
-                                        "description": criterion,
-                                    }
-                                    for idx, criterion in enumerate(effective_criteria)
-                                },
-                                "required": criteria_names,
-                                "additionalProperties": False,
-                                "description": "Strict verdict for each criterion",
-                            },
-                            "reasoning": {
-                                "type": "string",
-                                "description": "Explanation of what the final verdict should be",
-                            },
-                            "verdict": {
-                                "type": "string",
-                                "enum": ["success", "failure", "inconclusive"],
-                                "description": "The final verdict of the test",
-                            },
-                        },
-                        "required": ["criteria", "reasoning", "verdict"],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-        ]
+        tools: List[dict] = [build_finish_test_tool(effective_criteria)]
 
         exhausted_entry = bool(discovery_recap)
         if not exhausted_entry:
@@ -1318,7 +1271,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 )
             return cast(AgentReturnTypes, outcome)
 
-        response = self._completion_with_reasoning_off_retry(
+        response = self._completion(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
@@ -1425,29 +1378,10 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             extension = timeout
         return enabled, float(timeout), float(extension)
 
-    def _completion_with_reasoning_off_retry(self, **kwargs: Any) -> ModelResponse:
-        """
-        ``litellm.completion``, retried once with reasoning declared off when —
-        and only when — the provider rejected a tool-carrying call for exactly
-        that reason. A caller that already asked for a specific effort keeps it
-        and gets the endpoint's own error, rather than having its intent
-        silently rewritten.
-        """
-        try:
-            return cast(ModelResponse, litellm.completion(**kwargs))
-        except Exception as error:
-            if not kwargs.get("tools") or "reasoning_effort" in kwargs:
-                raise
-            if not _rejection_asks_for_reasoning_off(error):
-                raise
-            logger.debug(
-                "provider rejected function tools without reasoning off for %s; retrying",
-                kwargs.get("model"),
-            )
-            return cast(
-                ModelResponse,
-                litellm.completion(**kwargs, reasoning_effort=_REASONING_OFF),
-            )
+    def _completion(self, **kwargs: Any) -> ModelResponse:
+        """``litellm.completion``, re-sent without a parameter the provider
+        refused (see ``scenario._utils.provider_compat``)."""
+        return self._provider_compat.completion(**kwargs)
 
     def _build_trace_digest(self, spans: Sequence[Any]) -> tuple[str, bool]:
         """
@@ -1468,7 +1402,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         if is_large_trace:
             digest = (
                 judge_span_digest_formatter.format_structure_only(spans)
-                + "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
+                + "\n\nOnly the span structure is shown above, not the span contents. Before judging a criterion that depends on what a span holds, read it: grep_trace(pattern) finds text anywhere in the spans, even deep inside long values, and expand_trace(span_id) shows a span's details one page at a time. Content you have not read is missing evidence, never evidence that something is absent. Reference spans by the ID shown in brackets."
             )
         else:
             digest = full_digest
@@ -1498,7 +1432,9 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "description": (
                         "Expand one or more spans to see their full details "
                         "(attributes, events, content). Use the span ID shown "
-                        "in brackets in the trace skeleton."
+                        "in brackets in the trace skeleton. Long output comes in "
+                        "pages: pass the offset named at the end of a page to "
+                        "read the next one."
                     ),
                     "parameters": {
                         "type": "object",
@@ -1507,6 +1443,11 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": "Span IDs (or 8-char prefixes) to expand",
+                            },
+                            "offset": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Character offset of the page to read; 0 or omitted for the first page",
                             },
                         },
                         "required": ["span_ids"],
@@ -1520,7 +1461,10 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "name": "grep_trace",
                     "description": (
                         "Search across all span attributes, events, and content "
-                        "for a pattern (case-insensitive). Returns matching spans with context."
+                        "for a pattern (case-insensitive). Returns matching spans "
+                        "with the text around each match, even deep inside long values. "
+                        "A long line shows at most 5 matches; when it has more, the "
+                        "result names the skip value that shows the next ones."
                     ),
                     "parameters": {
                         "type": "object",
@@ -1528,6 +1472,15 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                             "pattern": {
                                 "type": "string",
                                 "description": "Search pattern (case-insensitive)",
+                            },
+                            "skip": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": (
+                                    "Matches to pass over in each long line, to see "
+                                    "the ones after the first 5; 0 or omitted to "
+                                    "start at the first match"
+                                ),
                             },
                         },
                         "required": ["pattern"],
@@ -1640,7 +1593,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             is_last_step = step == self._max_discovery_steps - 1
             step_tool_choice = tool_choice if is_last_step else "required"
 
-            response = self._completion_with_reasoning_off_retry(
+            response = self._completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -1658,7 +1611,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 )
 
             message = cast(Choices, response.choices[0]).message
-            if not message.tool_calls:
+            if not _function_tool_calls(message):
                 # No tool calls - try to parse as a response
                 return self._parse_response(
                     response,
@@ -1669,7 +1622,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 )
 
             if wait_tool_offered and any(
-                tc.function.name == "wait_for_traces" for tc in message.tool_calls
+                tc.function.name == "wait_for_traces" for tc in _function_tool_calls(message)
             ):
                 # The extra wait rebuilds the whole phase: the caller
                 # settle-waits once more and re-enters with a fresh digest
@@ -1677,7 +1630,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 return _WAIT_FOR_TRACES_REQUESTED
 
             terminal_call = next(
-                (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
+                (tc for tc in _function_tool_calls(message) if tc.function.name == "finish_test"),
                 None,
             )
             if terminal_call:
@@ -1703,11 +1656,11 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in message.tool_calls
+                    for tc in _function_tool_calls(message)
                 ],
             })
 
-            for tc in message.tool_calls:
+            for tc in _function_tool_calls(message):
                 tool_result = self._execute_discovery_tool(tc, spans, working_messages)
                 messages.append({
                     "role": "tool",
@@ -1767,7 +1720,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             if t.get("function", {}).get("name") == "finish_test"
         ]
 
-        forced_response = self._completion_with_reasoning_off_retry(
+        forced_response = self._completion(
             model=self.model,
             messages=rewritten_messages,
             temperature=self.temperature,
@@ -1816,9 +1769,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             return expand_trace(
                 spans,
                 span_ids=args.get("span_ids", []),
+                offset=args.get("offset") or 0,
             )
         elif tool_call.function.name == "grep_trace":
-            return grep_trace(spans, args.get("pattern", ""))
+            skip = args.get("skip") or 0
+            if isinstance(skip, bool) or not isinstance(skip, int) or skip < 0:
+                return f"Error: skip must be a non-negative integer, got {skip!r}"
+            return grep_trace(spans, args.get("pattern", ""), skip=skip)
         elif tool_call.function.name == "expand_transcript":
             return expand_transcript(
                 working_messages,
@@ -1828,6 +1785,64 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             return grep_transcript(working_messages, args.get("pattern", ""))
         else:
             return f"Unknown tool: {tool_call.function.name}"
+
+    def _reask_unanswered(
+        self,
+        *,
+        messages: List[dict],
+        args: dict,
+        missing: List[str],
+        effective_criteria: List[str],
+    ) -> Optional[dict]:
+        """Asks once more, pinned to finish_test, for the criteria a verdict
+        left without a readable answer (left out, or malformed). Returns the
+        new criteria answers, or None when the re-ask gave nothing usable;
+        whatever is still missing then fails closed."""
+        logger.warning(
+            "finish_test left criteria without a verdict; asking once more: %s",
+            missing,
+        )
+        try:
+            response = self._completion(
+                model=self.model,
+                messages=[
+                    *messages,
+                    {
+                        "role": "assistant",
+                        "content": f"My finish_test call: {json.dumps(args)}",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{_MISSING_VERDICT_PROMPT}\n"
+                        + _build_criteria_list(missing),
+                    },
+                ],
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=[build_finish_test_tool(effective_criteria)],
+                tool_choice={"type": "function", "function": {"name": "finish_test"}},
+                **self._extra_params,
+            )
+            message = cast(Choices, response.choices[0]).message
+            call = next(
+                (
+                    tc
+                    for tc in _function_tool_calls(message)
+                    if tc.function.name == "finish_test"
+                ),
+                None,
+            )
+            if call is None:
+                return None
+            answers = json.loads(call.function.arguments).get("criteria")
+            if isinstance(answers, str):
+                answers = json.loads(answers)
+            return answers if isinstance(answers, dict) else None
+        except Exception as error:  # noqa: BLE001 - the first verdict stands
+            logger.warning("Re-asking the missing criteria failed: %s", error)
+            return None
 
     def _parse_response(
         self,
@@ -1859,17 +1874,17 @@ if you don't have enough information to make a verdict, say inconclusive with ma
 
         message = cast(Choices, response.choices[0]).message
 
-        if not message.tool_calls:
+        if not _function_tool_calls(message):
             raise Exception(
                 f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
             )
 
         # In multi-step mode, find the terminal tool call
         terminal_call = next(
-            (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
+            (tc for tc in _function_tool_calls(message) if tc.function.name == "finish_test"),
             None,
         )
-        tool_call = terminal_call or message.tool_calls[0]
+        tool_call = terminal_call or _function_tool_calls(message)[0]
 
         if tool_call.function.name == "finish_test":
             try:
@@ -1879,42 +1894,33 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     f"Failed to parse tool call arguments from judge agent: {tool_call.function.arguments}"
                 )
 
-            verdict = args.get("verdict", "inconclusive")
-            reasoning = args.get("reasoning", "No reasoning provided")
-
-            # "Can't tell yet" is not a verdict (#886). When nothing forced the
-            # judge to finish — continue_test was freely available — an
-            # inconclusive finish_test used to end the run as a failure, which
-            # on a platform surface reads as the simulated user going silent
-            # mid-conversation. Treat it as continue_test and let the
-            # conversation play out; a FORCED judgment (last turn, an explicit
-            # judgment_request, discovery exhaustion) keeps its terminal
-            # behavior unchanged.
-            if not verdict_forced and verdict == "inconclusive":
-                logger.debug(
-                    "finish_test returned an inconclusive verdict without a "
-                    "forced judgment - continuing the conversation"
-                )
-                return []
-
-            criteria_verdicts = args.get("criteria", {})
+            reasoning = args.get("reasoning") or "No reasoning provided"
+            criteria_answers = args.get("criteria", {})
 
             # LLMs sometimes serialise the criteria object as a JSON *string*
             # instead of an inline dict, especially with complex dynamic
             # schemas (issue #161). Re-parse one level if that happens.
-            if isinstance(criteria_verdicts, str):
+            if isinstance(criteria_answers, str):
                 try:
-                    criteria_verdicts = json.loads(criteria_verdicts)
+                    criteria_answers = json.loads(criteria_answers)
                 except (json.JSONDecodeError, ValueError):
-                    criteria_verdicts = None  # unparseable — handled below
+                    criteria_answers = None  # unparseable, handled below
 
-            # If the criteria payload is not a usable object, we cannot trust
-            # any per-criterion verdict. Do NOT fall back to {}: an empty dict
-            # makes failed_criteria empty and lets a "success" verdict slip
-            # through having evaluated ZERO criteria, masking the real problem
-            # (issue #161 follow-up). Surface it as an explicit, fail-closed
-            # result instead of swallowing it.
-            if not isinstance(criteria_verdicts, dict):
+            missing = unanswered_criteria(effective_criteria, criteria_answers)
+            if missing:
+                retry_answers = self._reask_unanswered(
+                    messages=messages, args=args, missing=missing,
+                    effective_criteria=effective_criteria,
+                )
+                if retry_answers is not None:
+                    criteria_answers = merge_criteria_answers(
+                        criteria_answers, retry_answers
+                    )
+
+            # If the criteria payload is not a usable object, no per-criterion
+            # verdict can be trusted. Surface it as an explicit, fail-closed
+            # result instead of a verdict over zero criteria (issue #161).
+            if not isinstance(criteria_answers, dict):
                 raw = args.get("criteria")
                 logger.warning(
                     "JudgeAgent could not resolve criteria verdicts to an "
@@ -1929,45 +1935,35 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                         "JudgeAgent could not parse the per-criterion verdicts "
                         "returned by the LLM, so the judgment could not be "
                         f"verified (raw criteria value was of type "
-                        f"{type(raw).__name__}). Original verdict was "
-                        f"{verdict!r}. Treating the judgment as failed."
+                        f"{type(raw).__name__}). Treating the judgment as failed."
                     ),
                     passed_criteria=[],
                     failed_criteria=list(effective_criteria),
                 )
 
-            # Map each verdict back to its criterion BY the schema key we
-            # generated for it. Positional .values() mapping silently
-            # mislabels partial / reordered payloads and IndexErrors on extra
-            # keys; key-based lookup is robust. A criterion passes ONLY on an
-            # explicit "true"; anything else (false, inconclusive, missing, or
-            # a nested/unexpected value) is a failure, so an unevaluated
-            # criterion can never slip through as success.
-            # Map each verdict to its criterion by the schema key we generated
-            # for it (single source of truth: _criteria_keys). Positional
-            # .values() mapping silently mislabels partial / reordered / nested
-            # payloads and IndexErrors on extra keys; key lookup is robust.
-            # A criterion passes ONLY on an explicit "true"; anything else
-            # (false, inconclusive, missing, or a nested/unexpected value) is a
-            # failure, so an unevaluated criterion can never slip through as
-            # success. JSON booleans are coerced — some LLMs emit `true`/`false`
-            # instead of the enum strings.
-            criteria_keys = _criteria_keys(effective_criteria)
-            passed_criteria: List[str] = []
-            failed_criteria: List[str] = []
-            for criterion, key in zip(effective_criteria, criteria_keys):
-                raw_verdict = criteria_verdicts.get(key)
-                if isinstance(raw_verdict, bool):
-                    raw_verdict = "true" if raw_verdict else "false"
-                bucket = passed_criteria if raw_verdict == "true" else failed_criteria
-                bucket.append(criterion)
+            verdicts = parse_criterion_verdicts(effective_criteria, criteria_answers)
+
+            # "Can't tell yet" is not a verdict (#886). When nothing forced the
+            # judge to finish (continue_test was freely available), a verdict
+            # with an undecided criterion and no failed one continues the
+            # conversation. A FORCED judgment (last turn, an explicit
+            # judgment_request, discovery exhaustion) keeps its terminal
+            # behavior.
+            if not verdict_forced and verdicts.verdict == "inconclusive":
+                logger.debug(
+                    "finish_test left a criterion inconclusive without a "
+                    "forced judgment - continuing the conversation"
+                )
+                return []
 
             return ScenarioResult(
-                success=verdict == "success" and len(failed_criteria) == 0,
+                success=verdicts.verdict == "success",
                 messages=cast(Any, input_messages),
                 reasoning=reasoning,
-                passed_criteria=passed_criteria,
-                failed_criteria=failed_criteria,
+                passed_criteria=verdicts.passed_criteria,
+                failed_criteria=verdicts.failed_criteria,
+                inconclusive_criteria=verdicts.inconclusive_criteria,
+                criteria=verdicts.criteria,
             )
 
         if tool_call.function.name in _DISCOVERY_TOOL_NAMES:

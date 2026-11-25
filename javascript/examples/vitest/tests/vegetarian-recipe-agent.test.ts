@@ -15,7 +15,8 @@ describe("Vegetarian Recipe Agent", () => {
             content: `
               You are a vegetarian recipe agent.
               Given the user request, ask AT MOST ONE follow-up question,
-              then provide a complete recipe. Keep your responses concise and focused.
+              then provide a complete recipe. Once you have given a recipe, answer
+              without asking further questions. Keep your responses concise and focused.
             `,
           },
           ...input.messages,

@@ -124,6 +124,13 @@ function collapseDiscoveryHistory(
   return out;
 }
 
+import {
+  buildFinishTestTool,
+  mergeCriteriaArgs,
+  parseCriterionVerdicts,
+  PER_CRITERION_RULES,
+  unansweredCriteria,
+} from "./criterion-verdicts";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { JudgeResult } from "./interfaces";
 import { judgeSpanCollector, JudgeSpanCollector } from "./judge-span-collector";
@@ -136,6 +143,7 @@ import {
   JudgeAgentAdapter,
   AgentRole,
   DEFAULT_MAX_TURNS,
+  DEFAULT_TRACE_QUIET_PERIOD_MS,
   DEFAULT_TRACE_WAIT_TIMEOUT_MS,
 } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
@@ -154,7 +162,6 @@ import {
   InvokeLLMParams,
   InvokeLLMResult,
 } from "../types";
-import { criterionToParamName } from "../utils";
 
 
 /**
@@ -232,6 +239,21 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
  */
 const REMOTE_TRACE_JUDGING_RULE =
   "Criteria about the agent's internal behavior (tool calls, database writes, API calls, retrievals) must be verified against the <opentelemetry_traces> section, not against claims in the transcript. If a span named langwatch.span_collection.error is present, read its reason: when no agent spans arrived, mark criteria that depend on internal behavior as inconclusive, never passed. When the trace is incomplete, criteria proven by the spans that are present may pass, and criteria whose evidence is missing stay inconclusive. Criteria about the conversation itself are unaffected by missing traces: judge them from the transcript as normal. Never mark internal-behavior criteria as passed based on the transcript alone.";
+
+/**
+ * Re-asks the criteria a finish_test call left without a verdict. The
+ * Python SDK uses the same text; keep them in sync.
+ */
+const MISSING_VERDICT_PROMPT =
+  "Your finish_test call did not give a usable verdict for the criteria below. Call finish_test again with a requirement, a reasoning and a status for every criterion. Pass criteria as an object keyed by criterion, not as a string.";
+
+/**
+ * Shown with the evidence when a remote trace stopped changing but has no
+ * wrapping agent span to prove it complete: exporters flush in batches, so a
+ * later batch may still be on its way.
+ */
+const UNCONFIRMED_TRACE_NOTE =
+  "The remote trace stopped changing, but nothing proves it is complete: spans may still be arriving, since exporters send spans in batches every few seconds. If a criterion depends on spans that are not shown, call wait_for_traces once before judging it.";
 
 /**
  * Appended to a custom system prompt on decision calls, so custom judge
@@ -318,7 +340,7 @@ You are an LLM as a judge delivering the final verdict on a simulated conversati
 </role>
 
 <goal>
-Your goal is to deliver the final verdict of the scenario below with the finish_test tool, evaluating each criterion independently against the conversation and the collected evidence.
+Your goal is to deliver the final verdict of the scenario below with the finish_test tool, judging each criterion on its own against the conversation and the collected evidence.
 </goal>
 
 <scenario>
@@ -331,8 +353,8 @@ ${buildCriteriaList(criteria)}
 
 <rules>
 - Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
-- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
-- When the evidence for a criterion is not definitive, mark that criterion inconclusive rather than guessing; an inconclusive verdict is acceptable${remoteTraceRule}
+- DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary. Recomputing a number or following a derivation that a criterion depends on is not an extra judgment call.
+${PER_CRITERION_RULES.map((rule) => `- ${rule}`).join("\n")}${remoteTraceRule}
 </rules>
 `.trim();
 }
@@ -396,33 +418,6 @@ function buildWaitForTracesTool(): Tool {
   });
 }
 
-function buildFinishTestTool(criteria: string[]): Tool {
-  const criteriaNames = criteria.map(criterionToParamName);
-
-  return tool({
-    description: "Complete the test with a final verdict",
-    inputSchema: z.object({
-      criteria: z
-        .object(
-          Object.fromEntries(
-            criteriaNames.map((name, idx) => [
-              name,
-              z.enum(["true", "false", "inconclusive"]).describe(criteria[idx]),
-            ])
-          )
-        )
-        .strict()
-        .describe("Strict verdict for each criterion"),
-      reasoning: z
-        .string()
-        .describe("Explanation of what the final verdict should be"),
-      verdict: z
-        .enum(["success", "failure", "inconclusive"])
-        .describe("The final verdict of the test"),
-    }),
-  });
-}
-
 /**
  * Builds the expand_trace and grep_trace tools for progressive trace discovery.
  * These tools allow the judge to drill into large traces on demand rather than
@@ -435,26 +430,38 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
   return {
     expand_trace: tool({
       description:
-        "Expand one or more spans to see their full details (attributes, events, content). Use the span ID shown in brackets in the trace skeleton.",
+        "Expand one or more spans to see their full details (attributes, events, content). Use the span ID shown in brackets in the trace skeleton. Long output comes in pages: pass the offset named at the end of a page to read the next one.",
       inputSchema: z.object({
         span_ids: z
           .array(z.string())
           .describe("Span IDs (or 8-char prefixes) to expand"),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Character offset of the page to read; 0 or omitted for the first page"),
       }),
-      execute: async ({ span_ids }) => {
-        return expandTrace(spans, span_ids);
+      execute: async ({ span_ids, offset }) => {
+        return expandTrace(spans, span_ids, offset ?? 0);
       },
     }),
     grep_trace: tool({
       description:
-        "Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with context.",
+        "Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with the text around each match, even deep inside long values. A long line shows at most 5 matches; when it has more, the result names the skip value that shows the next ones.",
       inputSchema: z.object({
         pattern: z
           .string()
           .describe("Search pattern (case-insensitive)"),
+        skip: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Matches to pass over in each long line, to see the ones after the first 5; 0 or omitted to start at the first match"),
       }),
-      execute: async ({ pattern }) => {
-        return grepTrace(spans, pattern);
+      execute: async ({ pattern, skip }) => {
+        return grepTrace(spans, pattern, skip ?? 0);
       },
     }),
   };
@@ -696,11 +703,24 @@ export class JudgeAgent extends JudgeAgentAdapter {
       input.scenarioConfig.fetchRemoteTraces ??
       projectConfig?.fetchRemoteTraces ??
       false;
+    const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
+    // The LangWatch project's measured recommendation fills what neither the
+    // run nor the project config sets; it is asked once per endpoint and key.
+    const needsRecommendation =
+      fetchRemoteTraces &&
+      [
+        input.scenarioConfig.traceWaitTimeoutMs ?? projectConfig?.traceWaitTimeoutMs,
+        input.scenarioConfig.traceQuietPeriodMs ?? projectConfig?.traceQuietPeriodMs,
+      ].some((value) => value == null);
+    const recommended = needsRecommendation
+      ? await traceFetcher.recommendedSettings(input.scenarioConfig.langwatch)
+      : undefined;
     const traceWaitTimeoutMs = this.resolveWaitBudgetMs({
       field: "traceWaitTimeoutMs",
       values: [
         input.scenarioConfig.traceWaitTimeoutMs,
         projectConfig?.traceWaitTimeoutMs,
+        recommended?.waitTimeoutMs,
       ],
       fallback: DEFAULT_TRACE_WAIT_TIMEOUT_MS,
     });
@@ -712,10 +732,22 @@ export class JudgeAgent extends JudgeAgentAdapter {
       values: [
         input.scenarioConfig.traceWaitExtensionMs,
         projectConfig?.traceWaitExtensionMs,
+        recommended?.waitExtensionMs,
       ],
       fallback: traceWaitTimeoutMs,
     });
-    const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
+    // How long a complete-looking trace has to hold still before the judge
+    // reads it. Paid once per verdict when there is anything to fetch.
+    const traceQuietPeriodMs = this.resolveWaitBudgetMs({
+      field: "traceQuietPeriodMs",
+      values: [
+        input.scenarioConfig.traceQuietPeriodMs,
+        projectConfig?.traceQuietPeriodMs,
+        recommended?.quietPeriodMs,
+      ],
+      fallback: DEFAULT_TRACE_QUIET_PERIOD_MS,
+      allowZero: true,
+    });
 
     // Automatic STT pre-pass (EDR §3.3 / §7.7): when the conversation carries
     // audio, transcribe audio `file` parts to text using the per-run resolved
@@ -766,6 +798,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       fetchRemoteTraces,
       traceWaitTimeoutMs,
       traceWaitExtensionMs,
+      traceQuietPeriodMs,
       traceFetcher,
       mergedConfig,
       verdictForced,
@@ -787,16 +820,25 @@ export class JudgeAgent extends JudgeAgentAdapter {
     field,
     values,
     fallback,
+    allowZero = false,
   }: {
     field: string;
     values: (number | undefined)[];
     fallback: number;
+    /** Zero is a meaningful setting for a quiet period: settle on the first
+     * complete poll. It is not one for a budget, which would then wait for
+     * nothing at all. */
+    allowZero?: boolean;
   }): number {
     for (const value of values) {
       if (value == null) continue;
-      if (Number.isFinite(value) && value > 0) return value;
+      if (Number.isFinite(value) && (value > 0 || (allowZero && value === 0))) {
+        return value;
+      }
       this.logger.warn(
-        `${field} must be a finite positive number of milliseconds; ignoring it`,
+        `${field} must be a finite ${
+          allowZero ? "non-negative" : "positive"
+        } number of milliseconds; ignoring it`,
         { value: String(value) }
       );
     }
@@ -946,6 +988,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     fetchRemoteTraces,
     traceWaitTimeoutMs,
     traceWaitExtensionMs,
+    traceQuietPeriodMs,
     traceFetcher,
     mergedConfig,
     verdictForced,
@@ -958,6 +1001,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     fetchRemoteTraces: boolean;
     traceWaitTimeoutMs: number;
     traceWaitExtensionMs: number;
+    traceQuietPeriodMs: number;
     traceFetcher: RemoteTraceFetcher;
     mergedConfig: ReturnType<typeof modelSchema.parse>;
     verdictForced: boolean;
@@ -972,10 +1016,12 @@ export class JudgeAgent extends JudgeAgentAdapter {
       traceIds: remoteTraceIds,
       collector: this.spanCollector,
       langwatch: input.scenarioConfig.langwatch,
+      quietPeriodMs: traceQuietPeriodMs,
     };
     let allSettled = true;
+    let unconfirmed = false;
     if (fetchRemoteTraces && remoteTraceIds.length > 0) {
-      ({ allSettled } = await traceFetcher.settleWait({
+      ({ allSettled, unconfirmed } = await traceFetcher.settleWait({
         ...settleTarget,
         timeoutMs: traceWaitTimeoutMs,
       }));
@@ -993,13 +1039,13 @@ export class JudgeAgent extends JudgeAgentAdapter {
     }
 
     // The judge's one extra wait: offered as a wait_for_traces tool while the
-    // traces are incomplete, consumed at most once, then withdrawn so the
-    // second call must decide. With no trace ids at all there is nothing a
-    // wait could produce, so the tool is never offered.
+    // traces are incomplete or settled on the quiet period alone, consumed at
+    // most once, then withdrawn so the second call must decide. With no trace
+    // ids at all there is nothing a wait could produce.
     let waitExtensionAvailable =
       fetchRemoteTraces &&
       remoteTraceIds.length > 0 &&
-      !allSettled &&
+      (!allSettled || unconfirmed) &&
       traceWaitExtensionMs > 0;
     let waitedOnce = false;
 
@@ -1022,9 +1068,13 @@ export class JudgeAgent extends JudgeAgentAdapter {
       const extraContext =
         input.judgmentRequest?.additionalContext ??
         input.judgmentRequest?.context;
-      const additionalContextSection = extraContext
-        ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
-        : "";
+      const additionalContextSection =
+        (extraContext
+          ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
+          : "") +
+        (waitExtensionAvailable && unconfirmed
+          ? `\n    <trace_status>\n    ${UNCONFIRMED_TRACE_NOTE}\n    </trace_status>`
+          : "");
 
       const contentForJudge = buildJudgeContent({
         transcript,
@@ -1124,10 +1174,10 @@ export class JudgeAgent extends JudgeAgentAdapter {
         );
         waitExtensionAvailable = false;
         waitedOnce = true;
-        await traceFetcher.extendSettle({
+        ({ unconfirmed } = await traceFetcher.extendSettle({
           ...settleTarget,
           timeoutMs: traceWaitExtensionMs,
-        });
+        }));
         continue;
       }
 
@@ -1142,10 +1192,93 @@ export class JudgeAgent extends JudgeAgentAdapter {
         verdictWasForced = true;
       }
 
+      completion = await this.reaskUnanswered({ params, completion, criteria });
+
       return this.parseToolCalls(completion, criteria, {
         verdictForced: verdictIsTerminal || verdictWasForced,
       });
     }
+  }
+
+  /**
+   * When finish_test leaves criteria without a readable verdict (left out,
+   * or malformed), asks once more with those criteria named and merges the
+   * answers. Anything still missing then fails closed in parseToolCalls.
+   */
+  private async reaskUnanswered({
+    params,
+    completion,
+    criteria,
+  }: {
+    params: InvokeLLMParams;
+    completion: InvokeLLMResult;
+    criteria: string[];
+  }): Promise<InvokeLLMResult> {
+    const finishCall = completion.toolCalls?.find(
+      (tc) => tc.toolName === "finish_test"
+    );
+    if (!finishCall) return completion;
+    const firstArgs = (finishCall.input ?? {}) as FinishTestArgs;
+    const missing = unansweredCriteria({
+      criteria,
+      criteriaArgs: firstArgs.criteria,
+    });
+    if (missing.length === 0) return completion;
+
+    this.logger.warn("finish_test left criteria without a verdict; asking once more", {
+      missing,
+    });
+    const {
+      stopWhen: _sw,
+      prompt: _p,
+      toolChoice: _tc,
+      tools: _tools,
+      messages: prevMessages,
+      ...rest
+    } = params;
+    let retry: InvokeLLMResult;
+    try {
+      retry = await this.invokeLLM({
+        ...rest,
+        tools: { finish_test: buildFinishTestTool(criteria) },
+        toolChoice: { type: "tool", toolName: "finish_test" },
+        messages: [
+          ...collapseDiscoveryHistory(prevMessages ?? []),
+          {
+            role: "assistant",
+            content: `My finish_test call: ${JSON.stringify(firstArgs)}`,
+          },
+          {
+            role: "user",
+            content: `${MISSING_VERDICT_PROMPT}\n${buildCriteriaList(missing)}`,
+          },
+        ],
+      });
+    } catch (error) {
+      this.logger.warn("Re-asking the missing criteria failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return completion;
+    }
+    const retryCall = retry.toolCalls?.find((tc) => tc.toolName === "finish_test");
+    if (!retryCall) return completion;
+    const retryArgs = (retryCall.input ?? {}) as FinishTestArgs;
+    return {
+      ...completion,
+      toolCalls: [
+        {
+          ...finishCall,
+          input: {
+            ...firstArgs,
+            criteria: mergeCriteriaArgs({
+              first: firstArgs.criteria,
+              retry: retryArgs.criteria,
+            }),
+            reasoning: firstArgs.reasoning || retryArgs.reasoning,
+          },
+        },
+      ],
+    } as InvokeLLMResult;
   }
 
   /**
@@ -1162,7 +1295,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
     const digest = isLargeTrace
       ? judgeSpanDigestFormatter.formatStructureOnly(spans) +
-        "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
+        "\n\nOnly the span structure is shown above, not the span contents. Before judging a criterion that depends on what a span holds, read it: grep_trace(pattern) finds text anywhere in the spans, even deep inside long values, and expand_trace(span_id) shows a span's details one page at a time. Content you have not read is missing evidence, never evidence that something is absent. Reference spans by the ID shown in brackets."
       : fullDigest;
 
     this.logger.debug("Trace digest built", {
@@ -1266,36 +1399,32 @@ export class JudgeAgent extends JudgeAgentAdapter {
         case "finish_test": {
           args = toolCall.input as FinishTestArgs;
 
-          const verdict = args.verdict || "inconclusive";
+          const verdicts = parseCriterionVerdicts({
+            criteria,
+            criteriaArgs: args.criteria,
+          });
 
           // "Can't tell yet" is not a verdict (#886). When nothing forced the
-          // judge to finish — continue_test was freely available — an
-          // inconclusive finish_test used to end the run as FAILED, which in
-          // the UI reads as the user simulator going silent mid-conversation.
-          // Treat it as continue_test and let the conversation play out; a
-          // FORCED judgment (last turn, judge() checkpoint, discovery
-          // exhaustion) keeps its terminal behavior unchanged.
-          if (!verdictForced && verdict === "inconclusive") {
+          // judge to finish (continue_test was freely available), a verdict
+          // with an undecided criterion and no failed one continues the
+          // conversation. A FORCED judgment (last turn, judge() checkpoint,
+          // discovery exhaustion) keeps its terminal behavior.
+          if (!verdictForced && verdicts.verdict === "inconclusive") {
             this.logger.debug(
-              "finish_test returned an inconclusive verdict without a forced judgment - continuing the conversation"
+              "finish_test left a criterion inconclusive without a forced judgment - continuing the conversation"
             );
             return null;
           }
-          const reasoning = args.reasoning || "No reasoning provided";
-          const criteriaArgs = args.criteria || {};
-          const criteriaValues = Object.values(criteriaArgs);
-          const metCriteria = criteria.filter(
-            (_, i) => criteriaValues[i] === "true"
-          );
-          const unmetCriteria = criteria.filter(
-            (_, i) => criteriaValues[i] !== "true"
-          );
 
-          const result = {
-            success: verdict === "success",
-            reasoning,
-            metCriteria,
-            unmetCriteria,
+          const result: JudgeResult = {
+            success: verdicts.verdict === "success",
+            reasoning: args.reasoning || "No reasoning provided",
+            metCriteria: verdicts.metCriteria,
+            unmetCriteria: verdicts.unmetCriteria,
+            ...(verdicts.inconclusiveCriteria.length > 0
+              ? { inconclusiveCriteria: verdicts.inconclusiveCriteria }
+              : {}),
+            criteria: verdicts.criteria,
           };
           this.logger.debug("finish_test result", result);
           return result;

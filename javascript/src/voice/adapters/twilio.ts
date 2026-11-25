@@ -18,6 +18,8 @@
  * codec live in `./twilio-shared.ts`.
  */
 
+import type { Socket } from "node:net";
+
 import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
@@ -25,29 +27,115 @@ import { AdapterCapabilities } from "../capabilities";
 import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { sleep } from "../utils";
 
-import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
+import { twilioLogger } from "./twilio-logger";
 import {
+  TwilioWebhookServer,
+  type ExternalUpgradeRequest,
+  type MediaStreamWebSocket,
+} from "./twilio-server";
+import {
+  DEFAULT_STREAM_CONNECT_TIMEOUT_MS,
   TWILIO_FRAME_MS,
+  TunnelNotReadyError,
+  type TunnelReadiness,
   TwilioRESTHelper,
   buildClearFrame,
   buildMediaFrame,
+  escapeXmlAttr,
   iterMulawFrames,
+  mintStreamNonce,
+  normalizeE164,
   pcm16_24kToMulaw8k,
   redactE164,
+  resolveMaxCallDuration,
+  streamWsUrl,
   validateE164,
 } from "./twilio-shared";
+import { TwilioSpeechGate, type TwilioSpeechGateOptions } from "./twilio-speech-gate";
+
+export { TunnelNotReadyError, type TunnelReadiness } from "./twilio-shared";
 
 export type TwilioAdapterMode = "idle" | "answer" | "call";
 
 /** How the media-stream session most recently ended. "none" until a session
  * has ever run (the disconnect-counters T3 enum, #775). Set by
  * {@link TwilioWebhookServer.mediaStreamLoop} at each of its three
- * termination paths. */
-export type TwilioStreamEndedReason = "stop" | "close" | "error" | "none";
+ * termination paths. `"max_duration"` is the a-leg duration cap firing (#762
+ * guardrail (b)) — kept distinct from `"close"` so a scenario author can tell
+ * "we hung the call up at the cap" from "the callee hung up". */
+export type TwilioStreamEndedReason = "stop" | "close" | "error" | "none" | "max_duration";
 
 const PLACE_CALL_A_LEG_SAY_TEXT =
   "Thank you for calling. " +
   "I will hold the line while you complete your scenario.";
+
+/**
+ * Refusal for `sendDtmf` under a-leg (#762 AC10). Says WHY, because
+ * "unsupported" alone reads as an oversight rather than a deliberate guard.
+ */
+export const A_LEG_SEND_DTMF_UNSUPPORTED =
+  "TwilioAgentAdapter: sendDtmf is unsupported in external (a-leg) mode. " +
+  "Sending DTMF replaces the live call's TwiML, which redirects the call away " +
+  "from the <Connect><Stream> verb and would end the media stream this " +
+  "scenario is running on. In b-leg mode the stream rides the callee's leg, " +
+  "so the redirect is harmless; in a-leg mode it is the call. Use b-leg mode " +
+  "(an owned callee number) if the scenario needs DTMF.";
+
+/** Effective stream-attach mode resolved from `placeCall`'s two parameters. */
+type StreamAttachMode = "a-leg" | "b-leg" | "originator-only";
+
+/**
+ * Resolve the effective `placeCall` stream-attach mode.
+ *
+ * `attachStream` (typed) supersedes the legacy `attachStreamToSelf` bool, which
+ * names the same choice in a narrower vocabulary: `true` is "b-leg", `false` is
+ * the originator-only third mode `attachStream` cannot express. Passing both is
+ * only allowed when they AGREE — every other combination is a genuine
+ * disagreement about where the stream attaches, so it throws rather than
+ * silently discarding the bool.
+ */
+function resolveStreamMode(
+  attachStream: "a-leg" | "b-leg" | undefined,
+  attachStreamToSelf: boolean | undefined,
+): StreamAttachMode {
+  if (attachStreamToSelf === undefined) return attachStream ?? "b-leg";
+  const implied: StreamAttachMode = attachStreamToSelf ? "b-leg" : "originator-only";
+  if (attachStream !== undefined && attachStream !== implied) {
+    throw new Error(
+      `placeCall: attachStream=${JSON.stringify(attachStream)} conflicts with ` +
+        `attachStreamToSelf=${JSON.stringify(attachStreamToSelf)}; pass only one.`,
+    );
+  }
+  return implied;
+}
+
+/**
+ * Build inline `<Connect><Stream>` origination TwiML for a-leg mode.
+ *
+ * `streamParameters` renders `<Parameter name=.. value=../>` children inside
+ * `<Stream>`; an empty record renders the self-closing `<Stream url=".."/>`
+ * form byte-identically to the inbound webhook's TwiML.
+ */
+function buildConnectStreamTwiml(
+  wsUrl: string,
+  streamParameters: Record<string, string>,
+): string {
+  const paramChildren = Object.entries(streamParameters)
+    .map(
+      ([name, value]) =>
+        `<Parameter name="${escapeXmlAttr(name)}" value="${escapeXmlAttr(value)}"/>`,
+    )
+    .join("");
+  const streamEl = paramChildren
+    ? `<Stream url="${escapeXmlAttr(wsUrl)}">${paramChildren}</Stream>`
+    : `<Stream url="${escapeXmlAttr(wsUrl)}"/>`;
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<Response>` +
+    `<Connect>${streamEl}</Connect>` +
+    `</Response>`
+  );
+}
 
 export interface TwilioAgentAdapterOptions {
   accountSid: string;
@@ -58,6 +146,22 @@ export interface TwilioAgentAdapterOptions {
   publicBaseUrl?: string;
   /** Allowed-callers filter for inbound calls. Unset = any caller accepted. */
   allowedCallers?: readonly string[];
+  /**
+   * Destination allowlist for a-leg outbound calls (#762 guardrail (c)).
+   * Unset denies EVERY a-leg destination: a-leg dials numbers this account does
+   * not own, so an unguarded `to` is an unbounded dialer and the capability has
+   * to be opted into per destination. Entries are validated at construction, so
+   * a typo fails at setup instead of when a PSTN call is about to be billed.
+   * b-leg is deliberately not gated on this — it can only reach numbers on this
+   * account, which is its own guardrail.
+   */
+  allowedCallees?: readonly string[];
+  /**
+   * Edge-readiness probe consulted before a-leg origination (#762 guardrail
+   * (c)). Unset means the caller owns a stable public URL and has nothing to
+   * wait for.
+   */
+  tunnelReadiness?: TunnelReadiness;
   /** Callback invoked when the remote side sends DTMF mid-call. */
   onDtmf?: (digit: string) => void;
   /** HTTP server port. 0 = OS-assigned (recommended for tests). */
@@ -80,6 +184,17 @@ export interface TwilioAgentAdapterOptions {
    * inject a fully-stubbed REST surface.
    */
   rest?: TwilioRESTHelper;
+  /**
+   * Energy gate on INBOUND call audio (see `./twilio-speech-gate.ts`). On by
+   * default with the measured phone-line thresholds: Twilio streams a media
+   * frame every 20 ms for the life of the call, silence included, so without
+   * the gate the drain's tail-silence turn end (`responseTailSilence`) can
+   * never fire and the callee's turn only ends on hangup or the hard ceiling.
+   * Pass an object to tune the thresholds, or `false` to admit every frame
+   * (the pre-gate behaviour — only sensible for a transport that already
+   * stops sending during silence).
+   */
+  speechGate?: TwilioSpeechGateOptions | false;
 }
 
 export class TwilioAgentAdapter extends VoiceAgentAdapter {
@@ -99,6 +214,8 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   readonly phoneNumber: string;
   publicBaseUrl?: string;
   readonly allowedCallers?: ReadonlySet<string>;
+  readonly allowedCallees?: ReadonlySet<string>;
+  readonly tunnelReadiness?: TunnelReadiness;
   readonly onDtmf?: (digit: string) => void;
   readonly httpPort: number;
   readonly validateSignature: boolean;
@@ -116,8 +233,43 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   private _streamSid?: string;
   private _callSid?: string;
   private _streamWs: MediaStreamWebSocket | null = null;
+  /**
+   * Call generation (#762 P1). Bumped by `connect`/`placeCall`/`waitForCall`
+   * every time we (re)dial. The media loop captures it at the moment a socket is
+   * ADOPTED and re-checks it on every later side effect (enqueue, signal
+   * connected, mark ended, cancel watchdog, being `_streamWs`): a socket adopted
+   * under an older generation — one that connected and even adopted BEFORE this
+   * dial armed the nonce — is stale the instant the counter moves, and is closed
+   * on its next frame instead of injecting audio into, or ending, the current
+   * call.
+   */
+  private _callGeneration = 0;
+  /**
+   * A-leg WS auth (#762 guardrail (a)). Set by `placeCall` in "a-leg" mode only;
+   * its non-undefined-ness is what ARMS media-stream nonce enforcement. In b-leg
+   * mode the signed `POST /twilio/voice` precedes the socket, so the socket
+   * inherits that trust and this stays undefined — enforcement is keyed on the
+   * mode we originated in, never on whether the inbound frame happens to carry a
+   * nonce (which an attacker could simply omit).
+   */
+  private _streamNonce?: string;
+  /**
+   * Adapter-side max-call-duration watchdog (#762 guardrail (b)). Armed by
+   * `placeCall` in "a-leg" mode; the belt to Twilio's own `TimeLimit`
+   * suspenders, which is the half that survives this process dying. The
+   * generation counter is the cancel token: every arm and every cancel bumps
+   * it, so an expiry that belongs to a superseded call is dropped instead of
+   * hanging up whatever call is live now.
+   */
+  private _maxDurationGeneration = 0;
+  private _maxDurationTimeout: ReturnType<typeof setTimeout> | null = null;
   private _streamConnected = makeDeferred<void>();
   private _inboundQueue: InboundQueue = new InboundQueue();
+  // Sits between the media loop and `_inboundQueue` (see `_enqueueInbound`).
+  // `null` when constructed with `speechGate: false`. Per-call state is reset
+  // wherever the queue's buffered audio is cleared; the lifetime counters are
+  // stamped onto the disconnect span next to the frame counters.
+  private readonly _speechGate: TwilioSpeechGate | null;
   private _connected = false;
   // Set true by the media-stream loop's terminal path (stop / socket close /
   // throw) the moment it enqueues the end-of-call sentinel. Once the call has
@@ -129,6 +281,19 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   // and at media-stream-loop entry (per-call scope — a second session on the
   // same connected adapter must not inherit the previous session's flag).
   private _streamEnded = false;
+  // Whether the media stream ever went live (a `start` frame adopted the
+  // socket / set a stream sid). Guards `agentHungUp` against a stream that
+  // ends before it ever connected — that's a failed dial, not a far-end
+  // hangup. Reset on connect(), like `_streamEnded`.
+  private _sawLiveStream = false;
+  // Set for the duration of `disconnect()` so the media loop's resulting
+  // socket-close can be told apart from a genuine remote hangup — both land
+  // on the same `_streamEndedReason` ("close") once the socket goes down.
+  // (The max-duration watchdog doesn't need this: it stamps "max_duration"
+  // as the reason BEFORE closing the socket, and `_setStreamEndedReason`
+  // never lets a later reason overwrite it.) Reset on connect() and cleared
+  // at the end of disconnect().
+  private _localDisconnect = false;
   // Call-lifetime counters stamped onto `voice.adapter.disconnect` from inside
   // disconnect() (#775 Tier 2b — mirrors ElevenLabs' pump-counter seam).
   // Accumulated by the media loop (twilio-server.ts) and the `/twilio/voice`
@@ -150,12 +315,20 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this.allowedCallers = options.allowedCallers
       ? new Set(options.allowedCallers)
       : undefined;
+    // Normalising here is also validating: a bad entry throws at construction
+    // rather than at dial time. See `allowedCallees` on the options type.
+    this.allowedCallees = options.allowedCallees?.length
+      ? new Set(options.allowedCallees.map(normalizeE164))
+      : undefined;
+    this.tunnelReadiness = options.tunnelReadiness;
     this.onDtmf = options.onDtmf;
     this.httpPort = options.httpPort ?? 0;
     this.role = options.role ?? AgentRole.AGENT;
     this.validateSignature = options.validateSignature ?? true;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this._rest = options.rest ?? null;
+    this._speechGate =
+      options.speechGate === false ? null : new TwilioSpeechGate(options.speechGate ?? {});
   }
 
   // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
@@ -192,9 +365,18 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     });
 
     this._mode = "idle";
+    this._streamNonce = undefined;
+    this._cancelMaxDurationTimer();
+    // Fresh connection lifecycle — bump the generation so any socket left over
+    // from a previous connect can never pass the media loop's identity check.
+    this._callGeneration += 1;
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
+    this._speechGate?.resetCounters();
     this._streamEnded = false;
+    this._sawLiveStream = false;
+    this._localDisconnect = false;
+    this.agentHungUp = false;
     this._framesReceived = 0;
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
@@ -209,19 +391,42 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._connected = true;
   }
 
-  /** Whether the Media Stream transport is open (Gap #11). */
+  /**
+   * Whether the Media Stream transport is open (Gap #11). Also false once the
+   * stream has ended (`_streamEnded`) even if `disconnect()` was never
+   * called — a remote hangup (Twilio `stop` / socket close) must trip the
+   * runtime's `isConnected()` gate on its own, not only after we tear down.
+   *
+   * Exception: while a farewell recorded before the hangup is still sitting
+   * in the inbound queue, this stays `true` so `defaultVoiceCall` drains it
+   * instead of taking the `agentHungUp` early return and dropping it on the
+   * floor. Once the queue holds nothing but the terminal sentinel (or is
+   * empty), later turns see `false` and conclude via `agentHungUp`.
+   */
   override isConnected(): boolean {
-    return this._connected;
+    return this._connected && (!this._streamEnded || this._inboundQueue.hasBufferedAudio());
   }
 
   async disconnect(): Promise<void> {
     if (!this._connected) return;
+
+    // Mark this teardown as ours BEFORE closing anything: `_webhookServer
+    // .stop()` below force-closes the live socket, which the media loop
+    // reports as `_streamEndedReason: "close"` — the same reason a genuine
+    // remote drop produces. This flag is how `_markStreamEnded()` tells the
+    // two apart.
+    this._localDisconnect = true;
 
     // Restore prior voice_url (answer mode only). `restRestoreFailed` tracks
     // whether either restore below threw — previously fully swallowed; now
     // surfaced onto the disconnect span (#775 Tier 2b) so a Twilio REST
     // outage during teardown is no longer invisible. The swallow behavior
     // itself (a failed restore must never block disconnect()) is unchanged.
+    // Disarm the duration watchdog first: from here on the call is ours to
+    // end, and a timer that fired mid-teardown would hang up a SID this adapter
+    // may already have replaced with a later call's.
+    this._cancelMaxDurationTimer();
+
     let restRestoreFailed = false;
     if (this._mode === "answer" && this._phoneNumberSid && this._rest) {
       try {
@@ -269,6 +474,13 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       "voice.twilio.webhook_invocations": this._webhookInvocations,
       "voice.twilio.webhook_rejected": this.rejectedCount,
       "voice.twilio.rest_restore_failed": restRestoreFailed,
+      // Speech-gate lifetime counters: how much inbound audio never reached
+      // the drain, and how many callee utterances the gate heard. `enabled`
+      // false stamps zeros so a trace still says the gate was off.
+      "voice.twilio.speech_gate.enabled": this._speechGate !== null,
+      "voice.twilio.speech_gate.dropped_chunks": this._speechGate?.droppedChunks ?? 0,
+      "voice.twilio.speech_gate.dropped_ms": Math.round(this._speechGate?.droppedMs ?? 0),
+      "voice.twilio.speech_gate.onsets": this._speechGate?.onsets ?? 0,
     });
 
     this._connected = false;
@@ -282,9 +494,14 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamSid = undefined;
     this._callSid = undefined;
     this._streamWs = null;
+    this._streamNonce = undefined;
+    this._cancelMaxDurationTimer();
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
+    this._speechGate?.resetCounters();
     this._streamEnded = false;
+    this._sawLiveStream = false;
+    this._localDisconnect = false;
     this._framesReceived = 0;
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
@@ -301,7 +518,54 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   async placeCall(args: {
     to: string;
     timeoutMs?: number;
+    /**
+     * Legacy stream-attach toggle. Superseded by `attachStream`: `true`/unset →
+     * "b-leg", `false` → originator-only. Passing both with disagreeing intent
+     * throws.
+     */
     attachStreamToSelf?: boolean;
+    /**
+     * Stream-attach mode. "b-leg" (default) rewrites the callee's voice_url —
+     * owned numbers only. "a-leg" originates with inline `<Connect><Stream>` so
+     * the stream rides our own leg and `to` can be any external number. Because
+     * that reaches numbers this account does not own, `to` must appear in the
+     * adapter's `allowedCallees` (deny-by-default) and the public base URL must
+     * be reachable from the edge — both checked before origination.
+     */
+    attachStream?: "a-leg" | "b-leg";
+    /**
+     * How long the CALL may live, in seconds (a-leg only; default
+     * {@link DEFAULT_MAX_CALL_DURATION_SECONDS}, hard cap
+     * {@link MAX_CALL_DURATION_CAP_SECONDS} — a larger request throws).
+     *
+     * Not to be confused with `timeoutMs`, which bounds how long we WAIT FOR
+     * THE MEDIA STREAM TO CONNECT and says nothing about the call's length.
+     * Under a-leg's `<Connect>` the call lives exactly as long as the
+     * WebSocket, so without a ceiling a hung executor keeps a billing PSTN call
+     * open forever. Two mechanisms enforce it: Twilio's own `TimeLimit` on
+     * `Calls.create` (the load-bearing half — it still fires if this process
+     * hangs or is killed) and an adapter-side wall-clock timer that hangs the
+     * call up via REST and closes the socket.
+     */
+    maxCallDurationSeconds?: number;
+    /**
+     * Request Twilio-side call recording (`Record=true` on `Calls.create`).
+     * Stamped onto the `voice.adapter.dial` span when set so "was this call
+     * recorded" is answerable from the trace alone.
+     */
+    record?: boolean;
+    /**
+     * Caller-supplied a-leg stream nonce, overriding this adapter's own
+     * {@link mintStreamNonce} call. Exists for a host platform that runs the
+     * media listener Twilio actually dials back in a SEPARATE process from
+     * the one placing this call (e.g. a parent worker process fronting a pool
+     * of scenario-execution child processes): that platform must register the
+     * nonce with its own listener BEFORE Twilio can possibly connect, which
+     * means it must know the nonce before `placeCall` runs — impossible if
+     * this adapter mints it internally. Ignored outside a-leg mode, the only
+     * mode a stream nonce means anything in.
+     */
+    streamNonce?: string;
   }): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
@@ -312,8 +576,37 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._enterMode("call");
     validateE164(args.to);
 
-    const attachStreamToSelf = args.attachStreamToSelf ?? true;
-    const timeoutMs = args.timeoutMs ?? 120_000;
+    // Resolve the effective stream-attach mode BEFORE any REST call so a
+    // conflicting-parameter caller error surfaces before we dial.
+    const mode = resolveStreamMode(args.attachStream, args.attachStreamToSelf);
+    const timeoutMs = args.timeoutMs ?? DEFAULT_STREAM_CONNECT_TIMEOUT_MS;
+    // Only a-leg loses <Pause>'s implicit ceiling, so only a-leg carries a
+    // duration cap. Naming one in another mode is rejected rather than ignored:
+    // silently dropping it would leave the caller believing the call is bounded
+    // when it is not.
+    let maxCallDuration: number | undefined;
+    if (mode === "a-leg") {
+      // Guardrail (c): destinations are deny-by-default in a-leg mode. Checked
+      // here, with the other local caller-fixable failures, so a misconfigured
+      // allowlist costs nothing and dials nothing.
+      this._assertCalleeAllowed(args.to);
+      maxCallDuration = resolveMaxCallDuration(args.maxCallDurationSeconds);
+    } else if (args.maxCallDurationSeconds !== undefined) {
+      throw new Error(
+        `placeCall: maxCallDurationSeconds is only supported with ` +
+          `attachStream="a-leg"; b-leg and originator-only modes hold the ` +
+          `originator leg with <Pause> and are bounded by it.`,
+      );
+    }
+
+    // Guardrail (c), second half: a-leg hands Twilio our public URL and Twilio
+    // opens the media socket against it seconds later. Probe the edge AFTER the
+    // free local checks above and BEFORE origination, so an unreachable tunnel
+    // is a named error instead of a billed call that dies in a stream-connect
+    // timeout.
+    if (mode === "a-leg") {
+      await this._assertTunnelReady();
+    }
 
     // NEW `voice.adapter.dial` span (#775 Tier 2a): self-instrumented, since
     // no executor span is active by the time placeCall()/waitForCall() run
@@ -329,7 +622,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         "voice.twilio.from": redactE164(this.phoneNumber),
       },
       async (span) => {
-        if (attachStreamToSelf) {
+        // #762 P1: bump the call generation and reset per-dial connection state
+        // BEFORE originating, so a socket that adopted un-gated before this dial
+        // is evicted and cannot resolve the stream-connected wait below.
+        this._resetConnectionStateForDial();
+        if (mode === "b-leg") {
           this._calleePhoneNumberSid = await rest.resolvePhoneNumberSid(args.to);
           this._priorCalleeVoiceUrl =
             (await rest.readVoiceUrl(this._calleePhoneNumberSid)) ?? undefined;
@@ -337,20 +634,51 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           await rest.writeVoiceUrl(this._calleePhoneNumberSid, webhookUrl);
         }
 
-        const inlineALegTwiml =
-          `<?xml version="1.0" encoding="UTF-8"?>` +
-          `<Response>` +
-          `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
-          `<Pause length="120"/>` +
-          `</Response>`;
+        // a-leg: the Media Stream rides OUR own leg via inline
+        // <Connect><Stream>, so `to` can be any external number and we touch
+        // nothing on the callee. Same TwiML shape the inbound webhook returns
+        // (twilio-server.ts), now on origination.
+        //
+        // Guardrail (a): the socket is the only inbound signal on this path, so
+        // it must authenticate itself. Mint a per-call CSPRNG nonce and ship it
+        // as a <Parameter> child; Twilio echoes it back in the `start` frame's
+        // customParameters, and the media loop (twilio-server.ts) closes any
+        // socket that cannot present it.
+        //
+        // Other modes: play a short deterministic <Say> anchor (Whisper
+        // hallucinates on bare <Pause> silence, #465), then hold the bridge open
+        // while B's webhook attaches the Media Stream.
+        const nonce =
+          mode === "a-leg" ? (args.streamNonce ?? mintStreamNonce()) : undefined;
+        this._streamNonce = nonce;
+        const originationTwiml =
+          nonce !== undefined
+            ? buildConnectStreamTwiml(streamWsUrl(publicBaseUrl, nonce), { nonce })
+            : `<?xml version="1.0" encoding="UTF-8"?>` +
+              `<Response>` +
+              `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
+              `<Pause length="120"/>` +
+              `</Response>`;
         this._callSid = await rest.placeCall({
           to: args.to,
           from: this.phoneNumber,
-          twiml: inlineALegTwiml,
+          twiml: originationTwiml,
+          timeLimitSeconds: maxCallDuration,
+          record: args.record,
         });
         setSpanAttributes(span, { "voice.twilio.call_sid": this._callSid });
+        if (args.record) {
+          setSpanAttributes(span, { "voice.twilio.record": true });
+        }
 
-        if (attachStreamToSelf) {
+        if (maxCallDuration !== undefined) {
+          this._armMaxDurationTimer(maxCallDuration, this._callSid, args.to);
+        }
+
+        if (mode !== "originator-only") {
+          // Wait for the media stream to reach us — via the callee's rewritten
+          // voice_url (b-leg) or our own <Connect><Stream> leg (a-leg). In
+          // originator-only mode no stream comes to us; the callee owns it.
           const dialWaitStarted = performance.now(); // monotonic
           try {
             await this._streamConnected.promiseWithTimeout(timeoutMs);
@@ -364,6 +692,14 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
             // (voiceSpan's own exception handling).
             if (err instanceof DeferredTimeoutError) {
               span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+              if (mode === "a-leg" && this._callSid !== undefined) {
+                // The call is already originated and, under a-leg's
+                // <Connect>, lives to the duration cap even though nothing
+                // will ever stream on it. Hang it up before handing the caller
+                // their timeout — otherwise the ordinary connect-failure path
+                // bills for the cap.
+                await this._abandonOriginatedCall(this._callSid);
+              }
             }
             throw err;
           }
@@ -377,7 +713,78 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     );
   }
 
-  async waitForCall(timeoutMs = 120_000): Promise<void> {
+  /**
+   * Refuse an a-leg destination that was not explicitly allowlisted.
+   *
+   * Default-deny: no `allowedCallees` means no a-leg call at all. The message
+   * names the option to set, because "denied" without "here is how to allow it"
+   * just sends the caller reading source.
+   *
+   * Comparison is an exact `Set` lookup on the normalised number, so a
+   * near-miss — a prefix, a suffix, an extra space — is a refusal.
+   */
+  private _assertCalleeAllowed(to: string): void {
+    if (!this.allowedCallees) {
+      throw new Error(
+        `placeCall: attachStream="a-leg" requires allowedCallees. ` +
+          `a-leg dials numbers this Twilio account does not own, so ` +
+          `destinations are deny-by-default: pass ` +
+          `new TwilioAgentAdapter({ allowedCallees: [...] }) listing every ` +
+          `number this adapter may dial, including ${redactE164(to)}.`,
+      );
+    }
+    if (!this.allowedCallees.has(normalizeE164(to))) {
+      throw new Error(
+        `placeCall: destination ${redactE164(to)} is not in ` +
+          `allowedCallees. Add it to ` +
+          `new TwilioAgentAdapter({ allowedCallees: [...] }) to permit this ` +
+          `destination.`,
+      );
+    }
+  }
+
+  /**
+   * Refuse DTMF on a call whose media stream rides our own leg (#762 AC10).
+   *
+   * `sendDtmf` works by `calls(sid).update({ twiml })`, which REPLACES the
+   * TwiML the call is executing. Under b-leg that TwiML is a `<Say>` +
+   * `<Pause>` hold on our leg, so replacing it costs nothing — the Media Stream
+   * lives on the callee's leg. Under a-leg the TwiML being replaced IS the
+   * `<Connect><Stream>` verb carrying the scenario, so the same REST call would
+   * redirect the call away from the socket and end the media session mid-run.
+   *
+   * Armed off `_streamNonce` — set only by an a-leg `placeCall`, the same
+   * signal the media loop uses to arm nonce enforcement — rather than
+   * re-derived from the caller's arguments here.
+   */
+  private _assertDtmfSupported(): void {
+    if (this._streamNonce !== undefined) {
+      throw new Error(A_LEG_SEND_DTMF_UNSUPPORTED);
+    }
+  }
+
+  /**
+   * Refuse to originate until the public URL is reachable from the edge.
+   *
+   * Delegates to whatever readiness probe was supplied. No probe means the
+   * caller owns a stable public URL and there is nothing to wait for.
+   */
+  private async _assertTunnelReady(): Promise<void> {
+    if (!this.tunnelReadiness) return;
+    try {
+      await this.tunnelReadiness.waitUntilEdgeReachable();
+    } catch (err) {
+      if (err instanceof TunnelNotReadyError) throw err;
+      throw new TunnelNotReadyError(
+        `placeCall: publicBaseUrl ${JSON.stringify(this.publicBaseUrl)} is not ` +
+          `reachable from the edge yet, so Twilio's media stream would ` +
+          `connect to nothing. Not originating.`,
+        { cause: err },
+      );
+    }
+  }
+
+  async waitForCall(timeoutMs = DEFAULT_STREAM_CONNECT_TIMEOUT_MS): Promise<void> {
     this._assertConnected();
     const rest = this._rest;
     const publicBaseUrl = this.publicBaseUrl;
@@ -398,6 +805,10 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         "voice.twilio.to": redactE164(this.phoneNumber),
       },
       async (span) => {
+        // #762 P1: bump the call generation and reset per-dial connection state,
+        // symmetric with placeCall. For inbound this only guards a
+        // reconnect/back-to-back dial; a fresh inbound socket still connects.
+        this._resetConnectionStateForDial();
         this._priorVoiceUrl =
           (await rest.readVoiceUrl(phoneNumberSid)) ?? undefined;
         const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
@@ -439,9 +850,139 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._mode = mode;
   }
 
+  // ------------------------------------------------------- max call duration
+
+  /**
+   * Start the wall-clock watchdog that ends `callSid` after `seconds`.
+   *
+   * Any previously-armed timer is cancelled first, so a second `placeCall` on
+   * the same adapter can never leave an older call's timer alive to hang up the
+   * newer call's SID.
+   */
+  private _armMaxDurationTimer(seconds: number, callSid: string, to: string): void {
+    this._cancelMaxDurationTimer();
+    // Capture BOTH cancel tokens at arm time (#762 P2 follow-up). Two distinct
+    // things must silence a stale watchdog, and they move independent counters
+    // with DIFFERENT reach:
+    // - `_maxDurationGeneration` is bumped by `_cancelMaxDurationTimer()` alone
+    //   (disconnect, stream-end, re-arm, abandon) — "this timer was cancelled".
+    //   That silences the watchdog ENTIRELY, hang-up included: the pre-await
+    //   guard returns, so a disconnected/re-armed call is never re-ended.
+    // - `_callGeneration` is bumped by `_resetConnectionStateForDial()` on every
+    //   dial — "a newer call took over the adapter". A b-leg / `waitForCall` /
+    //   no-cap takeover bumps ONLY this one (it arms no timer, so it never
+    //   touches `_maxDurationGeneration`), which is why keying the guard on the
+    //   re-arm counter alone left the takeover invisible and closed the newer
+    //   call's socket. This one does NOT suppress the hang-up — call A really
+    //   did hit its cap and its own SID must still be ended — it only stops us
+    //   from stamping the ended-reason of, or closing the socket of, the newer
+    //   call. That narrower check lives in `_onMaxDurationExpired`.
+    const maxGeneration = this._maxDurationGeneration;
+    const callGeneration = this._callGeneration;
+    void (async () => {
+      await this._awaitMaxDuration(seconds * 1000);
+      if (maxGeneration !== this._maxDurationGeneration) return; // cancelled or re-armed
+      await this._onMaxDurationExpired(seconds, callSid, to, callGeneration, maxGeneration);
+    })();
+  }
+
+  /**
+   * Disarm the watchdog and hang up a call nothing will ever stream on.
+   *
+   * Best-effort on the REST hangup: the caller is already throwing, and
+   * Twilio's own `TimeLimit` remains the backstop if this leg of the teardown
+   * fails.
+   */
+  private async _abandonOriginatedCall(callSid: string): Promise<void> {
+    this._cancelMaxDurationTimer();
+    try {
+      await this._rest?.endCall(callSid);
+    } catch {
+      // Best-effort: Twilio's own TimeLimit is the backstop for this backstop.
+    }
+  }
+
+  /** Disarm the watchdog. Idempotent; safe when none was ever armed. */
+  _cancelMaxDurationTimer(): void {
+    this._maxDurationGeneration += 1;
+    if (this._maxDurationTimeout !== null) {
+      clearTimeout(this._maxDurationTimeout);
+      this._maxDurationTimeout = null;
+    }
+  }
+
+  /**
+   * Wait until the duration cap elapses.
+   *
+   * Test seam (same role as `_driveMediaStream`): tests replace this on the
+   * instance to drive expiry on controlled time instead of waiting for real.
+   */
+  protected async _awaitMaxDuration(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this._maxDurationTimeout = setTimeout(resolve, ms);
+    });
+  }
+
+  /**
+   * Hang up the call and close the socket once the cap elapses.
+   *
+   * The belt to Twilio's `TimeLimit` suspenders: it fires even if the
+   * Twilio-side limit was misconfigured or silently dropped. Cancelled (and
+   * therefore silent) on `disconnect()`, at stream end, and on re-arm.
+   */
+  private async _onMaxDurationExpired(
+    seconds: number,
+    callSid: string,
+    to: string,
+    callGeneration: number,
+    maxGeneration: number,
+  ): Promise<void> {
+    twilioLogger.warn("max call duration reached — ending call", {
+      seconds,
+      to: redactE164(to),
+      callSid,
+    });
+    // We still own the call only while NEITHER cancel token has moved since we
+    // armed. Ending `callSid` via REST is SID-targeted and always correct, but
+    // the other two side effects target whatever call is live now:
+    // - the ended-reason stamp: `"max_duration"` wins ended-reason ties
+    //   permanently, so stamping it for a call we no longer own mislabels a
+    //   newer live call for the rest of its life;
+    // - the socket close: the REST hang-up is an `await`, so a newer call can
+    //   take over while it is in flight, and closing `_streamWs` would tear down
+    //   the newer call's authenticated socket.
+    const stillOurs = (): boolean =>
+      callGeneration === this._callGeneration &&
+      maxGeneration === this._maxDurationGeneration;
+    if (stillOurs()) this._setStreamEndedReason("max_duration");
+    const rest = this._rest;
+    if (rest) {
+      try {
+        await rest.endCall(callSid);
+      } catch {
+        // Best-effort: Twilio's own TimeLimit is the backstop for this backstop.
+      }
+    }
+    if (!stillOurs()) return;
+    try {
+      this._streamWs?.close();
+    } catch {
+      // Socket already gone; nothing left to close.
+    }
+  }
+
   // ------------------------------------------------------------------ I/O
 
   override async sendAudio(chunk: AudioChunk): Promise<void> {
+    // Defense in depth: once the stream has ended (remote stop/close, or our
+    // own disconnect), there is nobody left to send audio to. The runtime
+    // gate (`isConnected()` / `agentHungUp`, `adapter.runtime.ts`) is what's
+    // supposed to stop `call()` from reaching here at all — but a caller
+    // that talks to the adapter directly (or a scripted turn already in
+    // flight when the far end hangs up) must get a silent no-op, not the
+    // "no live media stream" error, which is reserved for the genuinely
+    // never-connected case below.
+    if (this._streamEnded) return;
     this._assertStreamLive();
     const streamWs = this._streamWs;
     const streamSid = this._streamSid;
@@ -488,7 +1029,13 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     return this._inboundQueue.take(timeout * 1000);
   }
 
+  /**
+   * Send DTMF digits on the live call (uses Twilio REST `<Play digits>`).
+   *
+   * Refused in a-leg mode (#762 AC10) — see {@link _assertDtmfSupported}.
+   */
   async sendDtmf(tones: string): Promise<void> {
+    this._assertDtmfSupported();
     if (!this._rest || !this._callSid) {
       throw new Error(
         "TwilioAgentAdapter: no active call; sendDtmf requires an in-progress call.",
@@ -519,6 +1066,34 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       throw new Error("TwilioAgentAdapter: not connected; localBaseUrl unavailable.");
     }
     return this._webhookServer.baseUrl;
+  }
+
+  /**
+   * Production entry for a host platform that accepts Twilio's public
+   * connection in a SEPARATE process from the one this adapter runs in (an
+   * a-leg call whose parent worker process owns the public listener and
+   * routes by nonce to the child that placed the call). That parent accepts
+   * the raw TCP upgrade, does NOT complete the WebSocket handshake, and hands
+   * the still-unhandshaked socket to this process over IPC — this method is
+   * where it arrives. Delegates to
+   * {@link TwilioWebhookServer.receiveExternalUpgrade}, which re-enters this
+   * adapter's ordinary upgrade path, so the a-leg nonce check and the media
+   * loop behave identically to a locally-received upgrade.
+   *
+   * A call placed with no host-supplied `placeCall({ streamNonce })` never
+   * needs this: this adapter's own local server receives Twilio's dial-back
+   * directly, the ordinary way.
+   */
+  receiveExternalMediaSocket(params: {
+    req: ExternalUpgradeRequest;
+    socket: Socket;
+    head: Buffer;
+  }): void {
+    if (!this._webhookServer) {
+      params.socket.destroy();
+      return;
+    }
+    this._webhookServer.receiveExternalUpgrade(params);
   }
 
   /**
@@ -561,23 +1136,72 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
   /** @internal */ _setStreamSid(sid: string | undefined): void {
     this._streamSid = sid;
+    if (sid !== undefined) this._sawLiveStream = true;
   }
   /** @internal */ _setCallSid(sid: string | undefined): void {
     if (!this._callSid) this._callSid = sid;
   }
+  /**
+   * @internal A-leg WS auth expectation the media loop enforces (#762): the
+   * per-call nonce minted at origination, or `undefined` in every un-gated mode
+   * (b-leg, originator-only, inbound). Presence ARMS enforcement.
+   */
+  get _streamNonceForServer(): string | undefined {
+    return this._streamNonce;
+  }
+  /** @internal The call SID origination returned — what a `start` frame's
+   * callSid must match in a-leg mode. */
+  get _callSidForServer(): string | undefined {
+    return this._callSid;
+  }
+  /** The Twilio call SID for the current/last call, once origination has
+   * returned it. `undefined` before a call is placed or after disconnect. */
+  get callSid(): string | undefined {
+    return this._callSid;
+  }
   /** @internal */ _signalStreamConnected(): void {
     this._streamConnected.resolve();
   }
-  /** @internal */ _enqueueInbound(chunk: AudioChunk): void {
-    this._inboundQueue.put(chunk);
+  /** @internal Single inbound entry point for the media loop. With the speech
+   * gate on, only chunks the gate admits (speech, hangover, pre-roll, the
+   * terminal sentinel) reach the queue — that arrival gap during the callee's
+   * silence is what lets the drain's tail-silence path end the turn. */
+  _enqueueInbound(chunk: AudioChunk): void {
+    if (!this._speechGate) {
+      this._inboundQueue.put(chunk);
+      return;
+    }
+    for (const admitted of this._speechGate.admit(chunk)) {
+      this._inboundQueue.put(admitted);
+    }
+  }
+  /** @internal Test-only view of the inbound speech gate (`null` when off). */
+  get _speechGateForTest(): TwilioSpeechGate | null {
+    return this._speechGate;
   }
   /** @internal */ _markStreamEnded(): void {
     this._streamEnded = true;
+    // Mirrors ElevenLabs' `agentHungUp` contract (`adapters/elevenlabs.ts`,
+    // the `end_call` tool): a "stop"/"close" that arrives on a stream that
+    // actually went live, and that we didn't ourselves tear down via
+    // `disconnect()`, is the far end hanging up — not a dropped transport.
+    // "max_duration"/"error"/"none" are excluded: the watchdog and genuine
+    // transport errors aren't a remote hangup, and a stream that never
+    // adopted (`_sawLiveStream` false) never had anyone to hang up on.
+    if (
+      (this._streamEndedReason === "stop" || this._streamEndedReason === "close") &&
+      this._sawLiveStream &&
+      !this._localDisconnect
+    ) {
+      this.agentHungUp = true;
+    }
   }
   /**
-   * @internal Re-arm per-CALL state at media-stream-loop entry. Both halves are
-   * per-call, not per-connection, so a second session on the same connected
-   * adapter must not inherit either of them.
+   * @internal Re-arm per-CALL state at media-stream-loop entry. All three parts
+   * are per-call, not per-connection, so a second session on the same connected
+   * adapter must not inherit any of them. The ended-reason matters as much as
+   * the flag: `"max_duration"` wins every tie by design, so left standing it
+   * would report a later, cleanly-stopped session as having hit the cap.
    *
    * The flag alone is not enough: the previous call's `finally` ENQUEUED a
    * terminal sentinel, and if that call ended while no drain was running (the
@@ -593,10 +1217,54 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    */
   _resetCallState(): void {
     this._streamEnded = false;
+    this._streamEndedReason = "none";
     this._inboundQueue.clearBuffered();
+    // Same per-call scope: held pre-roll and a speaking flag from the previous
+    // session must not leak into this call's first turn.
+    this._speechGate?.reset();
   }
-  /** @internal Test-only view of the transport state the server nulls on teardown. */
-  get _streamWsForTest(): MediaStreamWebSocket | null {
+  /**
+   * @internal The call generation captured by the media loop at adoption (#762
+   * P1). A later dial bumps it; a socket adopted under the old value is stale.
+   */
+  get _callGenerationForServer(): number {
+    return this._callGeneration;
+  }
+  /**
+   * Invalidate any socket adopted under a prior call generation (#762 P1).
+   *
+   * Bumping `_callGeneration` evicts a socket that connected — and even ADOPTED
+   * — before this dial armed the nonce: the media loop captured the old
+   * generation at adoption and closes itself on its next frame once the counter
+   * moves. We also reset the per-dial connection state the loop writes, so this
+   * dial starts clean and, critically, cannot resolve on a stale socket's
+   * connected signal: replacing `_streamConnected` with a fresh deferred
+   * discards an early un-gated socket's resolve so `placeCall` blocks until a
+   * genuine socket authenticates; dropping `_streamWs`/`_streamSid` stops
+   * `sendAudio` writing to the stale socket; clearing buffered inbound audio and
+   * zeroing the frame counter keeps the stale socket's media out of this call;
+   * clearing the terminal flag/reason stops its `stop` reading as this call
+   * ending. Inbound/b-leg behaviour is unchanged: no socket has adopted yet when
+   * the genuine one arrives, so it adopts under the current generation.
+   */
+  _resetConnectionStateForDial(): void {
+    this._callGeneration += 1;
+    this._streamWs = null;
+    this._streamSid = undefined;
+    this._streamConnected = makeDeferred<void>();
+    this._inboundQueue.clearBuffered();
+    this._speechGate?.reset();
+    this._streamEnded = false;
+    this._streamEndedReason = "none";
+    this._framesReceived = 0;
+  }
+  /**
+   * @internal The socket that IS this adapter's live transport, or `null`.
+   *
+   * `runStreamSession` compares against it so only the owning socket may null
+   * the transport on teardown; tests read it as their view of that same state.
+   */
+  get _streamWsForServer(): MediaStreamWebSocket | null {
     return this._streamWs;
   }
   /** @internal Test-only view of the transport state the server nulls on teardown. */
@@ -608,6 +1276,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
    * instead of a blind sleep. */
   get _framesReceivedForTest(): number {
     return this._framesReceived;
+  }
+  /** @internal Test-only view of the terminal flag (#762 P1): lets a test assert
+   * a stale socket's `stop` did NOT mark the live stream ended. */
+  get _streamEndedForTest(): boolean {
+    return this._streamEnded;
+  }
+  /** @internal Test-only view of whether the max-duration watchdog is armed
+   * (#762 P1/P2): a stale socket's teardown must not disarm it. */
+  get _maxDurationArmedForTest(): boolean {
+    return this._maxDurationTimeout !== null;
   }
   /** @internal */ _onWebhookRejected(): void {
     this.rejectedCount += 1;
@@ -623,8 +1301,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   _recordDtmfReceived(): void {
     this._dtmfReceived += 1;
   }
-  /** @internal Disconnect-counter (#775 Tier 2b): how the media session ended. */
+  /**
+   * @internal Disconnect-counter (#775 Tier 2b): how the media session ended.
+   *
+   * The max-duration watchdog closes the socket itself, so the media loop's own
+   * "close" verdict lands moments later and would otherwise mask WHY the call
+   * ended — the cap's verdict wins ties. `connect()`/`disconnect()` assign the
+   * field directly and so still clear it for the next session.
+   */
   _setStreamEndedReason(reason: TwilioStreamEndedReason): void {
+    if (this._streamEndedReason === "max_duration") return;
     this._streamEndedReason = reason;
   }
   /** @internal Disconnect-counter (#775 Tier 2b): one `/twilio/voice` POST. */
@@ -722,6 +1408,17 @@ class InboundQueue {
   /** True when no buffered chunk is immediately available to `take()`. */
   isEmpty(): boolean {
     return this._items.length === 0;
+  }
+
+  /**
+   * True when at least one buffered chunk carries real audio — as opposed to
+   * only the zero-length terminal sentinel(s) `_markStreamEnded`'s caller
+   * enqueues. Distinguishes "call ended, nothing left to hand the drain" from
+   * "call ended, but a farewell is still sitting in the queue" for
+   * `isConnected()` below.
+   */
+  hasBufferedAudio(): boolean {
+    return this._items.some((chunk) => chunk.data.length > 0);
   }
 
   /**

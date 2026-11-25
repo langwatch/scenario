@@ -493,6 +493,28 @@ describe("run", () => {
       expect(finished[0]).toMatchObject({ status: "ERROR" });
     });
 
+    it("propagates the run's own error when the tracer's spans lack setStatus", async () => {
+      // Regression: the run-root teardown in execute()'s finally stamps an
+      // ERROR status on the run root when the run failed. The tracer double
+      // mocked at the top of this file returns run-root spans that implement
+      // only `end` + `spanContext` — no `setStatus` (real OTel spans have it;
+      // minimal doubles and other tracer impls may not). Calling setStatus
+      // unconditionally threw `setStatus is not a function` FROM the finally,
+      // replacing the genuine failure. The teardown must feature-detect
+      // setStatus and contain any throw, so the run still rejects with ITS
+      // error, unchanged.
+      await mockEventBusWithEventCapture();
+
+      const config = createScenarioConfig();
+      config.script = [
+        async () => {
+          throw new Error("intentional run failure");
+        },
+      ];
+
+      await expect(run(config)).rejects.toThrow("intentional run failure");
+    });
+
     it("drain resolves promptly when the endpoint drops every event, and the run still succeeds", async () => {
       // Use the REAL EventBus so the run exercises retry, drop and drain.
       const { EventBus } = await import("../../events/event-bus");

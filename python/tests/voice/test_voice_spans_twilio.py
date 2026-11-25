@@ -116,6 +116,7 @@ class FakeREST:
         self.auth_token = auth_token
         self.write_calls: list[tuple[str, str]] = []
         self.place_call_kwargs: list[dict[str, Any]] = []
+        self.end_calls: list[str] = []
         self._prior_voice_url = "https://old-webhook.example.com/previous"
 
     def resolve_phone_number_sid(self, number: str) -> str:
@@ -127,13 +128,21 @@ class FakeREST:
     def write_voice_url(self, sid: str, url: str) -> None:
         self.write_calls.append((sid, url))
 
-    def place_call(self, *, to: str, from_: str, twiml: str) -> str:
-        # Mirrors the real TwilioRESTHelper.place_call signature.
-        self.place_call_kwargs.append({"to": to, "from_": from_, "twiml": twiml})
+    def place_call(
+        self, *, to: str, from_: str, twiml: str, time_limit: Optional[int] = None
+    ) -> str:
+        # Mirrors the real TwilioRESTHelper.place_call signature. ``time_limit``
+        # is Twilio's own max call duration (a-leg only; None on b-leg).
+        self.place_call_kwargs.append(
+            {"to": to, "from_": from_, "twiml": twiml, "time_limit": time_limit}
+        )
         return "CA" + "1" * 32
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
         pass
+
+    def end_call(self, call_sid: str) -> None:
+        self.end_calls.append(call_sid)
 
 
 def _install_fake_rest(monkeypatch: Any) -> list[FakeREST]:
@@ -184,6 +193,25 @@ def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
     )
     kwargs.update(overrides)
     return TwilioAgentAdapter(**kwargs)
+
+
+async def _dial_then_connect(adapter: TwilioAgentAdapter, coro: Any) -> None:
+    """Run a dial (place_call/wait_for_call) and fire the stream-connected signal
+    once the dial has reset it and begun awaiting.
+
+    ``place_call``/``wait_for_call`` now reset the connected signal when dialing
+    (#762 P1) and only resolve once a socket connects, so a test that just needs
+    the dial to COMPLETE (for its span) can no longer pre-set the signal before
+    the dial. This fires it after the reset instead.
+    """
+    task = asyncio.create_task(coro)
+    for _ in range(200):
+        await asyncio.sleep(0)
+        if task.done():
+            break
+        assert adapter._stream_connected is not None
+        adapter._stream_connected.set()
+    _ = await task
 
 
 # --------------------------------------------------------------------------- media-loop frame builders
@@ -494,9 +522,7 @@ async def test_t3_disconnect_rest_restore_failed_is_false_on_clean_restore(
     adapter = _make_adapter(http_port=0)
     executor = _exec(adapter)
     await executor._voice_connect_all()
-    assert adapter._stream_connected is not None
-    adapter._stream_connected.set()
-    await adapter.wait_for_call(timeout=1.0)
+    await _dial_then_connect(adapter, adapter.wait_for_call(timeout=1.0))
 
     await executor._voice_disconnect_all()
 
@@ -517,9 +543,7 @@ async def test_t3_disconnect_rest_restore_failed_is_true_when_rest_restore_raise
     adapter = _make_adapter(http_port=0)
     executor = _exec(adapter)
     await executor._voice_connect_all()
-    assert adapter._stream_connected is not None
-    adapter._stream_connected.set()
-    await adapter.wait_for_call(timeout=1.0)
+    await _dial_then_connect(adapter, adapter.wait_for_call(timeout=1.0))
 
     rest = rest_instances[0]
     original_write = rest.write_voice_url
@@ -617,9 +641,7 @@ async def test_t4_dial_span_ok_outbound_place_call(monkeypatch):
     adapter = _make_adapter(http_port=0)
     await adapter.connect()
     try:
-        assert adapter._stream_connected is not None
-        adapter._stream_connected.set()  # pre-fire: stream "already" connected
-        await adapter.place_call(to="+14155557777")
+        await _dial_then_connect(adapter, adapter.place_call(to="+14155557777"))
 
         dial_spans = [
             s for s in exporter.get_finished_spans() if s.name == "voice.adapter.dial"
@@ -649,9 +671,7 @@ async def test_t5_dial_span_ok_inbound_wait_for_call(monkeypatch):
     adapter = _make_adapter(http_port=0)
     await adapter.connect()
     try:
-        assert adapter._stream_connected is not None
-        adapter._stream_connected.set()
-        await adapter.wait_for_call(timeout=1.0)
+        await _dial_then_connect(adapter, adapter.wait_for_call(timeout=1.0))
 
         dial = _by_name(exporter.get_finished_spans())["voice.adapter.dial"]
         assert dial.status.status_code != StatusCode.ERROR
@@ -705,7 +725,9 @@ async def test_t7_dial_span_error_on_rest_failure_records_original_exception(
     adapter = _make_adapter(http_port=0)
     await adapter.connect()
     try:
-        def _boom(*, to: str, from_: str, twiml: str) -> str:
+        def _boom(
+            *, to: str, from_: str, twiml: str, time_limit: Optional[int] = None
+        ) -> str:
             raise RuntimeError("Twilio REST: rate limited")
 
         rest_instances[0].place_call = _boom  # type: ignore[method-assign]
@@ -750,10 +772,8 @@ async def test_t8_dial_span_export_failure_never_breaks_a_successful_place_call(
     adapter = _make_adapter(http_port=0)
     await adapter.connect()
     try:
-        assert adapter._stream_connected is not None
-        adapter._stream_connected.set()
         with caplog.at_level(logging.WARNING, logger="scenario.voice"):
-            await adapter.place_call(to="+14155557777")  # must not raise
+            await _dial_then_connect(adapter, adapter.place_call(to="+14155557777"))  # must not raise
         assert adapter._mode == "call"  # the real result still landed
         warnings = [
             r
