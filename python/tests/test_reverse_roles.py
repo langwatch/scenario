@@ -1,0 +1,442 @@
+"""
+Unit tests for reverse_roles (message role reversal).
+Mirrors the JS messageRoleReversal tests in utils.test.ts.
+"""
+
+from types import SimpleNamespace
+
+from scenario._utils.utils import (
+    reverse_roles,
+    _has_tool_content,
+    _summarize_tool_message,
+    _stringify_value,
+)
+
+
+# ── _stringify_value tests ────────────────────────────────────────────────────
+
+
+class TestStringifyValue:
+    def test_string_passthrough(self):
+        assert _stringify_value("hello") == "hello"
+
+    def test_none(self):
+        assert _stringify_value(None) == "null"
+
+    def test_dict(self):
+        assert _stringify_value({"a": 1}) == '{"a": 1}'
+
+    def test_list(self):
+        assert _stringify_value([1, 2, 3]) == "[1, 2, 3]"
+
+    def test_number(self):
+        assert _stringify_value(42) == "42"
+
+    def test_non_serializable_fallback(self):
+        result = _stringify_value(object())
+        assert isinstance(result, str) and len(result) > 0
+
+
+# ── _has_tool_content tests ───────────────────────────────────────────────────
+
+
+class TestHasToolContent:
+    def test_tool_role(self):
+        assert _has_tool_content({"role": "tool", "content": "result"}) is True
+
+    def test_assistant_with_tool_calls(self):
+        msg = {"role": "assistant", "tool_calls": [{"function": {"name": "x"}}]}
+        assert _has_tool_content(msg) is True
+
+    def test_regular_user_message(self):
+        assert _has_tool_content({"role": "user", "content": "hi"}) is False
+
+    def test_regular_assistant_message(self):
+        assert _has_tool_content({"role": "assistant", "content": "hello"}) is False
+
+    def test_system_message(self):
+        assert _has_tool_content({"role": "system", "content": "prompt"}) is False
+
+
+# ── _summarize_tool_message tests ─────────────────────────────────────────────
+
+
+class TestSummarizeToolMessage:
+    def test_tool_result_message(self):
+        msg = {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": "Sunny 22°C",
+        }
+        result = _summarize_tool_message(msg, tool_call_names={"call_1": "get_weather"})
+        assert result == "[Tool result from get_weather: Sunny 22°C]"
+
+    def test_tool_result_with_json_content(self):
+        msg = {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": '{"results": [1, 2, 3]}',
+        }
+        result = _summarize_tool_message(msg, tool_call_names={"call_1": "search"})
+        assert result == '[Tool result from search: {"results": [1, 2, 3]}]'
+
+    def test_tool_result_unresolved_tool_call_id(self):
+        """When tool_call_id has no matching entry in tool_call_names (e.g. the
+        history was truncated and the tool_calls message fell out of view),
+        fall back to a generic label rather than erroring."""
+        msg = {"role": "tool", "tool_call_id": "call_1", "content": "data"}
+        assert _summarize_tool_message(msg) == "[Tool result from unknown tool: data]"
+
+    def test_tool_result_name_resolved_via_map_not_message_field(self):
+        """Standard OpenAI tool-result messages carry no 'name' field — a
+        'name' key on the raw message is ignored; the real tool name always
+        comes from tool_call_names, resolved via tool_call_id."""
+        msg = {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "name": "wrong_name",
+            "content": "data",
+        }
+        result = _summarize_tool_message(msg, tool_call_names={"call_1": "real_name"})
+        assert result == "[Tool result from real_name: data]"
+
+    def test_assistant_with_single_tool_call(self):
+        msg = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "calculator",
+                        "arguments": '{"expression": "2+2"}',
+                    },
+                }
+            ],
+        }
+        result = _summarize_tool_message(msg)
+        assert result == '[Called tool calculator with: {"expression": "2+2"}]'
+
+    def test_assistant_with_multiple_tool_calls(self):
+        msg = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "search", "arguments": '{"q": "foo"}'},
+                },
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "fetch", "arguments": '{"url": "bar"}'},
+                },
+            ],
+        }
+        result = _summarize_tool_message(msg)
+        assert result is not None
+        assert '[Called tool search with: {"q": "foo"}]' in result
+        assert '[Called tool fetch with: {"url": "bar"}]' in result
+
+    def test_assistant_with_malformed_tool_call_no_function(self):
+        msg = {
+            "role": "assistant",
+            "tool_calls": [{"id": "call_1", "type": "function"}],
+        }
+        assert _summarize_tool_message(msg) is None
+
+    def test_regular_message_returns_none(self):
+        assert _summarize_tool_message({"role": "user", "content": "hi"}) is None
+        assert _summarize_tool_message({"role": "assistant", "content": "hello"}) is None
+
+
+# ── reverse_roles tests ──────────────────────────────────────────────────────
+
+
+class TestReverseRoles:
+    def test_reverse_user_to_assistant(self):
+        messages = [
+            {"role": "user", "content": "Hello, how are you?"},
+            {"role": "user", "content": "What's the weather like?"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "assistant", "content": "Hello, how are you?"},
+            {"role": "assistant", "content": "What's the weather like?"},
+        ]
+
+    def test_reverse_assistant_to_user(self):
+        messages = [
+            {"role": "assistant", "content": "I'm doing well, thank you!"},
+            {"role": "assistant", "content": "It's sunny today."},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "user", "content": "I'm doing well, thank you!"},
+            {"role": "user", "content": "It's sunny today."},
+        ]
+
+    def test_mixed_user_and_assistant(self):
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "How are you?"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "Hi there!"},
+            {"role": "assistant", "content": "How are you?"},
+        ]
+
+    def test_preserve_system_messages(self):
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant"},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi!"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "system", "content": "You are a helpful assistant"},
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "Hi!"},
+        ]
+
+    def test_empty_array(self):
+        assert reverse_roles([]) == []
+
+    def test_summarize_tool_calls_and_results(self):
+        """Tool calls and results should be summarized as plain text with 'user' role."""
+        messages = [
+            {"role": "user", "content": "Calculate 2+2"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "calculator",
+                            "arguments": '{"expression": "2+2"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "name": "calculator",
+                "content": "4",
+            },
+            {"role": "assistant", "content": "The answer is 4"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "assistant", "content": "Calculate 2+2"},
+            {"role": "user", "content": '[Called tool calculator with: {"expression": "2+2"}]'},
+            {"role": "user", "content": "[Tool result from calculator: 4]"},
+            {"role": "user", "content": "The answer is 4"},
+        ]
+
+    def test_multiple_tool_calls_in_conversation(self):
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "What's 5*6?"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {"name": "calc", "arguments": '{"expr": "5*6"}'},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_2", "name": "calc", "content": "30"},
+            {"role": "assistant", "content": "The result is 30"},
+            {"role": "user", "content": "Thanks!"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "Hi there!"},
+            {"role": "assistant", "content": "What's 5*6?"},
+            {"role": "user", "content": '[Called tool calc with: {"expr": "5*6"}]'},
+            {"role": "user", "content": "[Tool result from calc: 30]"},
+            {"role": "user", "content": "The result is 30"},
+            {"role": "assistant", "content": "Thanks!"},
+        ]
+
+    def test_tool_only_agent_response_ends_with_user_role(self):
+        """When agent returns only tool-call + tool-result with no final text,
+        the last message after reversal must be 'user' role for Anthropic compatibility."""
+        messages = [
+            {"role": "system", "content": "You are pretending to be a user"},
+            {"role": "assistant", "content": "Hello, how can I help you today"},
+            {"role": "user", "content": "do you have headphones?"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "arguments": '{"query": "headphones"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "name": "lookup",
+                "content": "headphones: $29.99, in stock",
+            },
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "system", "content": "You are pretending to be a user"},
+            {"role": "user", "content": "Hello, how can I help you today"},
+            {"role": "assistant", "content": "do you have headphones?"},
+            {"role": "user", "content": '[Called tool lookup with: {"query": "headphones"}]'},
+            {"role": "user", "content": "[Tool result from lookup: headphones: $29.99, in stock]"},
+        ]
+        # Verify last message is "user" role (required by Anthropic)
+        assert result[-1]["role"] == "user"
+
+    def test_multiple_tool_calls_in_single_message(self):
+        """Assistant message with multiple tool_calls should summarize all of them."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": '{"q": "foo"}'},
+                    },
+                    {
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {"name": "fetch", "arguments": '{"url": "bar"}'},
+                    },
+                ],
+            },
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert '[Called tool search with: {"q": "foo"}]' in str(result[0]["content"])
+        assert '[Called tool fetch with: {"url": "bar"}]' in str(result[0]["content"])
+
+    def test_assistant_with_content_and_tool_calls_drops_content(self):
+        """When assistant has both text content and tool_calls, only tool calls
+        are summarized (text content is dropped). Matches JS behavior."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Let me check that for you",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": '{"q": "test"}'},
+                    }
+                ],
+            },
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert "Let me check that for you" not in str(result[0]["content"])
+        assert '[Called tool search with: {"q": "test"}]' in str(result[0]["content"])
+
+    def test_does_not_mutate_original_messages(self):
+        """reverse_roles should deep copy messages, not mutate originals."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi!"},
+        ]
+        reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+
+    def test_explicit_none_content_without_tool_calls_is_dropped(self):
+        """An assistant message with content=None and no tool_calls has
+        nothing to say once reversed. Flipping it to
+        {"role": "user", "content": None} would violate the OpenAI/Anthropic
+        user-message schema (content is required on a user message), so it
+        is dropped rather than kept — distinct from a message whose
+        content=None accompanies tool_calls, which is diverted to the
+        tool-summary branch before this guard ever runs.
+        """
+        messages = [
+            {"role": "user", "content": "test"},
+            {"role": "assistant", "content": None},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [{"role": "assistant", "content": "test"}]
+
+    def test_tool_result_without_name_field_resolves_via_tool_calls_map(self):
+        """Standard OpenAI tool-result messages have no 'name' field — only
+        tool_call_id. reverse_roles must resolve the real tool name from the
+        preceding tool_calls message rather than printing 'unknown tool'."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_9",
+                        "type": "function",
+                        "function": {"name": "get_weather", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_9", "content": "Sunny 22°C"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result[1]["role"] == "user"
+        assert result[1]["content"] == "[Tool result from get_weather: Sunny 22°C]"
+
+    def test_bare_role_only_message_is_dropped(self):
+        """Messages with no 'content' key at all are silently dropped.
+
+        Anthropic (and some other providers) reject user/assistant messages that
+        have no content field. Some models emit bare {"role": "assistant"} messages;
+        this guard prevents them from surfacing as invalid {"role": "user"} messages
+        in the user simulator's request.
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant"},  # no content key — should be dropped
+            {"role": "assistant", "content": "I can help"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
+        assert result == [
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "I can help"},
+        ]
+
+    def test_object_style_message_is_reversed(self):
+        """Production messages from litellm/openai responses are objects
+        (e.g. a litellm Message), not plain dicts — reverse_roles must
+        handle both shapes identically via the object branch (message.role
+        = new_role) rather than only the dict-subscript branch."""
+        messages = [
+            SimpleNamespace(role="user", content="Hello"),
+            SimpleNamespace(role="assistant", content="Hi there!"),
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # SimpleNamespace stands in for litellm's object-style Message, not a ChatCompletionMessageParam TypedDict
+        assert result[0].role == "assistant"  # type: ignore[reportAttributeAccessIssue]  # result is really SimpleNamespace at runtime, not the TypedDict pyright infers
+        assert result[0].content == "Hello"  # type: ignore[reportAttributeAccessIssue]
+        assert result[1].role == "user"  # type: ignore[reportAttributeAccessIssue]
+        assert result[1].content == "Hi there!"  # type: ignore[reportAttributeAccessIssue]
