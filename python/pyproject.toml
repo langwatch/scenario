@@ -23,7 +23,7 @@ dependencies = [
     # litellm 1.106 imports the optional `mcp` package whenever a completion
     # passes tools, so JudgeAgent fails with "No module named 'mcp'" on a
     # fresh install. Lift the cap once litellm stops doing that.
-    "litellm>=1.83.14,<1.106",
+    "litellm>=1.83.14,<1.111",
     "openai>=1.88.0",
     "python-dotenv>=1.0.1",
     "termcolor>=2.4.0",
