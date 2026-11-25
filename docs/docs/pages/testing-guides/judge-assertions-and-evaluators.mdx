@@ -1,0 +1,248 @@
+---
+title: "Judge Criteria, Script Assertions and Evaluators: which check goes where"
+description: A scenario checks the agent three ways. Judge criteria decide the conversation as a whole, a script assertion checks one fact at one step, and an evaluator compares a value of the run against a reference and reports it in LangWatch. This guide shows when to add each one and how the three combine into one verdict.
+---
+
+# Judge Criteria, Script Assertions and Evaluators [Which check goes where]
+
+Judge criteria are the natural-language conditions the `JudgeAgent` checks against the conversation. The judge reads the transcript and the trace after each agent turn and decides whether the run continues, succeeds or fails, so a criterion is the check for behavior that spans the conversation. For example, "Agent asks for the account number before changing the plan" or "Agent never promises a refund" are criteria. Criteria are the default check on a scenario; the other two add to them.
+
+A script assertion is a function in the `script` list that reads the run state at one point and raises when a fact does not hold. It runs between two steps, so it is the check for a value that has to be right there and that you can compare in code. For example, the agent called `run_sql` after the first question, or that call carried the merchant name. A failing assertion ends the run at that step.
+
+An evaluator is a LangWatch evaluator attached to the run: a built-in type such as `langevals/exact_match`, or a saved evaluator as `evaluators/<slug>`. It runs once the run has a verdict, reads its inputs from the same state a script step reads, and compares them against a reference the scenario carries in `fields` or against a prompt in its `settings`. An evaluator is the check for a structured comparison you want reported in LangWatch, with its inputs, next to the criteria.
+
+| Check | What it reads | When it decides | Gates the run | Example |
+| --- | --- | --- | --- | --- |
+| Judge criteria | The transcript and the trace so far | After each agent turn, or at `scenario.judge()` in a script | Yes, the verdict is the run result | "The agent reports chargeback counts per quarter" |
+| Script assertion | The state at that step: messages, fields, tool calls, spans | At its position in the script | Yes, a failed assertion ends the run | The last `run_sql` call has the expected SQL |
+| Evaluator | The final state through its mappings, the `fields` and its `settings` | After the verdict, over the whole run | When it is required and it fails or cannot run | `langevals/exact_match` between the last agent message and `expected_answer` |
+
+## How the three checks combine on one scenario
+
+The scenario below tests an analyst agent that answers with a `run_sql` tool call and a summary. One criterion checks the answer as the user reads it, one assertion checks the SQL at the step the agent ran it, and two evaluators run over the final state: `langevals/exact_match` between the last agent message and the `expected_answer` field, required, and `langevals/llm_boolean` over the SQL of the last `run_sql` call, as a report only.
+
+`langevals/exact_match` needs no mapping because its inputs are inferred from their names: `output` reads the last agent message and `expected_output` reads the one field whose name carries one of `expected`, `golden`, `reference`, `answer`, `sql`, `query`, `label` or `target`, so `expected_answer` matches and `table_schema` does not. `langevals/llm_boolean` needs one, because a tool call is never inferred. The lambda and `scenario.trace.tool_calls("run_sql").last.input` are the same mapping.
+
+The evaluators run through the LangWatch API, so the test needs `LANGWATCH_API_KEY` (and `LANGWATCH_ENDPOINT` for a self-hosted platform) next to `OPENAI_API_KEY` for the user simulator and the judge.
+
+:::code-group
+
+```python [python]
+import json
+
+import pytest
+
+import scenario
+
+scenario.configure(default_model="openai/gpt-5-mini")
+
+SQL = "SELECT quarter, count(*) FROM chargebacks WHERE merchant = 'ACME Travel' GROUP BY quarter"
+ANSWER = "ACME Travel had 12 chargebacks in 2026-Q1 and 9 in 2026-Q2."
+
+
+class SqlAnalystAgent(scenario.AgentAdapter):
+    """An agent that answers with a run_sql tool call and a summary."""
+
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        return [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_run_sql_1",
+                        "type": "function",
+                        "function": {"name": "run_sql", "arguments": json.dumps({"sql": SQL})},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_run_sql_1",
+                "content": json.dumps([{"quarter": "2026-Q1", "count": 12}, {"quarter": "2026-Q2", "count": 9}]),
+            },
+            {"role": "assistant", "content": ANSWER},
+        ]
+
+
+def check_sql_was_run(state: scenario.ScenarioState) -> None:
+    """A script assertion: the same state the evaluator mappings read."""
+    assert state.tool_calls("run_sql").last.input["sql"] == SQL
+    assert state.field("expected_answer") == ANSWER
+
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_answer_and_sql_are_checked_by_evaluators():
+    result = await scenario.run(
+        name="chargeback totals by quarter",
+        description="A fraud analyst asks for the chargebacks per quarter for merchant ACME Travel.",
+        agents=[
+            SqlAnalystAgent(),
+            scenario.UserSimulatorAgent(),
+            # Judge criteria: the conversation as the user reads it.
+            scenario.JudgeAgent(criteria=["The agent reports chargeback counts per quarter"]),
+        ],
+        fields={
+            "expected_answer": ANSWER,
+            "table_schema": "CREATE TABLE chargebacks (id text, merchant text, quarter text)",
+        },
+        evaluators=[
+            # Inferred mappings: output reads the last agent message and
+            # expected_output reads the expected_answer field. Required, so a
+            # mismatch fails the run.
+            scenario.evaluator("langevals/exact_match", required=True),
+            # Mapped to the SQL of the last run_sql call, with a prompt in the
+            # settings. Not required, so it reports next to the verdict.
+            scenario.evaluator(
+                "langevals/llm_boolean",
+                required=False,
+                mappings={"output": lambda state: state.tool_calls("run_sql").last.input},
+                settings={
+                    "prompt": "Does this SQL group chargebacks by quarter for one merchant? Answer true or false.",
+                },
+            ),
+        ],
+        script=[
+            scenario.user("How many chargebacks did ACME Travel have per quarter?"),
+            scenario.agent(),
+            check_sql_was_run,  # Script assertion, right after the agent turn.
+            scenario.judge(),  # The verdict against the criteria.
+        ],
+    )
+
+    assert result.success, result.reasoning
+    statuses = {evaluation.evaluator_id: evaluation.status for evaluation in result.evaluations}
+    assert statuses["langevals/exact_match"] == "passed"
+    assert statuses["langevals/llm_boolean"] in ("passed", "failed")
+```
+
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import scenario, {
+  type AgentAdapter,
+  AgentRole,
+  type AgentInput,
+  type AgentReturnTypes,
+} from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+const SQL =
+  "SELECT quarter, count(*) FROM chargebacks WHERE merchant = 'ACME Travel' GROUP BY quarter";
+const ANSWER = "ACME Travel had 12 chargebacks in 2026-Q1 and 9 in 2026-Q2.";
+
+/** An agent that answers with a run_sql tool call and a summary. */
+const sqlAnalystAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    return [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call_run_sql_1",
+            toolName: "run_sql",
+            input: { sql: SQL },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_run_sql_1",
+            toolName: "run_sql",
+            output: {
+              type: "json",
+              value: [
+                { quarter: "2026-Q1", count: 12 },
+                { quarter: "2026-Q2", count: 9 },
+              ],
+            },
+          },
+        ],
+      },
+      { role: "assistant", content: ANSWER },
+    ];
+  },
+};
+
+describe("evaluators on scenarios", () => {
+  it("checks the answer and the SQL with LangWatch evaluators", async () => {
+    const result = await scenario.run({
+      name: "chargeback totals by quarter",
+      description:
+        "A fraud analyst asks for the chargebacks per quarter for merchant ACME Travel.",
+      agents: [
+        sqlAnalystAgent,
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        // Judge criteria: the conversation as the user reads it.
+        scenario.judgeAgent({
+          model: openai("gpt-5-mini"),
+          criteria: ["The agent reports chargeback counts per quarter"],
+        }),
+      ],
+      fields: {
+        expected_answer: ANSWER,
+        table_schema: "CREATE TABLE chargebacks (id text, merchant text, quarter text)",
+      },
+      evaluators: [
+        // Inferred mappings: output reads the last agent message and
+        // expected_output reads the expected_answer field. Required, so a
+        // mismatch fails the run.
+        scenario.evaluator("langevals/exact_match", { required: true }),
+        // Mapped to the SQL of the last run_sql call, with a prompt in the
+        // settings. Not required, so it reports next to the verdict.
+        scenario.evaluator("langevals/llm_boolean", {
+          required: false,
+          mappings: { output: (state) => state.toolCalls("run_sql").last?.input },
+          settings: {
+            prompt:
+              "Does this SQL group chargebacks by quarter for one merchant? Answer true or false.",
+          },
+        }),
+      ],
+      script: [
+        scenario.user("How many chargebacks did ACME Travel have per quarter?"),
+        scenario.agent(),
+        // Script assertion, right after the agent turn: the same state the
+        // evaluator mappings read.
+        (state) => {
+          expect(state.toolCalls("run_sql").last?.input).toEqual({ sql: SQL });
+          expect(state.field("expected_answer")).toBe(ANSWER);
+        },
+        scenario.judge(), // The verdict against the criteria.
+      ],
+    });
+
+    expect(result.success, result.reasoning).toBe(true);
+    const statuses = Object.fromEntries(
+      (result.evaluations ?? []).map((evaluation) => [evaluation.evaluatorId, evaluation.status])
+    );
+    expect(statuses["langevals/exact_match"]).toBe("passed");
+    expect(["passed", "failed"]).toContain(statuses["langevals/llm_boolean"]);
+  });
+});
+```
+
+:::
+
+## How the run decides
+
+The three checks decide in script order, then the evaluators, and each one writes to the same result.
+
+The script assertions run first. `check_sql_was_run` runs after the agent turn, before the judge is asked, so a wrong SQL ends the run at that step and `scenario.run` raises the assertion error (rejects in TypeScript): the test fails with it and never gets a result object. LangWatch records the run with success false, the reasoning `Scenario failed with error: <message>` and the assertion message among the failed criteria. The evaluators do not run, because the run has no verdict.
+
+In TypeScript, `expect` throws an `AssertionError`, which is what ends the run this way; any other thrown error also stops the run and reaches the test as is.
+
+The judge decides next, at `scenario.judge()` here, or after any agent turn in a scenario without a script. Its verdict is the run result: `result.success`, `result.reasoning` with the explanation, and `result.passed_criteria` and `result.failed_criteria` (`metCriteria` and `unmetCriteria` in TypeScript) with each criterion.
+
+The evaluators run last, once the run has a verdict, all of them over the final state. Each one produces one entry on `result.evaluations` with its `status`, `required` flag, `passed`, `score`, `label`, `details` and the resolved `inputs`. A required evaluator that fails sets `result.success` to false and appends `Evaluator <name> failed: <details>` to `result.reasoning`; an evaluator that answers pass or fail is required by default, and a score-only evaluator never fails the run, whatever `required` says.
+
+Two statuses come from the mapping, not from the evaluator. When a mapping returns no value, for example because the agent never called `run_sql` or the scenario left `expected_answer` blank, the evaluator is `skipped`, `details` says why, and the run keeps its verdict even when the evaluator is required. When a mapping raises, the evaluator is an `error` and `details` carries the message.
+
+A required evaluator with status `error` fails the run the same way a failed one does, with `Evaluator <name> could not run: <details>` in `result.reasoning`. The same happens for an unknown evaluator, a required input without a mapping, or a failed evaluate call. This is the rule the platform applies to a run it evaluates itself, so a run from code and a run from the platform reach the same verdict.
+
+**Also check:** [Evaluators on Scenarios](/advanced/evaluators) for the mappings, the inference rules and every status, [Judge Agent](/basics/judge-agent) for the criteria and the judge configuration, [Scripted Simulations](/basics/scripted-simulations#reading-the-run-state) for the state a script step reads, and [Evaluators in LangWatch](https://docs.langwatch.ai/agent-testing/evaluators) for the same checks attached to a scenario on the platform.

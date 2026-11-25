@@ -368,6 +368,47 @@ const result = await scenario.run({
 
 :::
 
+## Grade a tool call with an evaluator
+
+An evaluator grades a tool call after the run has its verdict and reports the result in LangWatch next to the criteria. Map its `output` input to the call, because a tool call is never inferred from the input name, and pass the question in `settings`.
+
+:::code-group
+
+```python [python]
+result = await scenario.run(
+    ...,
+    evaluators=[
+        scenario.evaluator(
+            "langevals/llm_boolean",
+            required=False,
+            mappings={"output": lambda state: state.tool_calls("get_current_weather").last.input},
+            settings={
+                "prompt": "Is the location argument a city, not a country? Answer true or false.",
+            },
+        ),
+    ],
+)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  // ...
+  evaluators: [
+    scenario.evaluator("langevals/llm_boolean", {
+      required: false,
+      mappings: { output: (state) => state.toolCalls("get_current_weather").last?.input },
+      settings: {
+        prompt: "Is the location argument a city, not a country? Answer true or false.",
+      },
+    }),
+  ],
+});
+```
+
+:::
+
+**Also check:** [Judge Criteria, Script Assertions and Evaluators](/testing-guides/judge-assertions-and-evaluators) for when a tool call check belongs in a script assertion, in the judge criteria or on an evaluator.
+
 ## Summary of Tool Call Testing Approaches
 
 Designing robust scenario tests for tool-using agents requires more than just checking if a tool was called. The following best practices help ensure your tests are reliable, maintainable, and accurately reflect real-world agent behavior—covering everything from argument validation to error handling and deterministic scripting.
