@@ -124,6 +124,30 @@ describe("defaultVoiceCall publishes the agent speaking event", () => {
     await expect(adapter.agentSpeakingEvent!.wait()).resolves.toBeUndefined();
   });
 
+  it("does not set the speaking event when the first chunk is empty", async () => {
+    const adapter = new SpeakingAdapter([
+      new AudioChunk({ data: new Uint8Array(0) }),
+    ]);
+
+    await defaultVoiceCall(adapter, bareInput);
+
+    expect(adapter.agentSpeakingEvent).toBeDefined();
+    expect(adapter.agentSpeakingEvent!.isSet()).toBe(false);
+  });
+
+  it("sets the speaking event when audio follows a leading empty chunk", async () => {
+    const adapter = new SpeakingAdapter([
+      new AudioChunk({ data: new Uint8Array(0) }),
+      tone(0.1, "after empty"),
+    ]);
+
+    await defaultVoiceCall(adapter, bareInput);
+
+    expect(adapter.agentSpeakingEvent).toBeDefined();
+    expect(adapter.agentSpeakingEvent!.isSet()).toBe(true);
+    await expect(adapter.agentSpeakingEvent!.wait()).resolves.toBeUndefined();
+  });
+
   it("clears the event at the start of the next turn (re-armed)", async () => {
     // Turn-2's first chunk is delayed so the cleared-but-not-yet-set window is
     // observable across a macrotask yield. Without it the immediate chunk would
