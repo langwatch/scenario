@@ -37,8 +37,9 @@ async def transcribe_segments(
 
     Args:
         recording: VoiceRecording to enrich.
-        provider: STTProvider to use. Defaults to scenario.configure-set provider
-            (OpenAI by default). Pass explicitly to override.
+        provider: STTProvider to use. Scenario judges pass their per-run provider
+            explicitly; direct utility calls use the deprecated compatibility
+            provider (OpenAI by default).
         only_missing: If True (default), skip segments whose transcript is
             already set. If False, re-transcribe everything (e.g. to overwrite
             adapter-side STT with a different provider).
@@ -51,7 +52,7 @@ async def transcribe_segments(
     """
     if not recording.segments:
         return
-    p = provider or _try_get_provider()
+    p = provider if provider is not None else _try_get_provider()
     if p is None:
         return  # already warned
     targets = [
@@ -69,8 +70,8 @@ def _try_get_provider() -> Optional[STTProvider]:
     except Exception as e:
         logger.warning(
             "scenario.voice.transcribe: no STT provider configured (%s); "
-            "agent transcripts will remain null. Install one with "
-            "scenario.set_stt_provider(...) to enable.",
+            "agent transcripts will remain null. Pass a provider directly or "
+            "use the deprecated scenario.set_stt_provider(...) helper.",
             e,
         )
         return None

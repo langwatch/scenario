@@ -1,11 +1,12 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 from scenario import UserSimulatorAgent
 from scenario.config import ModelConfig, ScenarioConfig
 from scenario.types import AgentInput
 from scenario.cache import context_scenario
 from scenario.scenario_executor import ScenarioExecutor
 from scenario.voice.modality_resolver import ModalityTier
+from scenario.voice import AudioChunk, TtsConfig, VoiceConfig
 
 
 @pytest.mark.asyncio
@@ -253,3 +254,105 @@ async def test_text_simulator_strips_audio_with_placeholders():
     finally:
         context_scenario.reset(token)
         ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+async def test_user_simulator_uses_per_run_tts_config():
+    """A run-level voice config reaches the simulator instead of a global."""
+    previous_default = ScenarioConfig.default_config
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4.1-mini")
+    simulator = UserSimulatorAgent()
+    scenario_state = MagicMock()
+    scenario_state.config = ScenarioConfig(
+        voice=VoiceConfig(tts=TtsConfig(voice="openai/nova"))
+    )
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[],
+        new_messages=[],
+        scenario_state=scenario_state,
+    )
+    try:
+        with patch.object(
+            simulator,
+            "_generate_text",
+            new=AsyncMock(return_value={"role": "user", "content": "hello"}),
+        ), patch(
+            "scenario.voice.synthesize",
+            new=AsyncMock(return_value=AudioChunk(data=b"\\x00\\x00")),
+        ) as synthesize:
+            await simulator.call(agent_input)
+        synthesize.assert_awaited_once_with("hello", "openai/nova")
+    finally:
+        ScenarioConfig.default_config = previous_default
+
+
+@pytest.mark.asyncio
+async def test_user_simulator_uses_the_per_run_tts_credential():
+    """A run-level TTS key is forwarded to synthesis rather than the environment."""
+    previous_default = ScenarioConfig.default_config
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4.1-mini")
+    simulator = UserSimulatorAgent()
+    scenario_state = MagicMock()
+    scenario_state.config = ScenarioConfig(
+        voice=VoiceConfig(tts=TtsConfig(voice="openai/nova", api_key="tts-key"))
+    )
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[],
+        new_messages=[],
+        scenario_state=scenario_state,
+    )
+    try:
+        with patch.object(
+            simulator,
+            "_generate_text",
+            new=AsyncMock(return_value={"role": "user", "content": "hello"}),
+        ), patch(
+            "scenario.voice.synthesize",
+            new=AsyncMock(return_value=AudioChunk(data=b"\x00\x00")),
+        ) as synthesize:
+            await simulator.call(agent_input)
+        synthesize.assert_awaited_once_with("hello", "openai/nova", api_key="tts-key")
+    finally:
+        ScenarioConfig.default_config = previous_default
+
+
+@pytest.mark.asyncio
+async def test_run_tts_config_selects_the_spoken_prompt():
+    """A run-level TTS voice picks the spoken prompt even without a sim voice."""
+    previous_default = ScenarioConfig.default_config
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4.1-mini")
+    simulator = UserSimulatorAgent()
+    scenario_state = MagicMock()
+    scenario_state.description = "Test scenario"
+    scenario_state.config = ScenarioConfig(
+        voice=VoiceConfig(tts=TtsConfig(voice="openai/nova"))
+    )
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[],
+        new_messages=[],
+        scenario_state=scenario_state,
+    )
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = "hello there"
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+    try:
+        with patch(
+            "scenario.user_simulator_agent.litellm.completion",
+            return_value=mock_response,
+        ) as completion, patch(
+            "scenario.voice.synthesize",
+            new=AsyncMock(return_value=AudioChunk(data=b"\x00\x00")),
+        ):
+            await simulator.call(agent_input)
+        system_prompt = completion.call_args.kwargs["messages"][0]["content"]
+        assert "SPEAKING on a phone call" in system_prompt
+    finally:
+        context_scenario.reset(token)
+        ScenarioConfig.default_config = previous_default

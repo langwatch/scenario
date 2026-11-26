@@ -10,11 +10,13 @@ import scenario
 from scenario.voice import (
     AudioChunk,
     ElevenLabsSTTProvider,
+    OpenAISTTProvider,
     STTProvider,
     get_stt_provider,
     set_stt_provider,
     transcribe,
 )
+from scenario.voice.config import SttConfig, resolve_stt_provider
 
 
 class FakeSTT(STTProvider):
@@ -78,11 +80,16 @@ def test_no_shipped_source_advertises_configure_stt():
 
 def test_set_stt_provider_rejects_a_non_provider():
     """A bad provider fails at the user's call, not inside a transcription pass."""
-    previous = get_stt_provider()
-    with pytest.raises(TypeError) as excinfo:
-        set_stt_provider(object())  # type: ignore[arg-type]  # Passing an invalid provider is the contract under test.
-    assert "STTProvider" in str(excinfo.value)
-    assert get_stt_provider() is previous
+    import scenario.voice.stt as stt_module
+
+    previous = stt_module._legacy_provider
+    try:
+        with pytest.raises(TypeError) as excinfo:
+            set_stt_provider(object())  # type: ignore[arg-type]  # Passing an invalid provider is the contract under test.
+        assert "STTProvider" in str(excinfo.value)
+        assert stt_module._legacy_provider is previous
+    finally:
+        stt_module._legacy_provider = previous
 
 
 @pytest.mark.asyncio
@@ -99,19 +106,23 @@ async def test_set_stt_provider_accepts_a_structural_provider():
         async def transcribe(self, audio: AudioChunk) -> str:
             return "duck typed"
 
-    previous = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    previous = stt_module._legacy_provider
     duck = DuckSTT()
     set_stt_provider(duck)  # type: ignore[arg-type]  # Structural acceptance is the contract under test.
     try:
         assert get_stt_provider() is duck
         assert await transcribe(AudioChunk(data=b"\x00\x00" * 1200)) == "duck typed"
     finally:
-        set_stt_provider(previous)
+        stt_module._legacy_provider = previous
 
 
 @pytest.mark.asyncio
 async def test_set_stt_provider_is_used_by_transcribe():
-    prev = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    prev = stt_module._legacy_provider
     fake = FakeSTT()
     set_stt_provider(fake)
     try:
@@ -120,12 +131,14 @@ async def test_set_stt_provider_is_used_by_transcribe():
         assert result == "canned transcript"
         assert len(fake.calls) == 1
     finally:
-        set_stt_provider(prev)
+        stt_module._legacy_provider = prev
 
 
 @pytest.mark.asyncio
 async def test_transcribe_uses_existing_transcript_when_present():
-    prev = get_stt_provider()
+    import scenario.voice.stt as stt_module
+
+    prev = stt_module._legacy_provider
     fake = FakeSTT(canned="should not be called")
     set_stt_provider(fake)
     try:
@@ -134,7 +147,7 @@ async def test_transcribe_uses_existing_transcript_when_present():
         assert result == "already transcribed"
         assert fake.calls == []
     finally:
-        set_stt_provider(prev)
+        stt_module._legacy_provider = prev
 
 
 def test_stt_provider_is_abstract():
@@ -172,6 +185,12 @@ def test_elevenlabs_stt_provider_repr_redacts_key():
     assert "***" in repr(provider)
 
 
+def test_elevenlabs_stt_provider_keeps_its_positional_api_key() -> None:
+    """Adding descriptor models must not reinterpret existing positional keys."""
+    provider = ElevenLabsSTTProvider("positional-key")
+    assert provider.api_key == "positional-key"
+
+
 @pytest.mark.asyncio
 async def test_elevenlabs_stt_provider_transcribe():
     """POST to the ElevenLabs STT endpoint; return the ``text`` field."""
@@ -196,3 +215,45 @@ async def test_elevenlabs_stt_provider_reads_env_key(monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "env_key")
     provider = ElevenLabsSTTProvider()
     assert provider.api_key == "env_key"
+
+
+def test_stt_descriptor_preserves_provider_configuration() -> None:
+    """The descriptor keeps credentials, language, and model through resolution."""
+    openai = resolve_stt_provider(
+        SttConfig(
+            model="openai/gpt-4o-mini-transcribe", api_key="stt-key", language="fr"
+        )
+    )
+    elevenlabs = resolve_stt_provider(
+        SttConfig(model="elevenlabs/scribe_v2", api_key="eleven-key")
+    )
+
+    assert isinstance(openai, OpenAISTTProvider)
+    assert (openai.model, openai.api_key, openai.language) == (
+        "gpt-4o-mini-transcribe",
+        "stt-key",
+        "fr",
+    )
+    assert isinstance(elevenlabs, ElevenLabsSTTProvider)
+    assert (elevenlabs.model, elevenlabs.api_key) == ("scribe_v2", "eleven-key")
+
+
+@pytest.mark.asyncio
+async def test_openai_stt_provider_uses_its_descriptor_credentials(monkeypatch) -> None:
+    """A descriptor-only key reaches the STT client without an environment key."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    client = MagicMock()
+    client.audio.transcriptions.create = AsyncMock(
+        return_value=MagicMock(text="bonjour")
+    )
+    provider = OpenAISTTProvider(api_key="stt-key", language="fr")
+
+    with patch("openai.AsyncOpenAI", return_value=client) as client_factory:
+        assert (
+            await provider.transcribe(AudioChunk(data=b"\x00\x00" * 1200)) == "bonjour"
+        )
+
+    client_factory.assert_called_once_with(api_key="stt-key")
+    create_call = client.audio.transcriptions.create.await_args
+    assert create_call is not None
+    assert create_call.kwargs["language"] == "fr"
