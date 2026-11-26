@@ -52,7 +52,7 @@ export const COMPOSABLE_VOICE_LLM_MODEL = "gpt-5.4-mini";
 export const ELEVENLABS_TTS_MODEL = "eleven_v3";
 
 /** ElevenLabs STT model — Python parity: `stt.py:84`. */
-export const ELEVENLABS_STT_MODEL = "scribe_v1";
+export const ELEVENLABS_STT_MODEL = "scribe_v2";
 
 /**
  * Sarah — premade EL voice, free-tier accessible as of 2026-05. Other

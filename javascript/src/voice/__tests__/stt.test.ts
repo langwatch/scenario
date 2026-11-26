@@ -144,7 +144,7 @@ describe("resolveSttProvider — the provider/model router", () => {
   });
 
   it("resolves the built-in ElevenLabs provider", () => {
-    expect(resolveSttProvider("elevenlabs/scribe_v1")).toBeInstanceOf(
+    expect(resolveSttProvider("elevenlabs/scribe_v2")).toBeInstanceOf(
       ElevenLabsSTTProvider,
     );
   });
