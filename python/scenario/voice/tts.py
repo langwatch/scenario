@@ -25,6 +25,7 @@ from typing import Awaitable, Callable, Dict, Tuple
 
 from ..config.voice_models import OPENAI_TTS_MODEL
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
+from .messages import _wav_bytes_to_pcm16
 
 
 TTSCallable = Callable[[str, str], Awaitable[bytes]]
@@ -131,7 +132,8 @@ async def _google_tts(text: str, voice: str) -> bytes:
     resp = await client.synthesize_speech(
         input=synth_input, voice=voice_cfg, audio_config=audio_cfg
     )
-    return bytes(resp.audio_content)
+    # Google LINEAR16 responses include a WAV container; AudioChunk needs raw PCM.
+    return _wav_bytes_to_pcm16(bytes(resp.audio_content))
 
 
 async def _cartesia_tts(text: str, voice: str) -> bytes:
