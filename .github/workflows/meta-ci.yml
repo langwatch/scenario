@@ -78,3 +78,10 @@ jobs:
       - name: Test the examples budget gate's own decisions
         if: ${{ !cancelled() }}
         run: bash scripts/test-examples-budget-gate.sh
+
+      # The review-bot-wake job runs these same tests but stays green when they
+      # fail (it must never fail a pull request), so a broken classifier would
+      # only skip the wake there. Here it fails the run that broke it.
+      - name: Test the review bot wake's check classifier
+        if: ${{ !cancelled() }}
+        run: node --test --experimental-strip-types .github/scripts/review-bot-wake.test.ts

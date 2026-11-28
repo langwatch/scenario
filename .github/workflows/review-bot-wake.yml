@@ -1,0 +1,95 @@
+name: review-bot-wake
+
+# Wakes the Laze PR review bot once the other checks on a pull request's head
+# commit have finished green. The bot's Laze watch turns a PR comment that
+# mentions @langwatch-pr-review-bot into a review, so the job's own token is
+# enough and no secret is needed. The same wake runs in langwatch/langwatch.
+#
+# Deliberately non-blocking: a red or slow CI, a GitHub API error or a failed
+# comment all end with this job green, so it never fails anyone's PR because
+# of Laze. Keep it out of branch protection.
+#
+# The wait and its verdict live in .github/scripts/review-bot-wake.ts, tested
+# by .github/scripts/review-bot-wake.test.ts.
+#
+# Spec: specs/review-bot-wake.feature
+
+on:
+  pull_request:
+    # ready_for_review is not a default activity type: without it, taking a
+    # pull request out of draft would wake nothing.
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  # To list the workflow runs of the head commit, so a run superseded by a newer
+  # run of the same workflow (cancelled by its concurrency group) is not judged.
+  actions: read
+  checks: read # to list the check runs of the head commit while waiting
+  contents: read # to read the commit statuses of the head commit and check out the script
+  pull-requests: write # to post the wake comment
+
+# A new push cancels the old wait, so only the latest head commit is reviewed.
+concurrency:
+  group: review-bot-wake-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review-bot-wake:
+    # The wait step below skips its own check run by this name.
+    name: review-bot-wake
+    # Drafts and dependency bots get no review. Fork PRs get a read-only
+    # token that cannot comment, so they are skipped rather than failed.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Above the wait's own 45-minute deadline and the comment's 2 minutes.
+    timeout-minutes: 60
+    steps:
+      # Only the script is needed. A failed checkout leaves the test below red,
+      # which skips the wait, so the job stays green.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      # The verdict that decides the wake proves itself first; `node --test`
+      # with type stripping needs no install step. A failing test skips the
+      # wait, so a broken classifier never wakes the bot, and leaves the job
+      # green.
+      - name: Test the check classifier
+        id: test
+        continue-on-error: true
+        run: node --test --experimental-strip-types .github/scripts/review-bot-wake.test.ts
+
+      # Polls the head commit's checks, commit statuses and workflow runs every
+      # 30s until none is queued or in progress, and sets green=true only when
+      # none failed, was cancelled or timed out. Only the newest run of each
+      # workflow counts. A red check or the 45-minute deadline ends the wait
+      # with a notice and no comment.
+      - name: Wait for the other checks on the head commit
+        id: wait
+        if: steps.test.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 50
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # This job's own check run would wait on itself.
+          EXCLUDE_CHECK: review-bot-wake
+        run: node --experimental-strip-types .github/scripts/review-bot-wake.ts
+
+      # Wakes the bot with a PR comment that mentions it. A failed comment
+      # leaves this job green.
+      - name: Wake the Laze review bot
+        if: steps.wait.outputs.green == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "@langwatch-pr-review-bot review at ${HEAD_SHA:0:7}"
