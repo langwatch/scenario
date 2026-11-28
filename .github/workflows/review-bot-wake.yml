@@ -40,7 +40,7 @@ jobs:
     # Above the wait's own 45-minute deadline and the comment's 2 minutes.
     timeout-minutes: 60
     steps:
-      # Polls the head commit's check runs and commit statuses every 30s until
+      # Polls the head commit's checks and commit statuses every 30s until
       # none is queued or in progress, and sets green=true only when none
       # failed, was cancelled or timed out. A red check or the 45-minute
       # deadline ends the wait with a notice and no comment.
@@ -59,18 +59,26 @@ jobs:
           while :; do
             # The first sleep also gives checks started by the same push time to register.
             sleep 30
-            # Reads every check run and status of the head commit, keeps the newest
-            # run of each check (a re-run supersedes the old one), leaves this job's
-            # own out, and lists the names that failed and the names still running.
-            # Any error here (API, parsing) counts as an unread round, never as green.
+            # Reads the head commit's check runs, check suites and statuses. A check
+            # suite still running counts as pending, so a workflow whose next job has
+            # no check run yet is waited for; suites with no check run at all (apps
+            # that never report) are left out. Within a suite only the newest run of
+            # each job counts (a re-run supersedes the old one). This job and its
+            # own suites are left out. Any error here counts as an unread round,
+            # never as green.
             if runs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" \
-                 --jq '.check_runs[] | {kind: "run", id, name, done: (.status == "completed"), bad: (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")}') &&
+                 --jq '.check_runs[] | {kind: "run", id, suite: .check_suite.id, name, done: (.status == "completed"), bad: (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")}') &&
+               suites=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-suites?per_page=100" \
+                 --jq '.check_suites[] | select(.latest_check_runs_count > 0) | {kind: "suite", suite: .id, name: "\(.app.slug) check suite", done: (.status == "completed"), bad: false}') &&
                statuses=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status?per_page=100" \
                  --jq '.statuses[] | {kind: "status", name: .context, done: (.state != "pending"), bad: (.state == "failure" or .state == "error")}') &&
-               checks=$(printf '%s\n%s\n' "$runs" "$statuses" | jq -c -s --arg skip "$EXCLUDE_CHECK" \
-                 '(map(select(.kind == "run")) | group_by(.name) | map(max_by(.id))) + map(select(.kind == "status")) | .[] | select(.name != $skip)') &&
+               checks=$(printf '%s\n%s\n%s\n' "$runs" "$suites" "$statuses" | jq -c -s --arg skip "$EXCLUDE_CHECK" '
+                 [.[] | select(.kind == "run" and .name == $skip) | .suite] as $own
+                 | (map(select(.kind == "run" and .name != $skip)) | group_by([.suite, .name]) | map(max_by(.id)))
+                   + map(select(.kind == "status" or (.kind == "suite" and (.suite | IN($own[]) | not))))
+                 | .[]') &&
                failed=$(jq -r 'select(.bad) | .name' <<<"$checks") &&
-               pending=$(jq -r 'select(.done | not) | .name' <<<"$checks"); then
+               pending=$(jq -r 'select(.done | not) | .name' <<<"$checks" | sort -u); then
               if [ -n "$failed" ]; then
                 echo "::notice::Not waking the review bot: these checks did not pass: $(tr '\n' ' ' <<<"$failed")"
                 exit 0
