@@ -8,6 +8,11 @@ name: review-bot-wake
 # Deliberately non-blocking: a red or slow CI, a GitHub API error or a failed
 # comment all end with this job green, so it never fails anyone's PR because
 # of Laze. Keep it out of branch protection.
+#
+# The wait and its verdict live in .github/scripts/review-bot-wake.ts, tested
+# by .github/scripts/review-bot-wake.test.ts.
+#
+# Spec: specs/review-bot-wake.feature
 
 on:
   pull_request:
@@ -16,8 +21,11 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
+  # To list the workflow runs of the head commit, so a run superseded by a newer
+  # run of the same workflow (cancelled by its concurrency group) is not judged.
+  actions: read
   checks: read # to list the check runs of the head commit while waiting
-  contents: read # to read the commit statuses of the head commit
+  contents: read # to read the commit statuses of the head commit and check out the script
   pull-requests: write # to post the wake comment
 
 # A new push cancels the old wait, so only the latest head commit is reviewed.
@@ -40,63 +48,39 @@ jobs:
     # Above the wait's own 45-minute deadline and the comment's 2 minutes.
     timeout-minutes: 60
     steps:
-      # Polls the head commit's checks and commit statuses every 30s until
-      # none is queued or in progress, and sets green=true only when none
-      # failed, was cancelled or timed out. A red check or the 45-minute
-      # deadline ends the wait with a notice and no comment.
+      # Only the script is needed. A failed checkout leaves the test below red,
+      # which skips the wait, so the job stays green.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      # The verdict that decides the wake proves itself first; `node --test`
+      # with type stripping needs no install step. A failing test skips the
+      # wait, so a broken classifier never wakes the bot, and leaves the job
+      # green.
+      - name: Test the check classifier
+        id: test
+        continue-on-error: true
+        run: node --test --experimental-strip-types .github/scripts/review-bot-wake.test.ts
+
+      # Polls the head commit's checks, commit statuses and workflow runs every
+      # 30s until none is queued or in progress, and sets green=true only when
+      # none failed, was cancelled or timed out. Only the newest run of each
+      # workflow counts. A red check or the 45-minute deadline ends the wait
+      # with a notice and no comment.
       - name: Wait for the other checks on the head commit
         id: wait
+        if: steps.test.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 50
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # This job's own check run would wait on itself.
           EXCLUDE_CHECK: review-bot-wake
-        run: |
-          set -uo pipefail
-          deadline=$(( $(date +%s) + 45 * 60 ))
-          while :; do
-            # The first sleep also gives checks started by the same push time to register.
-            sleep 30
-            # Reads the head commit's check runs, check suites and statuses. A check
-            # suite still running counts as pending, so a workflow whose next job has
-            # no check run yet is waited for; suites with no check run at all (apps
-            # that never report) are left out. Within a suite only the newest run of
-            # each job counts (a re-run supersedes the old one). This job and its
-            # own suites are left out. Any error here counts as an unread round,
-            # never as green.
-            if runs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" \
-                 --jq '.check_runs[] | {kind: "run", id, suite: .check_suite.id, name, done: (.status == "completed"), bad: (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")}') &&
-               suites=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-suites?per_page=100" \
-                 --jq '.check_suites[] | select(.latest_check_runs_count > 0) | {kind: "suite", suite: .id, name: "\(.app.slug) check suite", done: (.status == "completed"), bad: false}') &&
-               statuses=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status?per_page=100" \
-                 --jq '.statuses[] | {kind: "status", name: .context, done: (.state != "pending"), bad: (.state == "failure" or .state == "error")}') &&
-               checks=$(printf '%s\n%s\n%s\n' "$runs" "$suites" "$statuses" | jq -c -s --arg skip "$EXCLUDE_CHECK" '
-                 [.[] | select(.kind == "run" and .name == $skip) | .suite] as $own
-                 | (map(select(.kind == "run" and .name != $skip)) | group_by([.suite, .name]) | map(max_by(.id)))
-                   + map(select(.kind == "status" or (.kind == "suite" and (.suite | IN($own[]) | not))))
-                 | .[]') &&
-               failed=$(jq -r 'select(.bad) | .name' <<<"$checks") &&
-               pending=$(jq -r 'select(.done | not) | .name' <<<"$checks" | sort -u); then
-              if [ -n "$failed" ]; then
-                echo "::notice::Not waking the review bot: these checks did not pass: $(tr '\n' ' ' <<<"$failed")"
-                exit 0
-              fi
-              if [ -z "$pending" ]; then
-                echo "All checks on ${HEAD_SHA:0:7} finished green."
-                echo "green=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              echo "Waiting for: $(tr '\n' ' ' <<<"$pending")"
-            else
-              echo "Could not read the checks this round; trying again."
-            fi
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::notice::Not waking the review bot: checks not all finished (or not readable) after 45 minutes."
-              exit 0
-            fi
-          done
+        run: node --experimental-strip-types .github/scripts/review-bot-wake.ts
 
       # Wakes the bot with a PR comment that mentions it. A failed comment
       # leaves this job green.
